@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "albo-pretorio-audit-delivery"
+version = "0.1.0"
+description = "Pipeline per scraping, parsing e analisi di deliberazioni comunali"
+requires-python = ">=3.9"
+authors = [{name = "Pietro Maietta"}]
+
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "pandas>=2.0.0",
+    "pypdfium2>=4.0.0",
+    "pytesseract>=0.3.10",
+    "Pillow>=10.0.0",
+    "streamlit>=1.28.0",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.1",
+    "faiss-cpu>=1.7.4",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+scrape = "delibere_comunali.scraping.new_albo_scraper:main"
+analyze = "delibere_comunali.parsing.analyze_albo:main"
+pipeline = "delibere_comunali.cli.run_pipeline:main"
+rag = "delibere_comunali.rag.rag_app:main"

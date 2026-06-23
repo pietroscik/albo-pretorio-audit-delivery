@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: albo-pretorio-audit-delivery
+Version: 0.1.0
+Summary: Pipeline per scraping, parsing e analisi di deliberazioni comunali
+Author: Pietro Maietta
+Requires-Python: >=3.9
+Requires-Dist: requests>=2.31.0
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: pandas>=2.0.0
+Requires-Dist: pypdfium2>=4.0.0
+Requires-Dist: pytesseract>=0.3.10
+Requires-Dist: Pillow>=10.0.0
+Requires-Dist: streamlit>=1.28.0
+Requires-Dist: langchain>=0.1.0
+Requires-Dist: langchain-community>=0.0.1
+Requires-Dist: faiss-cpu>=1.7.4
+Requires-Dist: python-dotenv>=1.0.0

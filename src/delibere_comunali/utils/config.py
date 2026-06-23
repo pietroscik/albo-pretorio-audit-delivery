@@ -173,11 +173,15 @@ class LLMConfig(BaseModel):
     """Configuration for LLM operations."""
 
     api_key: Optional[str] = Field(
-        default_factory=lambda: os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
+        default_factory=lambda: os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"),
         description="Google API key for Gemini",
     )
+    mistral_api_key: Optional[str] = Field(
+        default_factory=lambda: os.environ.get("MISTRAL_API_KEY"),
+        description="Mistral AI API key",
+    )
     model_priority: List[str] = Field(
-        default=["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+        default=["gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash", "mistral-large-latest", "pixtral-large-latest"],
         description="Priority order for LLM models (failover)",
     )
     embedding_model_priority: List[str] = Field(
@@ -210,7 +214,7 @@ class LLMConfig(BaseModel):
     def parse_priorities(cls, value):
         return _parse_list_env(value)
 
-    model_config = ConfigDict(env_prefix="GOOGLE_")
+    model_config = ConfigDict(env_prefix="GOOGLE_", protected_namespaces=())
 
 
 class RAGConfig(BaseModel):
@@ -326,9 +330,20 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
 
-    data_dir: Path = Field(default=Path("./albo_download"), description="Directory for storing downloaded data")
-    output_dir: Path = Field(default=Path("./output"), description="Directory for output files")
-    cache_dir: Path = Field(default=Path("./cache"), description="Directory for cache files")
+    data_dir: Path = Field(
+        default_factory=lambda: Path(os.getenv("ALBO_DATA_DIR", "./albo_download")),
+        description="Directory for storing downloaded data"
+    )
+    output_dir: Path = Field(
+        default_factory=lambda: Path(os.getenv("ALBO_OUTPUT_DIR", "./output")),
+        description="Directory for output files"
+    )
+    cache_dir: Path = Field(
+        default_factory=lambda: Path(os.getenv("ALBO_CACHE_DIR", "./cache")),
+        description="Directory for cache files"
+    )
+
+    model_config = ConfigDict(protected_namespaces=())
 
     @field_validator("data_dir", "output_dir", "cache_dir")
     @classmethod

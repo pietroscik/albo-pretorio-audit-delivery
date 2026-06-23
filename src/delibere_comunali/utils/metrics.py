@@ -12,8 +12,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import threading
 
-from logger import get_logger
-from config import get_config
+from .logger import get_logger
+from .config import get_config
 
 
 @dataclass

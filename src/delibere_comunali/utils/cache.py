@@ -13,8 +13,9 @@ from functools import wraps
 from dataclasses import dataclass, field
 import threading
 
-from logger import get_logger
-from config import get_config
+from .logger import get_logger
+from .metrics import get_metrics_collector
+from .config import get_config
 from exceptions import CacheError
 
 

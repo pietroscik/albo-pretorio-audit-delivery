@@ -36,6 +36,7 @@ dist/
 build/
 target/
 data/
+albo_download/
 
 # Node (if present)
 node_modules/

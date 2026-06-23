@@ -1,0 +1,5 @@
+[console_scripts]
+analyze = delibere_comunali.parsing.analyze_albo:main
+pipeline = delibere_comunali.cli.run_pipeline:main
+rag = delibere_comunali.rag.rag_app:main
+scrape = delibere_comunali.scraping.new_albo_scraper:main

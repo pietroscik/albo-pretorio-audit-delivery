@@ -10,7 +10,7 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
-from config import LoggingConfig, get_config
+from .config import LoggingConfig, get_config
 
 
 class CustomFormatter(logging.Formatter):
