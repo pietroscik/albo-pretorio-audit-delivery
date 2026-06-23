@@ -1,0 +1,14 @@
+# Ignora le cartelle dei dati, che verranno montate come volumi
+data/
+
+# Ignora l'ambiente virtuale Python
+.venv/
+
+# Ignora la configurazione di Git e VSCode
+.git/
+.vscode/
+
+# Ignora i file di cache di Python e Pytest
+__pycache__/
+*.pyc
+.pytest_cache/

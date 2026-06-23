@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # 1. Applicazione Principale (Streamlit Control Room & Backend)
+  albo-audit-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: albo_audit_app
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mappa la cartella 'data' locale nel container.
+      # Fondamentale per non perdere i PDF scaricati, i CSV e gli indici FAISS quando il container si spegne.
+      - ./data:/app/data
+    env_file:
+      # Legge automaticamente le chiavi API (GOOGLE_API_KEY, ecc.) dal file .env
+      - .env
+    environment:
+      - TZ=Europe/Rome
+    restart: unless-stopped
+    # Scommenta la riga seguente quando attiverai il database
+    # depends_on:
+    #   - db
+
+  # 2. Futuro Database (Esempio con PostgreSQL)
+  # Scommenta le righe seguenti per attivare un DB relazionale
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: albo_audit_db
+  #   environment:
+  #     POSTGRES_USER: albo_admin
+  #     POSTGRES_PASSWORD: password_sicura
+  #     POSTGRES_DB: albo_pretorio_db
+  #   volumes:
+  #     - db_data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+# volumes:
+#   db_data:

@@ -1,0 +1,52 @@
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
+.tmp.driveupload
+*.pyc
+
+# Virtualenvs
+.venv/
+venv/
+
+# Editor/system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Environment and secrets
+.env
+.env.local
+*.env.*
+
+# Logs/temp
+*.log
+*.tmp
+
+# Build/output directories
+dist/
+build/
+target/
+data/
+
+# Node (if present)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.tmp.driveupload/
+.tmp.drivedownload/
+.tmp/
+# Project-specific local artifacts
+albo pretorio avella/.venv/
+albo pretorio avella/.spyproject/
+albo pretorio avella/__pycache__/
+albo pretorio avella/26.1.2
