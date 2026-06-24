@@ -134,7 +134,16 @@ elif focus_domain == "👥 Solo Competenze Personale":
 if df_all.empty:
     st.error(f"❌ Database non trovato per {ente_selezionato}.")
     st.stop()
+# --- FIX: Inizializzazione sicura delle colonne di confidenza ---
+if 'conf_numeric' not in df_all.columns:
+    if 'confidence' in df_all.columns:
+        df_all['conf_numeric'] = pd.to_numeric(df_all['confidence'], errors='coerce').fillna(1.0)
+    else:
+        df_all['conf_numeric'] = 1.0
 
+if 'classification_confidence' not in df_all.columns:
+    df_all['classification_confidence'] = 'rules'
+# ----------------------------------------------------------------
 # Dataset Certificato (Filtro Forense > 0.85)
 df_certified = df_all[
     (df_all['conf_numeric'] >= 0.85) | (df_all['classification_confidence'] == 'ml_predicted')
