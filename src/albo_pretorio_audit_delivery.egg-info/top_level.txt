@@ -1,2 +1,1 @@
-__init__
 delibere_comunali

@@ -11,6 +11,7 @@ src/delibere_comunali/__init__.py
 src/delibere_comunali/cli/__init__.py
 src/delibere_comunali/cli/app_control_room.py
 src/delibere_comunali/cli/run_pipeline.py
+src/delibere_comunali/cli/scripts.py
 src/delibere_comunali/models/__init__.py
 src/delibere_comunali/models/administrative_event.py
 src/delibere_comunali/models/procedure.py

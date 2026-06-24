@@ -6,6 +6,9 @@ import sys
 import subprocess
 from pathlib import Path
 
+# Ottieni la root del progetto (dove si trova questo file)
+PROJECT_ROOT = Path(__file__).parent.resolve()
+
 def get_python_cmd():
     """Ritorna il comando python corretto per l'OS."""
     if sys.platform == "win32":
@@ -20,20 +23,32 @@ COMMAND_MAP = {
     "pipeline": ("-m", "delibere_comunali.cli.run_pipeline"),
     "rag": ("-m", "delibere_comunali.rag.rag_app"),
     "control-room": ("-m", "delibere_comunali.cli.app_control_room"),
-
-    # Script legacy in scripts/ (mantenuti per backward compatibility)
-    "build-kg": ("scripts/build_knowledge_graph.py",),
-    "analyze-topology": ("scripts/analyze_topology.py",),
-    "detect-anomalies": ("scripts/detect_anomalies.py",),
-    "train": ("scripts/train_model.py",),
-    "validate-output": ("scripts/validate_output.py",),
-    "validate-csv": ("scripts/validate_csv_schema.py",),
-    "export-linkeddata": ("scripts/export_linked_data.py",),
-    "clean-texts": ("scripts/clean_texts.py",),
-    "sync-texts": ("scripts/sync_texts.py",),
-    "generate-groundtruth": ("scripts/generate_ground_truth.py",),
-    "visualize-graph": ("scripts/visualizza_grafo.py",),
+    
+    # Script legacy in scripts/ (usiamo path assoluti)
+    "build-kg": (str(PROJECT_ROOT / "scripts" / "build_knowledge_graph.py"),),
+    "analyze-topology": (str(PROJECT_ROOT / "scripts" / "analyze_topology.py"),),
+    "detect-anomalies": (str(PROJECT_ROOT / "scripts" / "detect_anomalies.py"),),
+    "train": (str(PROJECT_ROOT / "scripts" / "train_model.py"),),
+    "validate-output": (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
+    "validate-csv": (str(PROJECT_ROOT / "scripts" / "validate_csv_schema.py"),),
+    "export-linkeddata": (str(PROJECT_ROOT / "scripts" / "export_linked_data.py"),),
+    "clean-texts": (str(PROJECT_ROOT / "scripts" / "clean_texts.py"),),
+    "sync-texts": (str(PROJECT_ROOT / "scripts" / "sync_texts.py"),),
+    "generate-groundtruth": (str(PROJECT_ROOT / "scripts" / "generate_ground_truth.py"),),
+    "visualize-graph": (str(PROJECT_ROOT / "scripts" / "visualizza_grafo.py"),),
 }
+
+def normalize_command(cmd):
+    """Normalizza il comando: build_kg -> build-kg, buildkg -> build-kg (non valido)"""
+    # Sostituisci underscore con trattino
+    normalized = cmd.lower().replace("_", "-")
+    return normalized
+
+def resolve_base_path(base):
+    base = Path(base)
+    if (base / "albo_download").exists():
+        return base / "albo_download"
+    return base
 
 def main():
     if len(sys.argv) < 2:
@@ -47,12 +62,18 @@ def main():
         print("  python run.py build-kg --base data/baiano/albo_download")
         sys.exit(0)
 
-    cmd = sys.argv[1].lower().replace("_", "-").replace("-", "-")
+    cmd = normalize_command(sys.argv[1])
     args = sys.argv[2:]
 
     if cmd not in COMMAND_MAP:
-        print(f"❌ Comando sconosciuto: {sys.argv[1]}")
-        print(f"Did you mean? {', '.join(COMMAND_MAP.keys())}")
+        # Prova a trovare comandi simili
+        suggestions = [c for c in COMMAND_MAP.keys() if cmd in c or c in cmd]
+        error_msg = f"❌ Comando sconosciuto: {sys.argv[1]}"
+        if suggestions:
+            error_msg += f"\nDid you mean: {', '.join(suggestions)}?"
+        else:
+            error_msg += f"\nComandi disponibili: {', '.join(sorted(COMMAND_MAP.keys()))}"
+        print(error_msg)
         sys.exit(1)
 
     python_cmd = get_python_cmd()
@@ -63,14 +84,23 @@ def main():
         # Modulo
         full_cmd = [*python_cmd, *cmd_config]
     else:
-        # Script diretto
+        # Script diretto (path assoluto già calcolato)
         full_cmd = [*python_cmd, *cmd_config]
 
     full_cmd.extend(args)
 
     # Esegue
-    result = subprocess.run(full_cmd, check=False)
-    sys.exit(result.returncode)
+    try:
+        result = subprocess.run(full_cmd, check=True)
+        sys.exit(result.returncode)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Errore nell'esecuzione di {' '.join(full_cmd)}")
+        print(f"Codice di uscita: {e.returncode}")
+        sys.exit(e.returncode)
+    except FileNotFoundError as e:
+        print(f"❌ Comando non trovato: {e.filename}")
+        print(f"Assicurati che Python sia installato e nel PATH")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

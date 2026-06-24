@@ -1,30 +1,189 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "albo-pretorio-audit-delivery"
-version = "0.1.0"
-description = "Pipeline per scraping, parsing e analisi di deliberazioni comunali"
+version = "0.2.0"  # ← Aggiornato da 0.1.0
+description = "Pipeline per scraping, parsing e analisi di deliberazioni comunali - Soluzione RegTech per la PA"
+readme = "README.md"
 requires-python = ">=3.9"
-authors = [{name = "Pietro Maietta"}]
+license = {text = "MIT"}
+authors = [
+    {name = "Pietro Maietta", email = "pietroscik@gmail.com"},
+]
+keywords = [
+    "albo-pretorio",
+    "delibere-comunali",
+    "regtech",
+    "pa",
+    "public-administration",
+    "nlp",
+    "machine-learning",
+    "ocr",
+    "pdf-parsing",
+    "digital-twin",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Government",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "Topic :: Text Processing :: Linguistic",
+    "Topic :: Utilities",
+]
 
 dependencies = [
+    # Core
     "requests>=2.31.0",
     "beautifulsoup4>=4.12.0",
     "pandas>=2.0.0",
+    "numpy>=1.24.0",
+
+    # PDF & OCR
     "pypdfium2>=4.0.0",
     "pytesseract>=0.3.10",
     "Pillow>=10.0.0",
-    "streamlit>=1.28.0",
+
+    # ML & Data
+    "scikit-learn>=1.3.0",
+    "joblib>=1.3.0",
+    "python-dotenv>=1.0.0",
+
+    # LLM & RAG
     "langchain>=0.1.0",
     "langchain-community>=0.0.1",
     "faiss-cpu>=1.7.4",
-    "python-dotenv>=1.0.0",
+    "google-generativeai>=0.3.0",
+
+    # Web & UI
+    "streamlit>=1.28.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+
+    # Utilities
+    "python-dateutil>=2.8.0",
+    "pydantic>=2.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.10.0",
+    "ruff>=0.1.0",
+    "mypy>=1.6.0",
+    "types-requests>=2.31.0",
+    "types-python-dateutil>=2.8.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.11.0",
+]
+docs = [
+    "mkdocs>=1.5.0",
+    "mkdocs-material>=9.4.0",
+    "mkdocstrings>=0.23.0",
 ]
 
 [project.scripts]
+# === COMANDI PRINCIPALI (Moduli) ===
 scrape = "delibere_comunali.scraping.new_albo_scraper:main"
 analyze = "delibere_comunali.parsing.analyze_albo:main"
 pipeline = "delibere_comunali.cli.run_pipeline:main"
 rag = "delibere_comunali.rag.rag_app:main"
+control-room = "delibere_comunali.cli.app_control_room:main"
+
+# === SCRIPT DI UTILITÀ (Wrapper via run.py) ===
+# Questi chiamano run.py internamente per mantenere un unico entry point
+build-kg = "delibere_comunali.cli.scripts:build_kg_main"
+analyze-topology = "delibere_comunali.cli.scripts:analyze_topology_main"
+detect-anomalies = "delibere_comunali.cli.scripts:detect_anomalies_main"
+train-model = "delibere_comunali.cli.scripts:train_model_main"
+validate-output = "delibere_comunali.cli.scripts:validate_output_main"
+validate-csv = "delibere_comunali.cli.scripts:validate_csv_main"
+export-linkeddata = "delibere_comunali.cli.scripts:export_linked_data_main"
+clean-texts = "delibere_comunali.cli.scripts:clean_texts_main"
+sync-texts = "delibere_comunali.cli.scripts:sync_texts_main"
+generate-groundtruth = "delibere_comunali.cli.scripts:generate_groundtruth_main"
+visualize-graph = "delibere_comunali.cli.scripts:visualize_graph_main"
+
+[project.urls]
+Homepage = "https://github.com/pietroscik/albo-pretorio-audit-delivery"
+Documentation = "https://github.com/pietroscik/albo-pretorio-audit-delivery#readme"
+Repository = "https://github.com/pietroscik/albo-pretorio-audit-delivery"
+Issues = "https://github.com/pietroscik/albo-pretorio-audit-delivery/issues"
+Changelog = "https://github.com/pietroscik/albo-pretorio-audit-delivery/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+exclude = [
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "src/albo_pretorio_audit_delivery.egg-info",
+]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+explicit_package_bases = true

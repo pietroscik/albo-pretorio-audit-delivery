@@ -4,8 +4,10 @@ import networkx as nx
 from pathlib import Path
 from dateutil import parser
 import json
-from pyvis.network import Network
-import random
+try:
+    from pyvis.network import Network
+except ModuleNotFoundError:
+    raise SystemExit("Missing dependency 'pyvis'. Installa con: pip install pyvis")
 
 def clean_node(val):
     if pd.isna(val): return None

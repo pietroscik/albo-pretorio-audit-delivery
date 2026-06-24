@@ -1,18 +1,23 @@
 #!/bin/bash
 # Script per l'aggiornamento notturno - Cross-platform
 
+# Ottieni la root del progetto
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_ROOT"
+
 # Ottieni la data di ieri (Windows/Linux)
 if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
     # Git Bash su Windows
     YESTERDAY=$(powershell -Command "(Get-Date).AddDays(-1).ToString('yyyy-MM-dd')")
-    DATE_CMD='date +%Y-%m-%d\ %H:%M:%S'
+    DATE_FORMAT="%Y-%m-%d %H:%M:%S"
 else
     # Linux/Unix
     YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
-    DATE_CMD='date +%Y-%m-%d\ %H:%M:%S'
+    DATE_FORMAT="%Y-%m-%d %H:%M:%S"
 fi
 
-echo "[`$DATE_CMD`] Avvio Routine di Audit per la data: $YESTERDAY"
+echo "[$(date +"$DATE_FORMAT")] Avvio Routine di Audit per la data: $YESTERDAY"
 
 COMUNI=("avella" "baiano")
 
@@ -26,8 +31,8 @@ for ENTE in "${COMUNI[@]}"; do
     fi
 
     # Usa run.py per tutto
-    python run.py scrape --ente "$ENTE" --start-url "$URL" --date-from "$YESTERDAY" --date-to "$YESTERDAY" --delay 2.0
-    python run.py pipeline --ente "$ENTE"
+    py run.py scrape --ente "$ENTE" --start-url "$URL" --date-from "$YESTERDAY" --date-to "$YESTERDAY" --delay 2.0
+    py run.py pipeline --ente "$ENTE"
 done
 
-echo "[`$DATE_CMD`] Routine notturna completata."
+echo "[$(date +"$DATE_FORMAT")] Routine notturna completata."

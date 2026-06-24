@@ -5,13 +5,19 @@ Di seguito alcuni esempi pratici per utilizzare la piattaforma via terminale o v
 ## 1. Pipeline Automatica Base
 ```bash
 # Scarica, estrae e analizza gli atti di un ente
-python run_pipeline.py --ente baiano
+python run.py pipeline --ente baiano
 ```
 
-## 2. Pipeline con Estrazione Gemini (LLM)
+## 2. Comandi Individuali
 ```bash
-# Usa l'IA per estrarre dati complessi (consuma quota API)
-python run_pipeline.py --ente baiano --use-llm
+# Estrazione dati
+python run.py scrape --ente baiano --use-llm
+
+# Analisi dati
+python run.py analyze --ente baiano --force
+
+# Costruzione knowledge graph
+python run.py build-kg --base data/baiano/albo_download
 ```
 
 ## 3. Utilizzo RAG da codice Python

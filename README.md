@@ -14,6 +14,9 @@ Il sistema si allinea agli standard normativi di AgID, supportando la validazion
 
 ## 📂 Struttura del Progetto
 
+*   `run.py`: Entry point universale per tutti i comandi (Windows/Linux).
+*   `src/delibere_comunali/`: Package principale con moduli Python.
+*   `scripts/`: Script di utilità (build_knowledge_graph, analyze_topology, ecc.).
 *   `run_pipeline.py`: Orchestratore principale. Esegue l'intera pipeline in sequenza (Estrazione -> Addestramento ML -> Riclassificazione -> Validazioni -> Export).
 *   `analyze_albo.py`: Il cuore dell'estrazione. Processa i PDF, estrae il testo, calcola le feature, applica le RegEx e l'LLM, e genera i file CSV/Excel finali.
 *   `randomForest.py`: Modulo per l'addestramento del modello di Machine Learning e il riassorbimento del feedback umano (correzioni manuali su Excel).
@@ -27,6 +30,13 @@ Il modo consigliato per avviare il sistema è utilizzare l'orchestratore, che ge
 **Esecuzione completa (Consigliata):**
 ```bash
 python run.py pipeline --ente nome_del_comune
+```
+
+**Comandi diretti:**
+```bash
+python run.py scrape --ente baiano --use-llm
+python run.py analyze --ente baiano --force
+python run.py control-room  # Avvia la dashboard Streamlit
 ```
 
 **Opzioni dell'Orchestratore:**
