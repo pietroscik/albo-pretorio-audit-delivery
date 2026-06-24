@@ -6,8 +6,10 @@ from dateutil import parser
 import json
 try:
     from pyvis.network import Network
-except ModuleNotFoundError:
-    raise SystemExit("Missing dependency 'pyvis'. Installa con: pip install pyvis")
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing dependency 'pyvis'. Install with: pip install pyvis"
+    ) from exc
 
 def clean_node(val):
     if pd.isna(val): return None

@@ -44,12 +44,6 @@ def normalize_command(cmd):
     normalized = cmd.lower().replace("_", "-")
     return normalized
 
-def resolve_base_path(base):
-    base = Path(base)
-    if (base / "albo_download").exists():
-        return base / "albo_download"
-    return base
-
 def main():
     if len(sys.argv) < 2:
         print("Uso: python run.py <comando> [args...]")
