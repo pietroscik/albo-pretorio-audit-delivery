@@ -3,8 +3,8 @@ from typing import DefaultDict, Dict, Iterable, List, Set
 
 import hashlib
 
-from src.models.administrative_event import AdministrativeEvent, ActorType
-from src.models.procedure import Procedure
+from ..models.administrative_event import AdministrativeEvent, ActorType
+from ..models.procedure import Procedure
 
 
 class ProcedureBuilder:

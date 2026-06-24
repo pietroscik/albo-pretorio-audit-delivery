@@ -3,7 +3,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional
 
-from src.models.administrative_event import AdministrativeEvent
+from .administrative_event import AdministrativeEvent
 
 
 class ProcedureStatus(Enum):

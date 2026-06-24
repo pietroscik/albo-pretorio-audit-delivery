@@ -1,6 +1,6 @@
 import re
 from typing import Dict, Optional, List
-from src.models.administrative_event import EventType, DocumentType
+from ...models.administrative_event import EventType, DocumentType
 
 # Pattern per la classificazione del documento (Livello 1)
 DOCUMENT_PATTERNS: Dict[DocumentType, List[str]] = {

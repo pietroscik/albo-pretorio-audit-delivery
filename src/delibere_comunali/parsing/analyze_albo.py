@@ -57,7 +57,7 @@ from ..patterns.albo_patterns import (
 from ..models.administrative_event import AdministrativeEvent, EventType, DocumentType, Actor, ActorType
 from ..models.procedure import Procedure
 from ..processing.routers.event_router import route_document
-from ..builders.procedure_builder import ProcedureBuilder
+from ..models.procedure_builder import ProcedureBuilder
 
 # Inizializza il builder globale
 procedure_builder = ProcedureBuilder()
