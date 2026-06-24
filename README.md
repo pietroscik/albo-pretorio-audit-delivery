@@ -16,14 +16,27 @@ Il sistema si allinea agli standard normativi di AgID, supportando la validazion
 
 *   `run.py`: Entry point universale per tutti i comandi (Windows/Linux).
 *   `src/delibere_comunali/`: Package principale con moduli Python.
-*   `scripts/`: Script di utilità (build_knowledge_graph, analyze_topology, ecc.).
-*   `run_pipeline.py`: Orchestratore principale. Esegue l'intera pipeline in sequenza (Estrazione -> Addestramento ML -> Riclassificazione -> Validazioni -> Export).
-*   `analyze_albo.py`: Il cuore dell'estrazione. Processa i PDF, estrae il testo, calcola le feature, applica le RegEx e l'LLM, e genera i file CSV/Excel finali.
-*   `randomForest.py`: Modulo per l'addestramento del modello di Machine Learning e il riassorbimento del feedback umano (correzioni manuali su Excel).
-*   `scripts/validate_ground_truth.py`: Utility per generare e "congelare" un set di dati validati manualmente (Ground Truth) da usare per metriche e test.
-*   `data/{ente}/`: Cartelle dinamiche contenenti gli output (CSV, JSON, JSONL per RAG, e file testuali) specifici per ogni amministrazione analizzata.
+    *   `scraping/`: Moduli per lo scraping (new_albo_scraper)
+    *   `parsing/`: Moduli per il parsing (analyze_albo)
+    *   `cli/`: Comandi CLI (run_pipeline, app_control_room, scripts wrapper)
+    *   `rag/`: Moduli RAG (rag_app, rag_chat)
+    *   `models/`: Modelli dati
+    *   `utils/`: Utility (cache, config, logger, ecc.)
+*   `scripts/`: Script di utilità legacy (build_knowledge_graph, analyze_topology, ecc.).
+*   `data/{ente}/`: Cartelle contenenti gli output per ogni ente.
 
 ## 🚀 Come avviare la Pipeline
+
+### Entry Point Universale
+Il modo consigliato è usare `run.py` che funziona su **Windows e Linux**:
+
+**Esecuzione completa (Consigliata):**
+```bash
+# Windows (Git Bash) e Linux
+python run.py pipeline --ente nome_del_comune
+
+# Oppure usando il comando installato (dopo pip install -e .)
+albo-pretorio pipeline --ente nome_del_comune
 
 Il modo consigliato per avviare il sistema è utilizzare l'orchestratore, che gestirà in automatico le dipendenze tra i vari script.
 

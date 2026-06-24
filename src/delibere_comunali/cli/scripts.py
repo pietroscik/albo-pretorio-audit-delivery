@@ -1,11 +1,24 @@
 """Wrapper per script legacy in scripts/ - Permette di esporli come entry point."""
 
-import subprocess
+import os
 import sys
 from pathlib import Path
 
-# Path alla root del progetto
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+def get_project_root() -> Path:
+    """Ritorna la root del progetto in modo robusto."""
+    # Partiamo dal file corrente
+    current = Path(__file__).resolve()
+
+    # Risaliamo fino a trovare pyproject.toml (root marker)
+    for _ in range(6):  # Max 6 livelli su
+        if (current / "pyproject.toml").exists():
+            return current
+        current = current.parent
+
+    # Fallback: risaliamo 5 livelli (scripts.py -> cli -> delibere_comunali -> src -> project)
+    return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+PROJECT_ROOT = get_project_root()
 
 def build_kg_main():
     """Wrapper per scripts/build_knowledge_graph.py"""
