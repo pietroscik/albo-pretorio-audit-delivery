@@ -1,12 +1,12 @@
 # tests/test_events.py
 import pytest
 from datetime import datetime
-from src.models.administrative_event import (
+from src.delibere_comunali.models.administrative_event import (
     AdministrativeEvent, EventType, DocumentType, Actor, ActorType
 )
-from src.models.procedure import Procedure, ProcedureStatus
-from src.routers.event_router import classify_document, classify_event, route_document
-from src.builders.procedure_builder import ProcedureBuilder
+from src.delibere_comunali.models.procedure import Procedure, ProcedureStatus
+from src.delibere_comunali.processing.routers.event_router import classify_document, classify_event, route_document
+from src.delibere_comunali.models.procedure_builder import ProcedureBuilder
 
 # --- Test per AdministrativeEvent ---
 class TestAdministrativeEvent:

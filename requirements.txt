@@ -10,6 +10,7 @@ python-dotenv==1.0.1
 requests==2.32.3
 XlsxWriter==3.2.0
 rapidfuzz==3.9.3
+asn1crypto==1.5.1
 
 # Funzionalità aggiuntive (Report, Dashboard, NLP)
 word2number==1.1

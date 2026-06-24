@@ -10,175 +10,79 @@ Default flow:
 5) validate_output.py
 """
 
-import argparse
-import subprocess
 import sys
+import subprocess
 from pathlib import Path
-from typing import List
+import argparse
+
+SCRIPT_DIR = Path(__file__).parent.resolve()
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-
-
-def run_step(command: List[str], label: str, cwd: Path) -> None:
-    printable = " ".join(command)
-    print(f"\n{'=' * 72}")
-    print(f"STEP: {label}")
-    print(f"CMD : {printable}")
-    print(f"{'=' * 72}")
-    result = subprocess.run(command, cwd=str(cwd), check=False)
+def run_step(command, title, cwd=None):
+    print("\n" + "=" * 72)
+    print(f"STEP: {title}")
+    print(f"CMD : {' '.join(map(str, command))}")
+    print("=" * 72)
+    result = subprocess.run(command, cwd=cwd or SCRIPT_DIR)
     if result.returncode != 0:
-        print(f"\nERROR: step failed ({label}) with exit code {result.returncode}.")
         raise SystemExit(result.returncode)
+    return result
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run complete Albo analysis pipeline.")
-    parser.add_argument(
-        "--ente",
-        default=None,
-        help="Nome dell'ente per tracciamento dati (es. avella, tufino).",
-    )
-    parser.add_argument(
-        "--base",
-        default=None,
-        help="Base output directory used by analyze/validate scripts.",
-    )
-    parser.add_argument(
-        "--python",
-        default=sys.executable,
-        help="Python executable used to run child scripts.",
-    )
-    parser.add_argument(
-        "--skip-ml",
-        action="store_true",
-        help="Skip ML training and second analysis pass.",
-    )
-    parser.add_argument(
-        "--strict-validation",
-        action="store_true",
-        help="Fail pipeline if validation emits warnings.",
-    )
-    parser.add_argument(
-        "--clean-texts",
-        action="store_true",
-        help="Include clean_texts.py step before validation.",
-    )
-    parser.add_argument(
-        "--skip-clean-texts",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--use-llm",
-        action="store_true",
-        help="Pass --use-llm to analyze_albo.py.",
-    )
-    parser.add_argument(
-        "--no-corpus",
-        action="store_true",
-        help="Pass --no-corpus to analyze_albo.py.",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Pass --force to analyze_albo.py to ignore cache.",
-    )
-    return parser
-
-
-def resolve_base_path(base: str) -> str:
+def resolve_base_path(base: str, ente: str) -> str:
     base_path = Path(base)
-    if (base_path / "albo_metadati.csv").exists():
+    # if user passed container dir (albo_download) use it; otherwise try parent
+    if (base_path / "albo_metadati.csv").exists() or (base_path / "albo_metadati.jsonl").exists():
         return str(base_path)
     parent = base_path.parent
-    if (parent / "albo_metadati.csv").exists():
+    if (parent / "albo_metadati.csv").exists() or (parent / "albo_metadati.jsonl").exists():
         return str(parent)
-    return str(base_path)
+    # fallback to conventional data/<ente>/albo_download
+    fallback = Path("data") / ente / "albo_download"
+    return str(fallback)
+
+
+def _module_command(module: str, extra_args=None):
+    cmd = [sys.executable, "-m", module]
+    if extra_args:
+        cmd.extend(extra_args)
+    return cmd
+
+
+def _script_command(script_path: str, extra_args=None):
+    return [sys.executable, str(script_path)] + (extra_args or [])
 
 
 def main() -> None:
-    args = build_parser().parse_args()
-    
-    # Calcolo del percorso base se non fornito esplicitamente
-    base_arg = resolve_base_path(args.base)
-    run_step(
-        [
-            sys.executable,
-            "-m",
-            "delibere_comunali.parsing.analyze_albo",
-            "--base",
-            base_arg,
-            "--ente",
-            args.ente,
-        ],
-        "Analyze documents (pass 1)",
-        SCRIPT_DIR,
-    )
+    p = argparse.ArgumentParser(description="Pipeline orchestration")
+    p.add_argument("--ente", required=True, help="ente identifier")
+    p.add_argument("--base", default=None, help="base dir (optional)")
+    p.add_argument("--adapter", help="adapter name from scraping.adapters (e.g. halley)")
+    p.add_argument("--adapter-out", help="path for adapter jsonl output")
+    p.add_argument("--limit", type=int, default=None)
+    args = p.parse_args()
 
-    if not args.skip_ml:
-        ml_candidates = [
-            SCRIPT_DIR / "scripts" / "train_model.py",
-            SCRIPT_DIR / "scripts" / "randomForest.py",
-            base_arg / "randomForest.py",
-            SCRIPT_DIR / "albo_download" / "randomForest.py"
-        ]
-        ml_script = next((candidate for candidate in ml_candidates if candidate.exists()), None)
-        if ml_script is not None:
-            run_step([args.python, str(ml_script), "--base", str(base_arg)], "Train ML model", SCRIPT_DIR)
-            run_step(
-                _run_analyze_step(args.base, args.ente),
-                "Analyze documents (pass 2 with ML)",
-                SCRIPT_DIR,
-            )
-        else:
-            print(
-                "WARN: ML script not found in expected locations "
-                f"({ml_candidates[0]}, {ml_candidates[1]}). Continuing without ML."
-            )
+    ente = args.ente
+    base_arg = args.base or f"./data/{ente}/albo_download"
 
-    if run_clean_texts:
-        run_step([args.python, str(SCRIPT_DIR / "scripts" / "clean_texts.py"), "--base", str(base_arg)], "Clean extracted texts", SCRIPT_DIR)
+    # If adapter specified, run adapter -> ingest JSONL into data/<ente>/albo_download
+    if args.adapter:
+        adapter_module = f"delibere_comunali.scraping.adapters.{args.adapter}_adapter"
+        adapter_out = args.adapter_out or f"data/{ente}/adapter_output.jsonl"
+        adapter_cmd = _module_command(adapter_module, ["--ente", ente, "--out", adapter_out] + (["--limit", str(args.limit)] if args.limit else []))
+        run_step(adapter_cmd, f"Adapter scrape ({args.adapter})", SCRIPT_DIR)
 
-    validate_schema_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "validate_csv_schema.py"), "--schema", str(SCRIPT_DIR / "DATA_SCHEMA.md"), "--csv", str(base_arg / "allegati_parsed.csv")]
-    if (SCRIPT_DIR / "scripts" / "validate_csv_schema.py").exists() and (SCRIPT_DIR / "DATA_SCHEMA.md").exists():
-        run_step(validate_schema_cmd, "Validate CSV schema", SCRIPT_DIR)
+        ingest_cmd = _module_command("delibere_comunali.scraping.ingest", [adapter_out, "--ente", ente])
+        run_step(ingest_cmd, "Ingest adapter output -> albo_download", SCRIPT_DIR)
+    else:
+        # legacy scraper
+        scrape_cmd = _module_command("delibere_comunali.scraping.new_albo_scraper", ["--ente", ente] + (["--limit", str(args.limit)] if args.limit else []))
+        run_step(scrape_cmd, "Scrape documents (legacy scraper)", SCRIPT_DIR)
 
-    validate_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "validate_output.py"), "--base", str(base_arg)]
-    if args.strict_validation:
-        validate_cmd.append("--fail-on-warning")
-    run_step(validate_cmd, "Validate outputs", SCRIPT_DIR)
-
-    reconcile_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "reconcile_semantic.py"), "--base", str(base_arg)]
-    if (SCRIPT_DIR / "scripts" / "reconcile_semantic.py").exists():
-        run_step(reconcile_cmd, "Reconcile metadata (semantic)", SCRIPT_DIR)
-
-    verify_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "verify_output.py"), "--excel", str(base_arg / "albo_analisi.xlsx")]
-    if (base_arg / "albo_analisi.xlsx").exists():
-        run_step(verify_cmd, "Verify Excel outputs", SCRIPT_DIR)
-
-    explore_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "explore_albo.py"), "--base", str(base_arg)]
-    if (base_arg / "documenti_features.csv").exists():
-        run_step(explore_cmd, "Generate exploration reports", SCRIPT_DIR)
-
-    graph_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "build_knowledge_graph.py"), "--base", str(base_arg)]
-    if (SCRIPT_DIR / "scripts" / "build_knowledge_graph.py").exists():
-        run_step(graph_cmd, "Build Knowledge Graph", SCRIPT_DIR)
-
-    antifrode_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "detect_anomalies.py"), "--base", str(base_arg)]
-    if (SCRIPT_DIR / "scripts" / "detect_anomalies.py").exists():
-        run_step(antifrode_cmd, "Run Anti-Fraud Detection", SCRIPT_DIR)
-
-    lod_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "export_linked_data.py"), "--base", str(base_arg)]
-    if (SCRIPT_DIR / "scripts" / "export_linked_data.py").exists():
-        run_step(lod_cmd, "Export Linked Data (LOD)", SCRIPT_DIR)
-
-    topology_cmd = [args.python, str(SCRIPT_DIR / "scripts" / "analyze_topology.py"), "--base", str(base_arg)]
-    if (SCRIPT_DIR / "scripts" / "analyze_topology.py").exists():
-        run_step(topology_cmd, "Run Topological Analysis", SCRIPT_DIR)
-
-    print("\nPipeline completed successfully.")
-
+    # Ensure analyze receives correct base path
+    resolved_base = resolve_base_path(base_arg, ente)
+    analyze_cmd = _module_command("delibere_comunali.parsing.analyze_albo", ["--base", resolved_base, "--ente", ente])
+    run_step(analyze_cmd, "Analyze documents (pass 1)", SCRIPT_DIR)
 
 if __name__ == "__main__":
     main()

@@ -79,3 +79,4 @@ albo pretorio avella/
 *.shp
 *.shx
 *.dbf
+*.egg-info/

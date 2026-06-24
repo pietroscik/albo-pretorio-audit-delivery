@@ -21,6 +21,21 @@ import subprocess
 from typing import Optional, List, Dict
 from dataclasses import dataclass, field
 from pathlib import Path
+import pandas as pd
+from delibere_comunali.utils.p7m import extract_embedded_content
+
+def _process_attachment(path: str):
+    path = Path(path)
+    if path.suffix.lower() == ".p7m":
+        try:
+            extracted = extract_embedded_content(path)
+        except Exception as exc:
+            # loggare e saltare o marcare come non processabile
+            logger.warning("Impossibile estrarre %s: %s", path, exc)
+            return None
+        path = extracted  # ora passare `path` al parser PDF/testuale
+    return path
+
 from datetime import datetime
 
 import pandas as pd
@@ -1576,9 +1591,18 @@ def main():
         cols_to_drop = ['filename_meta', 'oggetto_orig', 'tipologia', 'doc_type_meta']
         dfp = dfp.drop(columns=[c for c in cols_to_drop if c in dfp.columns])
 
-        dfp = pd.merge(dfp, df_meta[['filename_meta', 'oggetto', 'tipologia']], 
-                       left_on='pdf_name', right_on='filename_meta', how='left', suffixes=('', '_orig'))
-        
+        dfp = pd.merge(dfp, df_meta[['filename_meta', 'oggetto', 'tipologia']],
+               left_on='pdf_name', right_on='filename_meta', how='left', suffixes=('', '_orig'))
+        # guard: assicurati che la colonna usata per il merge esista anche quando non sono stati trovati PDF
+        if 'pdf_name' not in dfp.columns:
+            # try to derive from common candidates, otherwise create empty string column
+            for cand in ('pdf', 'pdf_path', 'filename', 'file', 'file_name'):
+                if cand in dfp.columns:
+                    dfp['pdf_name'] = dfp[cand].apply(lambda x: Path(str(x)).name if pd.notna(x) and str(x) else "")
+                    break
+            else:
+                dfp['pdf_name'] = ""
+
         # Sovrascrivi l'oggetto estratto dal PDF (spesso troncato) con quello perfetto del portale
         if 'oggetto_orig' in dfp.columns:
             # Assicuriamoci che dfp['oggetto_orig'] sia una Series
