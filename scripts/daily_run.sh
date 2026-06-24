@@ -18,10 +18,10 @@ for ENTE in "${COMUNI[@]}"; do
     fi
 
     # 1. Scraper
-    python -m delibere_comunali.scraping.new_albo_scraper --ente "$ENTE" --start-url "$URL" --date-from "$YESTERDAY" --date-to "$YESTERDAY" --delay 2.0
+    py -m delibere_comunali.scraping.new_albo_scraper --ente "$ENTE" --start-url "$URL" --date-from "$YESTERDAY" --date-to "$YESTERDAY" --delay 2.0
 
     # 2. Pipeline
-    python -m delibere_comunali.cli.run_pipeline --ente "$ENTE"
+    py -m delibere_comunali.cli.run_pipeline --ente "$ENTE"
 done
 
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Routine notturna completata per tutta la Costellazione."
