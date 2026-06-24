@@ -42,11 +42,11 @@ print(f"Rilevanza Finanziaria: {metadati['accounting_relevant']}")
 ## 5. Pulizia Agentica Discrezionale
 ```bash
 # Ripulisce falsi positivi (es. "Manifesti" scambiati per atti) senza riavviare la pipeline
-python agentic_cleanup.py --base data/baiano/albo_download
+python run.py clean-texts --base data/baiano/  # (dopo aver spostato la logica)
 ```
 
 ## 6. Riaddestramento Modello
 ```bash
 # Addestra il Random Forest dopo aver fatto validazioni in Excel
-python train_model.py --base data/baiano/albo_download
+python run.py train --base data/baiano/
 ```

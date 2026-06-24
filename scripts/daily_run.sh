@@ -1,11 +1,19 @@
 #!/bin/bash
-# Script per l'aggiornamento notturno - Versione Windows/Git Bash
+# Script per l'aggiornamento notturno - Cross-platform
 
-# Ottieni la data di ieri (funziona in Git Bash)
-YESTERDAY=$(date --date="yesterday" +%Y-%m-%d 2>/dev/null || powershell -Command "(Get-Date).AddDays(-1).ToString('yyyy-MM-dd')")
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] Avvio Routine di Audit per la data: $YESTERDAY"
+# Ottieni la data di ieri (Windows/Linux)
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    # Git Bash su Windows
+    YESTERDAY=$(powershell -Command "(Get-Date).AddDays(-1).ToString('yyyy-MM-dd')")
+    DATE_CMD='date +%Y-%m-%d\ %H:%M:%S'
+else
+    # Linux/Unix
+    YESTERDAY=$(date -d "yesterday" +%Y-%m-%d)
+    DATE_CMD='date +%Y-%m-%d\ %H:%M:%S'
+fi
 
-# Lista dei Comuni
+echo "[`$DATE_CMD`] Avvio Routine di Audit per la data: $YESTERDAY"
+
 COMUNI=("avella" "baiano")
 
 for ENTE in "${COMUNI[@]}"; do
@@ -17,11 +25,9 @@ for ENTE in "${COMUNI[@]}"; do
         URL="https://baiano.soluzionipa.it/openweb/albo/albo_pretorio.php"
     fi
 
-    # 1. Scraper
-    py -m delibere_comunali.scraping.new_albo_scraper --ente "$ENTE" --start-url "$URL" --date-from "$YESTERDAY" --date-to "$YESTERDAY" --delay 2.0
-
-    # 2. Pipeline
-    py -m delibere_comunali.cli.run_pipeline --ente "$ENTE"
+    # Usa run.py per tutto
+    python run.py scrape --ente "$ENTE" --start-url "$URL" --date-from "$YESTERDAY" --date-to "$YESTERDAY" --delay 2.0
+    python run.py pipeline --ente "$ENTE"
 done
 
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] Routine notturna completata per tutta la Costellazione."
+echo "[`$DATE_CMD`] Routine notturna completata."

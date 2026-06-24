@@ -36,7 +36,7 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=/var/www/albo-pretorio-audit-delivery
-ExecStart=/var/www/albo-pretorio-audit-delivery/.venv/bin/streamlit run app_control_room.py --server.port 8501 --server.address 127.0.0.1
+ExecStart=/var/www/albo-pretorio-audit-delivery/.venv/bin/python run.py control-room
 Restart=always
 
 [Install]

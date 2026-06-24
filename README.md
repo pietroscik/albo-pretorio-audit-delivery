@@ -26,7 +26,7 @@ Il modo consigliato per avviare il sistema è utilizzare l'orchestratore, che ge
 
 **Esecuzione completa (Consigliata):**
 ```bash
-python run_pipeline.py --ente nome_del_comune
+python run.py pipeline --ente nome_del_comune
 ```
 
 **Opzioni dell'Orchestratore:**
