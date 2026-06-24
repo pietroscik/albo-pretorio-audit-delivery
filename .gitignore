@@ -70,3 +70,12 @@ __pycache__/
 .idea/
 .vscode/
 
+# Build artifacts
+*.egg-info/
+albo_pretorio_audit_delivery.egg-info/
+
+# Local test data
+albo pretorio avella/
+*.shp
+*.shx
+*.dbf
