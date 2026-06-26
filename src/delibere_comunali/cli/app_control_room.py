@@ -121,7 +121,17 @@ def load_and_clean_data(base_path):
     
     # 4. Arricchimento Mese/Anno per Time Series
     df['anno_mese'] = df['data_parsed'].dt.to_period('M').astype(str)
+    # 5. Arricchimento opzionale con i dati del Motore Audit (se esiste)
+    audit_path = base_path / "atti_audited.csv"
     
+    if audit_path.exists():
+        df_audit = pd.read_csv(audit_path)[['pdf_name', 'risk_score', 'anomalie_rilevate']]
+        # Uniamo il risk score al dataset principale
+        df = pd.merge(df, df_audit, on='pdf_name', how='left')
+        # Riempiamo i vuoti per chi non ha anomalie
+        df['risk_score'] = df['risk_score'].fillna(0.0)
+        df['anomalie_rilevate'] = df['anomalie_rilevate'].fillna("")
+
     return df
 
 df_all = load_and_clean_data(BASE_PATH)
@@ -246,8 +256,14 @@ elif menu == "🔎 Esploratore Atti (Audit)":
     st.markdown(f"Trovati **{len(df_filtered)}** atti corrispondenti.")
     
     # Tabella Interattiva
-    cols_to_show = ['data_atto', 'doc_type', 'category', 'oggetto', 'beneficiario', 'importo_clean', 'cig', 'responsabile']
-    st.dataframe(df_filtered[cols_to_show], use_container_width=True)
+    # (Aggiunto 'risk_score' all'inizio della lista per vederlo subito)
+    cols_to_show = ['risk_score', 'data_atto', 'doc_type', 'category', 'oggetto', 'beneficiario', 'importo_clean', 'cig', 'responsabile']
+    
+    # Sostituiamo il dataframe normale con quello colorato
+    st.dataframe(
+        df_filtered[cols_to_show].style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100),
+        use_container_width=True
+    )
     
     if st.button("📥 Esporta Selezione in Excel"):
         output_excel = f"export_audit_{ente_selezionato}_{datetime.now().strftime('%Y%m%d')}.xlsx"
@@ -304,118 +320,76 @@ elif menu == "🕸️ Knowledge Graph Relazionale":
 # 5. MODULO: ANTIFRODE & BENCHMARKING
 # ==========================================
 elif menu == "🕵️ Analisi Antifrode & Anomalie":
-    st.markdown('<p class="main-header">🕵️ Investigazione Antifrode</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">🕵️ Investigazione Antifrode Dinamica (Z-Score)</p>', unsafe_allow_html=True)
+    st.info("Il motore di Audit calcola un Risk Score (0-100) basato su distribuzioni statistiche dinamiche, adattandosi alla spesa storica dell'ente.")
     
-    # Mostriamo il report generato
-    alert_path = BASE_PATH / "report/alert_antifrode.md"
-    if alert_path.exists():
-        with open(alert_path, 'r', encoding='utf-8') as f:
-            st.markdown(f.read())
-            
-    st.markdown("---")
-    st.subheader("🚨 Radar Anomalie Dinamico")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info("**Sindrome della Soglia**")
-        borderline = df_certified[(df_certified['importo_clean'] >= 39000) & (df_certified['importo_clean'] < 40000)]
-        st.write(f"Atti borderline soglia 40k: {len(borderline)}")
-        st.dataframe(borderline[['pdf_name', 'importo_clean', 'beneficiario']])
+    # Carica il dataset arricchito dal nuovo motore
+    audit_file_path = BASE_PATH / "atti_audited.csv"
+    
+    if audit_file_path.exists():
+        df_audit = pd.read_csv(audit_file_path)
         
-    with c2:
-        st.info("**Rischio Frazionamento**")
-        # Identifichiamo ditte con > 3 atti dallo stesso RUP nello stesso mese
-        fraz_df = df_certified.groupby(['beneficiario', 'responsabile', 'anno_mese']).size().reset_index(name='count')
-        suspicious = fraz_df[fraz_df['count'] > 2]
-        st.write(f"Pattern sospetti rilevati: {len(suspicious)}")
-        st.dataframe(suspicious)
-
-elif menu == "📈 Benchmarking Comuni":
-    st.markdown('<p class="main-header">📈 Benchmarking Multi-Comune</p>', unsafe_allow_html=True)
-    
-    # Carichiamo tutti gli enti per il confronto
-    stats = []
-    for ente in enti_disponibili:
-        e_path = Path(f"data/{ente}/albo_download")
-        if not e_path.exists(): e_path = Path("albo_download")
-        d = load_and_clean_data(e_path)
-        if not d.empty:
-            stats.append({
-                "Comune": ente.upper(),
-                "Totale Spesa": d[d['conf_numeric'] >= 0.85]['importo_clean'].sum(),
-                "N. Atti": len(d),
-                "Confidenza Media": d['conf_numeric'].mean()
-            })
-    
-    df_bench = pd.DataFrame(stats)
-    st.subheader("Confronto Totale Spesa Certificata")
-    fig_bench = px.bar(df_bench, x='Comune', y='Totale Spesa', color='Comune', text_auto='.2s')
-    st.plotly_chart(fig_bench, use_container_width=True)
-    
-    st.dataframe(df_bench)
-
-# ==========================================
-# 7. MODULO: AUDIT HITL E VALIDAZIONE
-# ==========================================
-elif menu == "🕵️ Audit HITL & Validazione":
-    st.markdown('<p class="main-header">🕵️ Audit HITL & Validazione (Active Learning)</p>', unsafe_allow_html=True)
-    st.info("Correggi gli errori di estrazione o classifica i falsi positivi. Il sistema imparerà dai tuoi feedback.")
-    
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        # Seleziona l'Atto
-        df_valid = df_all.dropna(subset=['pdf_name', 'oggetto'])
-        if not df_valid.empty:
-            opzioni_atti = df_valid['pdf_name'].astype(str) + " - " + df_valid['oggetto'].astype(str).str[:100] + "..."
-            atto_selezionato = st.selectbox("Seleziona l'Atto o la Determina da correggere:", opzioni_atti, key="hitl_selector")
+        # Filtriamo solo gli atti con anomalie (Risk Score > 0)
+        df_anomalies = df_audit[df_audit['risk_score'] > 0].copy()
+        
+        if not df_anomalies.empty:
+            # --- KPI DIREZIONALI ---
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atti Sospetti (Hit Rate)</div><div class="kpi-value status-low">{len(df_anomalies)} / {len(df_audit)}</div></div>""", unsafe_allow_html=True)
+            c2.markdown(f"""<div class="kpi-card"><div class="kpi-label">Rischio Medio (Anomalie)</div><div class="kpi-value">{df_anomalies['risk_score'].mean():.1f}/100</div></div>""", unsafe_allow_html=True)
+            c3.markdown(f"""<div class="kpi-card"><div class="kpi-label">Valore Economico Sospetto</div><div class="kpi-value">€ {df_anomalies['importo_clean'].sum():,.2f}</div></div>""", unsafe_allow_html=True)
             
-            if atto_selezionato:
-                nome_pdf = atto_selezionato.split(" - ")[0]
-                riga_atto = df_all[df_all['pdf_name'] == nome_pdf].iloc[0]
+            st.markdown("---")
+            
+            # --- GRAFICI INTERATTIVI ---
+            col_chart1, col_chart2 = st.columns(2)
+            
+            with col_chart1:
+                st.subheader("📊 Distribuzione Tipologie Anomalie")
+                # Espandiamo le stringhe per contare le anomalie (es. "Smurfing | CIG Fantasma")
+                anomalie_list = df_anomalies['anomalie_rilevate'].str.split(' \| ', expand=True).stack().value_counts().reset_index()
+                anomalie_list.columns = ['Tipo Anomalia', 'Frequenza']
                 
-                st.write(f"**Valori attuali per {nome_pdf}:**")
-                st.write(f"- RUP: `{riga_atto.get('responsabile', 'N/A')}`")
-                st.write(f"- Beneficiario: `{riga_atto.get('beneficiario', 'N/A')}`")
-                st.write(f"- Categoria: `{riga_atto.get('category', 'N/A')}`")
+                fig_anomalie = px.bar(anomalie_list, x='Frequenza', y='Tipo Anomalia', orientation='h', 
+                                      color='Frequenza', color_continuous_scale='Reds')
+                fig_anomalie.update_layout(height=350, yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig_anomalie, use_container_width=True)
                 
-                with st.form("feedback_form"):
-                    nuovo_rup = st.text_input("Modifica RUP (Responsabile):", value=str(riga_atto.get('responsabile', '')))
-                    nuovo_benef = st.text_input("Modifica Beneficiario:", value=str(riga_atto.get('beneficiario', '')))
-                    
-                    categorie_uniche = sorted(list(df_all['category'].dropna().unique()))
-                    cat_corrente = str(riga_atto.get('category', ''))
-                    idx_cat = categorie_uniche.index(cat_corrente) if cat_corrente in categorie_uniche else 0
-                    nuova_cat = st.selectbox("Modifica Categoria:", categorie_uniche, index=idx_cat)
-                    
-                    falso_positivo = st.checkbox("Segnala questo Alert Antifrode come FALSO POSITIVO")
-                    
-                    submit = st.form_submit_button("Archivia Correzione")
-                    
-                    if submit:
-                        report_dir = BASE_PATH / "report"
-                        report_dir.mkdir(exist_ok=True, parents=True)
-                        feedback_file = report_dir / "feedback_operatore.csv"
-                        
-                        nuova_riga = f'"{nome_pdf}","{nuovo_rup}","{nuovo_benef}","{nuova_cat}","{"SI" if falso_positivo else "NO"}","{datetime.now().isoformat()}"\n'
-                        
-                        if not feedback_file.exists():
-                            feedback_file.write_text("pdf_name,responsabile,beneficiario,category,falso_positivo,timestamp\n", encoding="utf-8")
-                            
-                        with open(feedback_file, "a", encoding="utf-8") as f:
-                            f.write(nuova_riga)
-                        
-                        st.success("✅ Correzione archiviata con successo! Esegui lo script di cleanup per applicarla.")
-
-    with col2:
-        if 'atto_selezionato' in locals() and atto_selezionato:
-            st.subheader("📄 Visualizzatore Documento")
-            nome_pdf = atto_selezionato.split(" - ")[0]
-            riga_atto = df_all[df_all['pdf_name'] == nome_pdf].iloc[0]
-            pdf_path = Path(riga_atto['pdf_path'])
-            if pdf_path.exists():
-                st.markdown(get_pdf_display(pdf_path), unsafe_allow_html=True)
-            else:
-                st.error(f"File PDF non trovato al percorso: {pdf_path}")
+            with col_chart2:
+                st.subheader("🎯 Entità a Maggior Rischio")
+                # I 5 fornitori con i Risk Score più alti
+                top_risk_ben = df_anomalies.groupby('beneficiario_norm')['risk_score'].max().sort_values(ascending=False).head(5).reset_index()
+                fig_risk = px.bar(top_risk_ben, x='beneficiario_norm', y='risk_score', 
+                                  title="Top 5 Beneficiari (Score Massimo)", color='risk_score', color_continuous_scale='Reds')
+                fig_risk.update_layout(height=350)
+                st.plotly_chart(fig_risk, use_container_width=True)
+                
+            st.markdown("---")
+            
+            # --- TABELLA ESPLORATIVA CON SLIDER ---
+            st.subheader("🔍 Esploratore Atti Sospetti")
+            
+            # Slider dinamico per filtrare il rumore
+            min_risk = st.slider("🎯 Filtra per Risk Score Minimo:", min_value=0, max_value=100, value=25, step=5)
+            df_filtered = df_anomalies[df_anomalies['risk_score'] >= min_risk].sort_values('risk_score', ascending=False)
+            
+            st.write(f"Mostrando **{len(df_filtered)}** atti che superano la soglia di rischio.")
+            
+            # Colonne da visualizzare
+            cols_to_display = ['risk_score', 'anomalie_rilevate', 'beneficiario_norm', 'importo_clean', 'data_atto', 'pdf_name', 'cig']
+            
+            # Usiamo st.dataframe con background gradient (Heatmap) per far risaltare subito il rischio
+            st.dataframe(
+                df_filtered[cols_to_display].style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100)
+                .format({'importo_clean': '€ {:.2f}', 'risk_score': '{:.1f}'}),
+                use_container_width=True,
+                height=400
+            )
+            
+        else:
+            st.success("🎉 Ottime notizie! Nessuna anomalia statistica è stata rilevata nel dataset.")
+    else:
+        st.warning(f"⚠️ File di audit non trovato ({audit_file_path}). Esegui prima il Motore Audit per generarlo.")
 
 # ==========================================
 # 6. MODULO: MANUTENZIONE
@@ -425,12 +399,17 @@ elif menu == "⚙️ Intelligence & Manutenzione":
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🚀 Rigenera Tutti i Report (Grafo, Topologia, Anomalie)"):
-            with st.spinner("Elaborazione massiva in corso..."):
-                subprocess.run([sys.executable, "build_knowledge_graph.py", "--base", str(BASE_PATH)])
-                subprocess.run([sys.executable, "analyze_topology.py", "--base", str(BASE_PATH)])
-                subprocess.run([sys.executable, "detect_anomalies.py", "--base", str(BASE_PATH)])
-                st.success("Tutti i report sono stati aggiornati!")
+        if st.button("🚀 Rigenera Tutti i Report (Grafo, Topologia, Audit)"):
+            with st.spinner("Motori di elaborazione massiva in esecuzione..."):
+                # Passiamo tutto tramite il nuovo orchestratore run.py
+                try:
+                    subprocess.run([sys.executable, "run.py", "build-kg", "--base", str(BASE_PATH)], check=True)
+                    subprocess.run([sys.executable, "run.py", "analyze-topology", "--base", str(BASE_PATH)], check=True)
+                    subprocess.run([sys.executable, "run.py", "audit", "--base", str(BASE_PATH)], check=True) # Chiama il nuovo AuditEngine
+                    st.success("✅ Tutti i report e i grafi sono stati aggiornati con successo!")
+                    st.rerun() # Forza l'aggiornamento della UI per mostrare i nuovi dati
+                except subprocess.CalledProcessError as e:
+                    st.error(f"❌ Errore durante la rigenerazione. Codice: {e.returncode}")
     
     with col2:
         st.markdown("**Sincronizza Feedback Umano**")
@@ -522,3 +501,68 @@ elif menu == "⚙️ Intelligence & Manutenzione":
                 st.download_button("Download JSON-LD", f, file_name=f"LOD_{ente_selezionato}.jsonld")
         else:
             st.error("File LOD non trovato. Generalo nella pipeline.")
+
+# ==========================================
+# 7. MODULO: AUDIT HITL E VALIDAZIONE
+# ==========================================
+elif menu == "🕵️ Audit HITL & Validazione":
+    st.markdown('<p class="main-header">🕵️ Audit HITL & Validazione (Active Learning)</p>', unsafe_allow_html=True)
+    st.info("Correggi gli errori di estrazione o classifica i falsi positivi. Il sistema imparerà dai tuoi feedback.")
+    
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        # Seleziona l'Atto
+        df_valid = df_all.dropna(subset=['pdf_name', 'oggetto'])
+        if not df_valid.empty:
+            opzioni_atti = df_valid['pdf_name'].astype(str) + " - " + df_valid['oggetto'].astype(str).str[:100] + "..."
+            atto_selezionato = st.selectbox("Seleziona l'Atto o la Determina da correggere:", opzioni_atti, key="hitl_selector")
+            
+            if atto_selezionato:
+                nome_pdf = atto_selezionato.split(" - ")[0]
+                riga_atto = df_all[df_all['pdf_name'] == nome_pdf].iloc[0]
+                
+                st.write(f"**Valori attuali per {nome_pdf}:**")
+                st.write(f"- RUP: `{riga_atto.get('responsabile', 'N/A')}`")
+                st.write(f"- Beneficiario: `{riga_atto.get('beneficiario', 'N/A')}`")
+                st.write(f"- Categoria: `{riga_atto.get('category', 'N/A')}`")
+                
+                with st.form("feedback_form"):
+                    nuovo_rup = st.text_input("Modifica RUP (Responsabile):", value=str(riga_atto.get('responsabile', '')))
+                    nuovo_benef = st.text_input("Modifica Beneficiario:", value=str(riga_atto.get('beneficiario', '')))
+                    
+                    categorie_uniche = sorted(list(df_all['category'].dropna().unique()))
+                    cat_corrente = str(riga_atto.get('category', ''))
+                    idx_cat = categorie_uniche.index(cat_corrente) if cat_corrente in categorie_uniche else 0
+                    nuova_cat = st.selectbox("Modifica Categoria:", categorie_uniche, index=idx_cat)
+                    
+                    falso_positivo = st.checkbox("Segnala questo Alert Antifrode come FALSO POSITIVO")
+                    
+                    submit = st.form_submit_button("Archivia Correzione")
+                    
+                    if submit:
+                        report_dir = BASE_PATH / "report"
+                        report_dir.mkdir(exist_ok=True, parents=True)
+                        feedback_file = report_dir / "feedback_operatore.csv"
+                        
+                        nuova_riga = f'"{nome_pdf}","{nuovo_rup}","{nuovo_benef}","{nuova_cat}","{"SI" if falso_positivo else "NO"}","{datetime.now().isoformat()}"\n'
+                        
+                        if not feedback_file.exists():
+                            feedback_file.write_text("pdf_name,responsabile,beneficiario,category,falso_positivo,timestamp\n", encoding="utf-8")
+                            
+                        with open(feedback_file, "a", encoding="utf-8") as f:
+                            f.write(nuova_riga)
+                        
+                        st.success("✅ Correzione archiviata con successo! Esegui lo script di cleanup per applicarla.")
+
+    with col2:
+        if 'atto_selezionato' in locals() and atto_selezionato:
+            st.subheader("📄 Visualizzatore Documento")
+            nome_pdf = atto_selezionato.split(" - ")[0]
+            riga_atto = df_all[df_all['pdf_name'] == nome_pdf].iloc[0]
+            pdf_path = Path(riga_atto['pdf_path'])
+            if pdf_path.exists():
+                st.markdown(get_pdf_display(pdf_path), unsafe_allow_html=True)
+            else:
+                st.error(f"File PDF non trovato al percorso: {pdf_path}")
+

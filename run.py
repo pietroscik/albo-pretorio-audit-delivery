@@ -22,15 +22,15 @@ COMMAND_MAP = {
     "analyze": ("-m", "delibere_comunali.parsing.analyze_albo"),
     "pipeline": ("-m", "delibere_comunali.cli.run_pipeline"),
     "rag": ("-m", "delibere_comunali.rag.rag_app"),
+    "validate-csv": ("-m", "delibere_comunali.utils.schema_validator"),
     "control-room": ("-m", "delibere_comunali.cli.app_control_room"),
+    "audit": ("-m", "delibere_comunali.processing.audit_engine"),
     
     # Script legacy in scripts/ (usiamo path assoluti)
     "build-kg": (str(PROJECT_ROOT / "scripts" / "build_knowledge_graph.py"),),
     "analyze-topology": (str(PROJECT_ROOT / "scripts" / "analyze_topology.py"),),
-    "detect-anomalies": (str(PROJECT_ROOT / "scripts" / "detect_anomalies.py"),),
     "train": (str(PROJECT_ROOT / "scripts" / "train_model.py"),),
     "validate-output": (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
-    "validate-csv": (str(PROJECT_ROOT / "scripts" / "validate_csv_schema.py"),),
     "export-linkeddata": (str(PROJECT_ROOT / "scripts" / "export_linked_data.py"),),
     "clean-texts": (str(PROJECT_ROOT / "scripts" / "clean_texts.py"),),
     "sync-texts": (str(PROJECT_ROOT / "scripts" / "sync_texts.py"),),
