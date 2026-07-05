@@ -63,10 +63,16 @@ class AuditEngine:
         selezionati = affidamenti[~affidamenti['beneficiario_norm'].isin(['DIVERSI/NON APPLICABILE', 'NON IDENTIFICATO'])]
         
         conteggi = selezionati['beneficiario_norm'].value_counts()
-        if len(conteggi) > 2:
+        if len(conteggi) >= 2:
             mean_aff = conteggi.mean()
             std_aff = conteggi.std()
-            soglia_dinamica = mean_aff + (2 * std_aff) # Anomalia se supera 2 deviazioni standard
+            
+            if std_aff > 0:
+                # Anomalia se supera 2 deviazioni standard
+                soglia_dinamica = mean_aff + (2 * std_aff)
+            else:
+                # Dataset troppo piccolo per Z-Score: fallback a soglia fissa (>= 3 affidamenti)
+                soglia_dinamica = max(mean_aff, 3) - 1
             
             beneficiari_anomali = conteggi[conteggi > soglia_dinamica].index
             mask = self.df['beneficiario_norm'].isin(beneficiari_anomali) & self.df['tipo_procedura'].astype(str).str.contains('affidamento', case=False, na=False)

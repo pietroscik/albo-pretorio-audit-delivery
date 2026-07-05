@@ -28,4 +28,8 @@ COPY . .
 EXPOSE 8501
 
 # 7. Comando da eseguire quando il container si avvia
+<<<<<<< HEAD
 CMD ["python", "run.py", "control-room"]
+=======
+CMD ["python", "run.py", "control-room", "--server.port=8501", "--server.address=0.0.0.0"]
+>>>>>>> 3bb430e2300852ba2068d864fb6d592df865a2e8

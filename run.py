@@ -2,6 +2,7 @@
 """Entry point universale per albo-pretorio-audit-delivery.
 Funziona su Windows (py) e Linux (python3)."""
 
+import os
 import sys
 import subprocess
 from pathlib import Path
@@ -97,6 +98,13 @@ def main():
 
     cmd_config = COMMAND_MAP[cmd]
 
+    # Imposta PYTHONPATH in modo che `src/` sia sempre nel path (necessario per Streamlit e script legacy)
+    env = os.environ.copy()
+    src_path = str(PROJECT_ROOT / "src")
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    if src_path not in existing_pythonpath.split(os.pathsep):
+        env["PYTHONPATH"] = src_path + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
+
     # Streamlit richiede lancio speciale
     if cmd in STREAMLIT_COMMANDS and cmd_config[0] == "-m":
         module_path = cmd_config[1].replace(".", "/")
@@ -108,7 +116,7 @@ def main():
         full_cmd = [sys.executable, *cmd_config, *args]
 
     try:
-        result = subprocess.run(full_cmd, check=True)
+        result = subprocess.run(full_cmd, check=True, env=env)
         sys.exit(result.returncode)
     except subprocess.CalledProcessError as e:
         print(f"❌ Errore nell'esecuzione di {' '.join(str(x) for x in full_cmd)}")

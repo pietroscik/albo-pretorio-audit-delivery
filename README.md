@@ -1,5 +1,7 @@
 # Albo Pretorio Audit & Digital Twin Pipeline
 
+[![CI](https://github.com/pietroscik/albo-pretorio-audit-delivery/actions/workflows/ci.yml/badge.svg)](https://github.com/pietroscik/albo-pretorio-audit-delivery/actions/workflows/ci.yml)
+
 Un sistema avanzato basato su AI per l'estrazione, la classificazione e l'analisi forense dei documenti pubblicati negli Albi Pretori dei Comuni italiani (Delibere, Determine, Ordinanze, ecc.).
 
 Il sistema si allinea agli standard normativi di AgID, supportando la validazione delle firme digitali (PAdES/CAdES), la generazione di Legal URN (standard Normeinrete) e la costruzione di un "Digital Twin" dei procedimenti amministrativi.
@@ -37,12 +39,6 @@ python run.py pipeline --ente nome_del_comune
 
 # Oppure usando il comando installato (dopo pip install -e .)
 albo-pretorio pipeline --ente nome_del_comune
-
-Il modo consigliato per avviare il sistema è utilizzare l'orchestratore, che gestirà in automatico le dipendenze tra i vari script.
-
-**Esecuzione completa (Consigliata):**
-```bash
-python run.py pipeline --ente nome_del_comune
 ```
 
 **Comandi diretti:**
@@ -75,3 +71,39 @@ Il sistema genera molteplici artefatti all'interno della cartella `data/{ente}/a
 *   Librerie necessarie (vedi `requirements.txt`): `pandas`, `scikit-learn`, `pypdfium2`, `pytesseract`, `joblib`, `google-generativeai`.
 *   Variabili d'ambiente richieste (nel file `.env`):
     *   `GOOGLE_API_KEY`: Necessaria se si utilizza il flag `--use-llm`.
+
+## ⚙️ Configurazione Ambiente
+
+### 1. Installazione dipendenze Python
+
+```bash
+# Installa il pacchetto con tutte le dipendenze (consigliato)
+pip install -e ".[dev]"
+
+# Oppure via requirements.txt
+pip install -r requirements.txt
+```
+
+### 2. Installazione Tesseract OCR
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install tesseract-ocr tesseract-ocr-ita
+
+# macOS
+brew install tesseract tesseract-lang
+
+# Windows
+# Scarica il programma di installazione da: https://github.com/UB-Mannheim/tesseract/wiki
+# e aggiungi il percorso d'installazione alla variabile d'ambiente PATH
+```
+
+### 3. Configurazione variabili d'ambiente
+
+```bash
+# Copia il template .env.example e compila i valori
+cp .env.example .env
+```
+
+Apri `.env` e inserisci almeno la tua `GOOGLE_API_KEY` se vuoi usare il flag `--use-llm`.  
+Tutte le altre variabili sono opzionali e hanno valori di default ragionevoli.

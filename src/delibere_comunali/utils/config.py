@@ -73,8 +73,8 @@ class ScraperConfig(BaseModel):
         description="Base URL for Albo Pretorio",
     )
     user_agent: str = Field(
-        default="CivicResearchBot/1.1 (+contatto: tua-pec-o-email)",
-        description="User agent string for HTTP requests",
+        default="CivicResearchBot/1.1",
+        description="User agent string for HTTP requests. Impostare tramite variabile d'ambiente SCRAPER_USER_AGENT.",
     )
     delay: float = Field(
         default=1.0,
