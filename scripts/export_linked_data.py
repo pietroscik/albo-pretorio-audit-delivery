@@ -1,4 +1,5 @@
 import argparse
+from email.mime import base
 import pandas as pd
 from pathlib import Path
 from rdflib import Graph, URIRef, Literal, Namespace
@@ -14,7 +15,7 @@ def main():
     args = parser.parse_args()
 
     base = Path(args.base)
-    atti_path = base / "atti_parsed.csv"
+    atti_path = base / "allegati_parsed.csv"  # ✅ Nuovo standard
     report_dir = base / "report"
     report_dir.mkdir(exist_ok=True)
     

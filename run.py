@@ -32,7 +32,7 @@ COMMAND_MAP = {
     "analyze":          ("-m", "delibere_comunali.parsing.analyze_albo"),
     "pipeline":         ("-m", "delibere_comunali.cli.run_pipeline"),
     "rag":              ("-m", "delibere_comunali.rag.rag_app"),
-    "validate-csv":     ("-m", "delibere_comunali.utils.schema_validator"),
+    "validate-csv": (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
     "control-room":     ("-m", "delibere_comunali.cli.app_control_room"),
     "audit":            ("-m", "delibere_comunali.processing.audit_engine"),
 

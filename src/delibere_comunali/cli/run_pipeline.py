@@ -7,7 +7,16 @@ import subprocess
 from pathlib import Path
 import argparse
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+def get_project_root() -> Path:
+    """Trova la root del progetto cercando pyproject.toml."""
+    path = Path(__file__).resolve()
+    for _ in range(5):  # Max 5 livelli su
+        if (path / "pyproject.toml").exists():
+            return path
+        path = path.parent
+    return Path(__file__).resolve().parent.parent.parent.parent  # Fallback
+
+PROJECT_ROOT = get_project_root()
 
 def run_step(command, title, cwd=None, optional=False):
     print("\n" + "=" * 72)
@@ -56,17 +65,29 @@ def main() -> None:
     p.add_argument("--adapter-out", help="path for adapter jsonl output")
     p.add_argument("--limit", type=int, default=None)
     # LLM
-    p.add_argument("--use-llm", action="store_true", help="abilita arricchimento LLM nel parsing e audit")
-    p.add_argument("--llm-provider", default=None, help="provider LLM (openai, anthropic, ollama...)")
-    p.add_argument("--llm-model", default=None, help="modello LLM da usare")
+    p.add_argument("--use-llm", action="store_true",
+                    help="abilita arricchimento LLM nel parsing e audit")
+    p.add_argument("--llm-provider", default=None,
+                    help="provider LLM (openai, anthropic, ollama...)")
+    p.add_argument("--llm-model", default=None,
+                    help="modello LLM da usare")
     # Skip/only
-    p.add_argument("--skip-scrape", action="store_true", help="salta lo scraping")
-    p.add_argument("--skip-clean", action="store_true", help="salta la pulizia testi")
-    p.add_argument("--skip-kg", action="store_true", help="salta il Knowledge Graph")
-    p.add_argument("--skip-audit", action="store_true", help="salta il motore di audit")
-    p.add_argument("--skip-validate", action="store_true", help="salta la validazione output")
-    p.add_argument("--only-audit", action="store_true", help="esegui solo audit")
-    p.add_argument("--only-analyze", action="store_true", help="esegui solo parsing/analyze")
+    p.add_argument("--skip-scrape", action="store_true",
+                    help="salta lo scraping")
+    p.add_argument("--skip-clean", action="store_true",
+                    help="salta la pulizia testi")
+    p.add_argument("--skip-kg", action="store_true",
+                    help="salta il Knowledge Graph")
+    p.add_argument("--skip-audit", action="store_true",
+                    help="salta il motore di audit")
+    p.add_argument("--skip-validate", action="store_true",
+                    help="salta la validazione output")
+    p.add_argument("--only-audit", action="store_true",
+                    help="esegui solo audit")
+    p.add_argument("--only-analyze", action="store_true",
+                    help="esegui solo parsing/analyze")
+    p.add_argument("--force", action="store_true",
+               help="Ignora cache e forza ri-elaborazione")
     args = p.parse_args()
 
     ente = args.ente
@@ -109,12 +130,12 @@ def main() -> None:
     # =========================================================
     if not args.only_audit:
         run_step(
-            _module_command(
-                "delibere_comunali.parsing.analyze_albo",
-                ["--base", resolved_base, "--ente", ente] + llm_args
-            ),
-            f"Analyze documents {'(+LLM)' if args.use_llm else ''}"
-        )
+    _module_command(
+        "delibere_comunali.parsing.analyze_albo",
+        ["--base", resolved_base, "--ente", ente] + llm_args + (["--force"] if args.force else [])
+    ),
+    f"Analyze documents {'(+LLM)' if args.use_llm else ''}"
+)
 
     # =========================================================
     # FASE 3: PULIZIA TESTI

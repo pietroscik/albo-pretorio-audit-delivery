@@ -55,8 +55,8 @@ def validate_output_main():
     _run_legacy("validate_output.py")
 
 def validate_csv_main():
-    _run_legacy("validate_csv_schema.py")
-
+    _run_legacy("validate_output.py")
+    
 def clean_texts_main():
     _run_legacy("clean_texts.py")
 

@@ -73,10 +73,12 @@ class DelibereExtractor:
         return s % 10 == 0
         
     def _valida_iban(self, iban: str) -> bool:
-        if not iban:
-            return False
-        iban = re.sub(r'\s+', '', iban).upper()
-        return iban.startswith("IT") and len(iban) == 27
+    iban = re.sub(r'\s+', '', iban).upper()
+    if not iban.startswith("IT") or len(iban) != 27:
+        return False
+    rearranged = iban[4:] + iban[:4]
+    numeric = ''.join(str(ord(c) - 55) if c.isalpha() else c for c in rearranged)
+    return int(numeric) % 97 == 1
 
     def extract_entities(self, text: str) -> dict:
         if not isinstance(text, str):

@@ -71,7 +71,7 @@ def main():
     args = parser.parse_args()
 
     base = Path(args.base)
-    atti_path = base / "atti_parsed.csv"
+    atti_path = base / "allegati_parsed.csv"  # ✅ Nuovo standard
     report_path = base / "report" / "alert_antifrode.md"
 
     if not atti_path.exists():
