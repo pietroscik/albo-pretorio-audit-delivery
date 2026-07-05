@@ -28,4 +28,4 @@ COPY . .
 EXPOSE 8501
 
 # 7. Comando da eseguire quando il container si avvia
-CMD ["streamlit", "run", "app_control_room.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["python", "run.py", "control-room", "--server.port=8501", "--server.address=0.0.0.0"]

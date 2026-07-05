@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Nov 12 15:20:11 2025
-
-@author: 39329
-"""
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -38,6 +31,7 @@ import mimetypes
 import os
 import re
 import sys
+import threading
 import time
 import urllib.parse as up
 from dataclasses import dataclass, asdict, field
@@ -445,6 +439,7 @@ class AlboScraper:
         self.log_path = self.out_dir / "albo_scraper.log"
         # CSV metadati
         self.csv_path = self.out_dir / "albo_metadati.csv"
+        self._csv_lock = threading.Lock()
         if not self.csv_path.exists():
             with open(self.csv_path, "w", encoding="utf-8", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=list(asdict(AlboItem("", "", "", "", "", "", "", "", [])).keys()))
@@ -640,17 +635,18 @@ class AlboScraper:
 
     def write_metadata_once(self, it: AlboItem) -> bool:
         key = metadata_key(it)
-        if key in self.seen_metadata:
-            return False
-        with open(self.csv_path, "a", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()))
-            w.writerow(asdict(it))
-        self.seen_metadata.add(key)
-        if it.dettaglio_url:
-            self.seen_metadata.add(it.dettaglio_url)
-        for attachment in it.allegati:
-            if attachment:
-                self.seen_metadata.add(attachment)
+        with self._csv_lock:
+            if key in self.seen_metadata:
+                return False
+            with open(self.csv_path, "a", encoding="utf-8", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()))
+                w.writerow(asdict(it))
+            self.seen_metadata.add(key)
+            if it.dettaglio_url:
+                self.seen_metadata.add(it.dettaglio_url)
+            for attachment in it.allegati:
+                if attachment:
+                    self.seen_metadata.add(attachment)
         return True
 
     def item_passes_filters(self, it: AlboItem) -> bool:

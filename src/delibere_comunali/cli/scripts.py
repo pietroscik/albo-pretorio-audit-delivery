@@ -33,7 +33,7 @@ def _run_legacy(script_name: str, module_fallback: str | None = None):
         return
     raise FileNotFoundError(
         f"❌ Script non trovato: {script_path}\n"
-        f"   Recuperalo con: git checkout d1047ee~1 -- scripts/{script_name}"
+        f"   Assicurati che la cartella scripts/ sia presente nella root del progetto."
     )
 
 def build_kg_main():
