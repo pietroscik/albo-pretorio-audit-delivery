@@ -2,6 +2,11 @@ import argparse
 import networkx as nx
 import pandas as pd
 from pathlib import Path
+import sys
+import logging
+
+logger = logging.getLogger("analyze_topology")
+logging.basicConfig(level=logging.INFO)
 
 def main():
     parser = argparse.ArgumentParser(description="Analisi Topologica del Knowledge Graph degli Appalti.")
@@ -18,9 +23,21 @@ def main():
         return
 
     print("Caricamento del Knowledge Graph in memoria...")
-    # Leggiamo il grafo
-    G = nx.read_gexf(str(gexf_path))
-    
+    try:
+        G = nx.read_gexf(str(gexf_path))
+    except ValueError as e:
+        logger.warning(f"GEXF corrotto ({e}), ricostruisco da CSV...")
+        csv_path = gexf_path.parent / "allegati_parsed.csv"
+        if not csv_path.exists():
+            print(f"❌ Nessun CSV trovato in {csv_path}")
+            sys.exit(1)
+        df = pd.read_csv(csv_path)
+        G = nx.DiGraph()
+        for _, row in df.iterrows():
+            src = str(row.get("responsabile", "unknown"))
+            dst = str(row.get("oggetto", "unknown"))[:60]
+            G.add_edge(src, dst)
+
     # Molti algoritmi di centralità richiedono grafi semplici (non multigraph).
     # Riduciamo il MultiDiGraph a un DiGraph per il calcolo delle metriche di base.
     G_simple = nx.DiGraph(G)

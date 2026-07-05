@@ -21,6 +21,7 @@ opencv-python>=4.8.0
 # Knowledge Graph & Semantic Web
 networkx==3.2.1
 pyvis==0.3.2
+matplotlib
 rdflib==7.0.0
 
 # Machine Learning & Active Learning

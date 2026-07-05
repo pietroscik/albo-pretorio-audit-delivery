@@ -71,6 +71,9 @@ dependencies = [
     # Utilities
     "python-dateutil>=2.8.0",
     "pydantic>=2.5.0",
+    "pyvis",
+    "matplotlib",
+    "plotly",
 ]
 
 [project.optional-dependencies]

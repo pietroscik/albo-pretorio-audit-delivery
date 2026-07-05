@@ -63,7 +63,14 @@ def get_llm_client(prompt: str, model_priority: List[str] = None):
     """
     Tenta di ottenere una risposta JSON da una lista di modelli/provider in ordine di priorità.
     """
-    from config import get_config
+    try:
+        from delibere_comunali.utils.config import get_config
+    except ImportError:
+        try:
+            from ..utils.config import get_config
+        except ImportError:
+            def get_config():
+                return None
     config = get_config()
     
     priority = model_priority or config.llm.model_priority
@@ -100,7 +107,14 @@ def mistral_ocr(file_path: str) -> str:
     """
     Usa Mistral OCR per estrarre testo da un PDF scannerizzato (Documenti Difficili).
     """
-    from config import get_config
+    try:
+        from delibere_comunali.utils.config import get_config
+    except ImportError:
+        try:
+            from ..utils.config import get_config
+        except ImportError:
+            def get_config():
+                return None
     config = get_config()
     
     if not config.llm.mistral_api_key:

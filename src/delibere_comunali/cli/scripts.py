@@ -1,6 +1,7 @@
 """Wrapper per script legacy in scripts/ - Permette di esporli come entry point."""
 
 import os
+import runpy
 import sys
 from pathlib import Path
 
@@ -20,57 +21,50 @@ def get_project_root() -> Path:
 
 PROJECT_ROOT = get_project_root()
 
-def build_kg_main():
-    """Wrapper per scripts/build_knowledge_graph.py"""
-    sys.argv[0] = "build_knowledge_graph.py"
-    exec(open(PROJECT_ROOT / "scripts" / "build_knowledge_graph.py").read())
+def _run_legacy(script_name: str, module_fallback: str | None = None):
+    script_path = PROJECT_ROOT / "scripts" / script_name
+    if script_path.exists():
+        sys.argv[0] = script_name
+        runpy.run_path(str(script_path), run_name="__main__")
+        return
+    if module_fallback:
+        print(f"⚠️  Script {script_name} non trovato, uso modulo: {module_fallback}")
+        runpy.run_module(module_fallback, run_name="__main__")
+        return
+    raise FileNotFoundError(
+        f"❌ Script non trovato: {script_path}\n"
+        f"   Recuperalo con: git checkout d1047ee~1 -- scripts/{script_name}"
+    )
 
-def analyze_topology_main():
-    """Wrapper per scripts/analyze_topology.py"""
-    sys.argv[0] = "analyze_topology.py"
-    exec(open(PROJECT_ROOT / "scripts" / "analyze_topology.py").read())
+def build_kg_main():
+    _run_legacy("build_knowledge_graph.py", "delibere_comunali.cli.run_pipeline")
 
 def detect_anomalies_main():
-    """Wrapper per scripts/detect_anomalies.py"""
-    sys.argv[0] = "detect_anomalies.py"
-    exec(open(PROJECT_ROOT / "scripts" / "detect_anomalies.py").read())
-
-def train_model_main():
-    """Wrapper per scripts/train_model.py"""
-    sys.argv[0] = "train_model.py"
-    exec(open(PROJECT_ROOT / "scripts" / "train_model.py").read())
-
-def validate_output_main():
-    """Wrapper per scripts/validate_output.py"""
-    sys.argv[0] = "validate_output.py"
-    exec(open(PROJECT_ROOT / "scripts" / "validate_output.py").read())
-
-def validate_csv_main():
-    """Wrapper per scripts/validate_csv_schema.py"""
-    sys.argv[0] = "validate_csv_schema.py"
-    exec(open(PROJECT_ROOT / "scripts" / "validate_csv_schema.py").read())
+    _run_legacy("detect_anomalies.py")
 
 def export_linked_data_main():
-    """Wrapper per scripts/export_linked_data.py"""
-    sys.argv[0] = "export_linked_data.py"
-    exec(open(PROJECT_ROOT / "scripts" / "export_linked_data.py").read())
+    _run_legacy("export_linked_data.py")
+
+def analyze_topology_main():
+    _run_legacy("analyze_topology.py")
+
+def train_model_main():
+    _run_legacy("train_model.py")
+
+def validate_output_main():
+    _run_legacy("validate_output.py")
+
+def validate_csv_main():
+    _run_legacy("validate_csv_schema.py")
 
 def clean_texts_main():
-    """Wrapper per scripts/clean_texts.py"""
-    sys.argv[0] = "clean_texts.py"
-    exec(open(PROJECT_ROOT / "scripts" / "clean_texts.py").read())
+    _run_legacy("clean_texts.py")
 
 def sync_texts_main():
-    """Wrapper per scripts/sync_texts.py"""
-    sys.argv[0] = "sync_texts.py"
-    exec(open(PROJECT_ROOT / "scripts" / "sync_texts.py").read())
+    _run_legacy("sync_texts.py")
 
 def generate_groundtruth_main():
-    """Wrapper per scripts/generate_ground_truth.py"""
-    sys.argv[0] = "generate_ground_truth.py"
-    exec(open(PROJECT_ROOT / "scripts" / "generate_ground_truth.py").read())
+    _run_legacy("generate_ground_truth.py")
 
 def visualize_graph_main():
-    """Wrapper per scripts/visualizza_grafo.py"""
-    sys.argv[0] = "visualizza_grafo.py"
-    exec(open(PROJECT_ROOT / "scripts" / "visualizza_grafo.py").read())
+    _run_legacy("visualizza_grafo.py")

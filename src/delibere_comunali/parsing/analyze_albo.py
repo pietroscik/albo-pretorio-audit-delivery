@@ -24,17 +24,16 @@ from pathlib import Path
 import pandas as pd
 from delibere_comunali.utils.p7m import extract_embedded_content
 
-def _process_attachment(path: str):
-    path = Path(path)
-    if path.suffix.lower() == ".p7m":
+def _process_attachment(attachment_path: str):
+    p = Path(attachment_path)          # rinominata per evitare conflitto
+    if p.suffix.lower() == ".p7m":
         try:
-            extracted = extract_embedded_content(path)
+            extracted = extract_embedded_content(p)
         except Exception as exc:
-            # loggare e saltare o marcare come non processabile
-            logger.warning("Impossibile estrarre %s: %s", path, exc)
+            logger.warning("Impossibile estrarre %s: %s", p, exc)
             return None
-        path = extracted  # ora passare `path` al parser PDF/testuale
-    return path
+        p = extracted
+    return p
 
 from datetime import datetime
 
@@ -990,25 +989,25 @@ def text_features(text):
     }
 
 
-def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir: Path = None, ente_nome: str = "avella") -> dict:
+def extract_from_pdf(pdf_file, use_llm=False, rf_model=None, ente_nome=None, text_dir=None):
     """Estrae testo e cattura campi principali da un PDF (testuale -> OCR fallback)."""
     
     # Gestione preliminare dei file .p7m
-    is_p7m = path.name.lower().endswith(".p7m")
+    is_p7m = pdf_file.name.lower().endswith(".p7m")
     pdf_content_bytes = None
     if is_p7m:
-        pdf_content_bytes = extract_p7m_content(path)
+        pdf_content_bytes = extract_p7m_content(pdf_file)
         if not pdf_content_bytes:
-            return {"pdf_name": path.name, "pdf_path": str(path), "source": "p7m_extraction_failed"}
+            return {"pdf_name": pdf_file.name, "pdf_path": str(pdf_file), "source": "p7m_extraction_failed"}
         # Usiamo i byte estratti come se fossero il file originale
         path_for_parsing = pdf_content_bytes
     else:
-        path_for_parsing = str(path)
+        path_for_parsing = str(pdf_file)
 
 
     out = {
-        "pdf_name": path.name,
-        "pdf_path": str(path),
+        "pdf_name": pdf_file.name,
+        "pdf_path": str(pdf_file),
         "doc_type": "unknown",
         "category": None,
         "subcategory": None,
@@ -1041,7 +1040,7 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
         "quadro_economico": None,
         "capitolo": None,
         "peg_riga": None,
-        "is_visto_contabile": ("VistoContabile" in path.name),
+        "is_visto_contabile": ("VistoContabile" in pdf_file.name),
         "source": "text",   # 'text' o 'ocr'
         "accounting_relevant": False,
         "missing_amount_expected": False,
@@ -1053,7 +1052,7 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
     }
 
     # 1) Verifica se esiste già un file di testo pre-generato (es. dal backend C#)
-    text_file_path = text_dir / f"{path.stem}.txt" if text_dir else None
+    text_file_path = text_dir / f"{pdf_file.stem}.txt" if text_dir else None
     if text_file_path and text_file_path.exists():
         text_one = text_file_path.read_text(encoding="utf-8", errors="ignore")
         text_one = " ".join(text_one.split())
@@ -1077,13 +1076,22 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
                     out["source"] = "ocr"
             else:
                 # DOCUMENTI DIFFICILI: Fallback su Mistral OCR
-                from llm_factory import mistral_ocr
-                logger.info(f"Tesseract insufficiente per {path.name}, provo Mistral OCR (Documento Difficile)...")
-                m_txt = mistral_ocr(str(path_for_parsing))
-                if m_txt and "[MISTRAL_OCR_PENDING]" not in m_txt:
-                    text_one = m_txt
-                    out["source"] = "mistral_ocr"
-                    logger.info("Recupero testo riuscito con Mistral OCR.")
+                try:
+                    from delibere_comunali.rag.llm_factory import mistral_ocr
+                except ImportError:
+                    try:
+                        from ..rag.llm_factory import mistral_ocr
+                    except ImportError:
+                        mistral_ocr = None
+                        logger.warning(f"mistral_ocr non disponibile per {pdf_file.name}, skip.")
+
+                if mistral_ocr is not None:
+                    logger.info(f"Tesseract insufficiente per {pdf_file.name}, provo Mistral OCR...")
+                    m_txt = mistral_ocr(str(path_for_parsing))
+                    if m_txt and "[MISTRAL_OCR_PENDING]" not in m_txt:
+                        text_one = m_txt
+                        out["source"] = "mistral_ocr"
+                        logger.info("Recupero testo riuscito con Mistral OCR.")
 
     text_one = remove_boilerplate(text_one)
     text_one = normalize_text_for_ml(text_one)
@@ -1097,7 +1105,7 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
     out["decree_references"] = json.dumps(extract_decree_references(text_one), ensure_ascii=False)
 
     # Determiniamo in anticipo la natura giuridica del documento
-    out["doc_type"] = infer_doc_type(path.name, text_one)
+    out["doc_type"] = infer_doc_type(path_for_parsing, text_one)
 
     # --- Estrazione Avanzata (Regex Potenziate) ---
     adv_data = {}
@@ -1127,7 +1135,7 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
         
         # Applichiamo la Vision API solo se il documento è di natura contabile o un Lavoro Pubblico
         if out.get("accounting_relevant") or out.get("category") == "Lavori Pubblici":
-            vision_data = extract_quadro_economico_vision(path)
+            vision_data = extract_quadro_economico_vision(pdf_file)
             if vision_data.get("quadro_economico_trovato"):
                 out["quadro_economico"] = json.dumps(vision_data.get("voci", []), ensure_ascii=False)
 
@@ -1203,13 +1211,13 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
             m = RX_CUP.search(text_one)
             if m: out["cup"] = m.group(1).upper()
     except Exception as e:
-        logger.warning(f"Errore durante l'estrazione di CIG/CUP per {path.name}: {e}")
+        logger.warning(f"Errore durante l'estrazione di CIG/CUP per {pdf_file.name}: {e}")
 
     # --- LegalURN (NIR Standard) ---
     out["legal_urn"] = generate_legal_urn(out.get("doc_type"), out.get("data_atto"), out.get("numero_atto"), ente_nome=ente_nome)
 
     # --- Compliance (Firme e Accessibilità) ---
-    compliance = check_normative_compliance(path)
+    compliance = check_normative_compliance(pdf_file)
     out.update(compliance)
 
     # --- beneficiario/fornitore/aggiudicatario ---
@@ -1324,7 +1332,7 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
     event = AdministrativeEvent(
         event_type=event_type_enum,
         document_type=doc_type_enum,
-        document_id=path.stem,
+        document_id=pdf_file.stem,
         document_number=out.get("numero_atto"),
         document_date=out.get("data_atto"),
         title=out.get("oggetto"),
@@ -1336,7 +1344,7 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
         raw_text=text_one,
         metadata={
             "urn": out.get("legal_urn"),
-            "source_file": path.name
+            "source_file": pdf_file.name   # <-- era path.name
         }
     )
     procedure_builder.add_event(event)
@@ -1374,9 +1382,9 @@ def build_parser():
     ap.add_argument("--force", action="store_true", help="Ignora la cache e rianalizza tutti i PDF.")
     return ap
 
-def extract_full_metadata(pdf_path: Path, filename: str = "") -> dict:
+def extract_full_metadata(pdf_path: Path, filename: str = "", text_dir: Path = None) -> dict:
     """Estrae tutti i metadati da un singolo PDF inclusa la chiave accounting_relevant."""
-    return extract_from_pdf(pdf_path, use_llm=False)
+    return extract_from_pdf(pdf_path, use_llm=False, text_dir=text_dir)
 
 def process_directory_to_csv(pdf_dir: Path, output_csv: Path, max_files: int = None) -> pd.DataFrame:
     """Elabora tutti i PDF in una directory e salva i risultati in un file CSV."""
@@ -1539,7 +1547,13 @@ def main():
                     })
                 continue
                 
-            info = extract_from_pdf(pdf_file, use_llm=args.use_llm, rf_model=rf_model, ente_nome=args.ente)
+            info = extract_from_pdf(
+                pdf_file,
+                use_llm=args.use_llm,
+                rf_model=rf_model,
+                ente_nome=args.ente,
+                text_dir=text_dir        # <-- aggiunto
+            )
             
             # Deduplicazione documenti appena estratti
             text_hash = info.get("text_sha256")

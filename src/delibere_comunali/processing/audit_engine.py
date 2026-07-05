@@ -117,9 +117,18 @@ class AuditEngine:
 def main():
     parser = argparse.ArgumentParser(description="Motore Antifrode: Scoring Dinamico")
     parser.add_argument("--base", default="data/baiano/albo_download", help="Cartella base dei dati.")
+    parser.add_argument("--ente", default=None, help="Identificativo ente (opzionale)")
+    parser.add_argument("--use-llm", action="store_true", help="Abilita arricchimento LLM (opzionale)")
+    parser.add_argument("--llm-provider", default=None, help="Provider LLM (openai, gemini, mistral...)")
+    parser.add_argument("--llm-model", default=None, help="Modello LLM da usare")
     args = parser.parse_args()
 
     base = Path(args.base)
+    
+    # Se --ente specificato e --base è il default, aggiusta il path
+    if args.ente and args.base == "data/baiano/albo_download":
+        base = Path(f"data/{args.ente}/albo_download")
+
     atti_path = base / "atti_parsed.csv"
     output_path = base / "atti_audited.csv"
 
@@ -128,14 +137,16 @@ def main():
         return
 
     print("🚀 Avvio Motore Audit Dinamico...")
+    if args.use_llm:
+        print(f"   LLM: {args.llm_provider or 'default'} / {args.llm_model or 'default'}")
+
     df = pd.read_csv(atti_path)
-    
+
     engine = AuditEngine(df)
     df_audited = engine.run_audit()
-    
-    # Salva il dataset arricchito per la Dashboard
+
     df_audited.to_csv(output_path, index=False)
-    
+
     anomalie = df_audited[df_audited['risk_score'] > 0]
     print(f"✅ Audit completato. Identificati {len(anomalie)} atti con anomalie su {len(df)}.")
     print(f"💾 Dataset di audit salvato in: {output_path}")

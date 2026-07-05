@@ -12,6 +12,22 @@ import io
 import plotly.express as px
 import plotly.graph_objects as go
 from delibere_comunali.web.rag_chat import esegui_query_rag_core
+import re
+
+def _norm_pdf_key(v):
+    if pd.isna(v):
+        return ""
+    s = str(v).strip().lower().replace("\\", "/")
+    s = s.split("/")[-1]              # basename
+    s = re.sub(r"\.pdf$", "", s)      # senza estensione
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+try:
+    import matplotlib  # noqa: F401
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(
@@ -98,13 +114,35 @@ def load_and_clean_data(base_path):
     if not csv_path.exists(): return pd.DataFrame()
     
     df = pd.read_csv(csv_path)
+
+    # chiave documento robusta
+    if 'pdf_name' in df.columns:
+        df['pdf_key'] = df['pdf_name'].apply(_norm_pdf_key)
+    elif 'pdf_path' in df.columns:
+        df['pdf_key'] = df['pdf_path'].apply(_norm_pdf_key)
+    else:
+        df['pdf_key'] = ""
     
     # 1. Normalizzazione Date
     df['data_parsed'] = pd.to_datetime(df['data_atto'], format='%d/%m/%Y', errors='coerce')
     
-    # 2. Normalizzazione Importi
-    importo_col = 'importo_xai' if 'importo_xai' in df.columns else 'importo_max'
-    df['importo_clean'] = pd.to_numeric(df[importo_col], errors='coerce').fillna(0)
+    # 2. Normalizzazione Importi (robusta)
+    candidate_cols = [c for c in ["importo_clean", "importo_xai", "importo_max", "importo", "importo_euro"] if c in df.columns]
+    if candidate_cols:
+        src = candidate_cols[0]
+        numeric_try = pd.to_numeric(df[src], errors='coerce')
+        if numeric_try.notna().any():
+            df['importo_clean'] = numeric_try.fillna(0)
+        else:
+            normalized = (
+                df[src].astype(str)
+                .str.replace(r"[^\d,.\-]", "", regex=True)
+                .str.replace(".", "", regex=False)
+                .str.replace(",", ".", regex=False)
+            )
+            df['importo_clean'] = pd.to_numeric(normalized, errors='coerce').fillna(0)
+    else:
+        df['importo_clean'] = 0.0
     
     # 3. Normalizzazione Confidenza
     def parse_conf(val):
@@ -123,18 +161,48 @@ def load_and_clean_data(base_path):
     df['anno_mese'] = df['data_parsed'].dt.to_period('M').astype(str)
     # 5. Arricchimento opzionale con i dati del Motore Audit (se esiste)
     audit_path = base_path / "atti_audited.csv"
-    
     if audit_path.exists():
-        df_audit = pd.read_csv(audit_path)[['pdf_name', 'risk_score', 'anomalie_rilevate']]
-        # Uniamo il risk score al dataset principale
-        df = pd.merge(df, df_audit, on='pdf_name', how='left')
-        # Riempiamo i vuoti per chi non ha anomalie
-        df['risk_score'] = df['risk_score'].fillna(0.0)
+        df_audit_raw = pd.read_csv(audit_path)
+
+        if 'pdf_name' in df_audit_raw.columns:
+            df_audit_raw['pdf_key'] = df_audit_raw['pdf_name'].apply(_norm_pdf_key)
+        elif 'pdf_path' in df_audit_raw.columns:
+            df_audit_raw['pdf_key'] = df_audit_raw['pdf_path'].apply(_norm_pdf_key)
+        else:
+            df_audit_raw['pdf_key'] = ""
+
+        keep = [c for c in ['pdf_key', 'risk_score', 'anomalie_rilevate'] if c in df_audit_raw.columns]
+        if 'pdf_key' in keep:
+            df_audit = df_audit_raw[keep].copy()
+            if 'risk_score' in df_audit.columns:
+                df_audit['risk_score'] = pd.to_numeric(df_audit['risk_score'], errors='coerce').fillna(0.0)
+            # dedup per documento
+            agg_map = {}
+            if 'risk_score' in df_audit.columns:
+                agg_map['risk_score'] = 'max'
+            if 'anomalie_rilevate' in df_audit.columns:
+                agg_map['anomalie_rilevate'] = lambda s: " | ".join(sorted(set([str(x) for x in s.dropna() if str(x).strip()])))
+            df_audit = df_audit.groupby('pdf_key', as_index=False).agg(agg_map)
+
+            df = pd.merge(df, df_audit, on='pdf_key', how='left', suffixes=('', '_audit'))
+
+    if 'risk_score' not in df.columns:
+        df['risk_score'] = 0.0
+    else:
+        df['risk_score'] = pd.to_numeric(df['risk_score'], errors='coerce').fillna(0.0)
+
+    if 'anomalie_rilevate' not in df.columns:
+        df['anomalie_rilevate'] = ""
+    else:
         df['anomalie_rilevate'] = df['anomalie_rilevate'].fillna("")
 
     return df
 
 df_all = load_and_clean_data(BASE_PATH)
+
+# fallback finale di sicurezza
+if 'importo_clean' not in df_all.columns:
+    df_all['importo_clean'] = 0.0
 
 if focus_domain == "💰 Solo Contabilità & Appalti":
     df_all = df_all[df_all.get('accounting_relevant', False) == True].copy()
@@ -169,16 +237,19 @@ if menu == "📊 Dashboard Direzionale":
     # --- KPI TOP ROW ---
     c1, c2, c3, c4 = st.columns(4)
     
-    spesa_totale = df_certified['importo_clean'].sum()
+    spesa_totale = pd.to_numeric(df_certified["importo_clean"], errors="coerce").fillna(0).sum()
     spesa_outliers = df_certified[df_certified['importo_clean'] > 1000000]['importo_clean'].sum()
     
     c1.markdown(f"""<div class="kpi-card"><div class="kpi-label">Spesa Certificata</div><div class="kpi-value">€ {spesa_totale:,.2f}</div></div>""", unsafe_allow_html=True)
     c2.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atti Analizzati</div><div class="kpi-value">{len(df_all)}</div></div>""", unsafe_allow_html=True)
     c3.markdown(f"""<div class="kpi-card"><div class="kpi-label">Fornitori Unici</div><div class="kpi-value">{df_certified['piva_beneficiario'].nunique()}</div></div>""", unsafe_allow_html=True)
     
-    conf_media = df_all['conf_numeric'].mean()
-    status_cls = "status-active" if conf_media > 0.8 else "status-low"
-    c4.markdown(f"""<div class="kpi-card"><div class="kpi-label">Indice Veridicità</div><div class="kpi-value {status_cls}">{conf_media:.1%}</div></div>""", unsafe_allow_html=True)
+    quota_certificata = (len(df_certified) / len(df_all)) if len(df_all) else 0.0
+    status_cls = "status-active" if quota_certificata >= 0.85 else "status-low"
+    c4.markdown(
+        f"""<div class="kpi-card"><div class="kpi-label">Indice Veridicità</div><div class="kpi-value {status_cls}">{quota_certificata:.1%}</div></div>""",
+        unsafe_allow_html=True
+    )
 
     st.markdown("---")
     
@@ -258,16 +329,20 @@ elif menu == "🔎 Esploratore Atti (Audit)":
     # Tabella Interattiva
     # (Aggiunto 'risk_score' all'inizio della lista per vederlo subito)
     cols_to_show = ['risk_score', 'data_atto', 'doc_type', 'category', 'oggetto', 'beneficiario', 'importo_clean', 'cig', 'responsabile']
-    
-    # Sostituiamo il dataframe normale con quello colorato
-    st.dataframe(
-        df_filtered[cols_to_show].style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100),
-        use_container_width=True
-    )
+    available_cols = [c for c in cols_to_show if c in df_filtered.columns]
+    table_df = df_filtered[available_cols]
+
+    if MATPLOTLIB_AVAILABLE and 'risk_score' in available_cols:
+        st.dataframe(
+            table_df.style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100),
+            use_container_width=True
+        )
+    else:
+        st.dataframe(table_df, use_container_width=True)
     
     if st.button("📥 Esporta Selezione in Excel"):
         output_excel = f"export_audit_{ente_selezionato}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-        df_filtered[cols_to_show].to_excel(output_excel, index=False)
+        table_df.to_excel(output_excel, index=False)
         st.success(f"File esportato: {output_excel}")
 
 # ==========================================
@@ -297,7 +372,21 @@ elif menu == "💬 Assistente RAG (IA)":
         with st.chat_message("user"): st.markdown(prompt)
         
         with st.spinner("L'auditor virtuale sta analizzando i documenti..."):
-            risposta = esegui_query_rag_core(query=prompt, ente=ente_selezionato, only_accounting=only_accounting, only_personnel_competence=only_personnel)
+            try:
+                # tentativo completo (nuove versioni)
+                risposta = esegui_query_rag_core(
+                    query=prompt,
+                    ente=ente_selezionato,
+                    only_accounting=only_accounting,
+                    only_personnel_competence=only_personnel
+                )
+            except TypeError:
+                # fallback compatibilità (versioni chain che non accettano only_personnel_competence)
+                risposta = esegui_query_rag_core(
+                    query=prompt,
+                    ente=ente_selezionato,
+                    only_accounting=only_accounting
+                )
             
             with st.chat_message("assistant"):
                 st.markdown(risposta)
@@ -347,7 +436,13 @@ elif menu == "🕵️ Analisi Antifrode & Anomalie":
             with col_chart1:
                 st.subheader("📊 Distribuzione Tipologie Anomalie")
                 # Espandiamo le stringhe per contare le anomalie (es. "Smurfing | CIG Fantasma")
-                anomalie_list = df_anomalies['anomalie_rilevate'].str.split(' \| ', expand=True).stack().value_counts().reset_index()
+                anomalie_list = (
+                    df_anomalies['anomalie_rilevate']
+                    .str.split(' | ', regex=False, expand=True)
+                    .stack()
+                    .value_counts()
+                    .reset_index()
+                )
                 anomalie_list.columns = ['Tipo Anomalia', 'Frequenza']
                 
                 fig_anomalie = px.bar(anomalie_list, x='Frequenza', y='Tipo Anomalia', orientation='h', 
@@ -377,14 +472,18 @@ elif menu == "🕵️ Analisi Antifrode & Anomalie":
             
             # Colonne da visualizzare
             cols_to_display = ['risk_score', 'anomalie_rilevate', 'beneficiario_norm', 'importo_clean', 'data_atto', 'pdf_name', 'cig']
-            
-            # Usiamo st.dataframe con background gradient (Heatmap) per far risaltare subito il rischio
-            st.dataframe(
-                df_filtered[cols_to_display].style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100)
-                .format({'importo_clean': '€ {:.2f}', 'risk_score': '{:.1f}'}),
-                use_container_width=True,
-                height=400
-            )
+            cols_to_display = [c for c in cols_to_display if c in df_filtered.columns]
+            table_anom = df_filtered[cols_to_display]
+
+            if MATPLOTLIB_AVAILABLE and 'risk_score' in cols_to_display:
+                st.dataframe(
+                    table_anom.style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100)
+                    .format({'importo_clean': '€ {:.2f}', 'risk_score': '{:.1f}'}),
+                    use_container_width=True,
+                    height=400
+                )
+            else:
+                st.dataframe(table_anom, use_container_width=True, height=400)
             
         else:
             st.success("🎉 Ottime notizie! Nessuna anomalia statistica è stata rilevata nel dataset.")
@@ -403,9 +502,9 @@ elif menu == "⚙️ Intelligence & Manutenzione":
             with st.spinner("Motori di elaborazione massiva in esecuzione..."):
                 # Passiamo tutto tramite il nuovo orchestratore run.py
                 try:
-                    subprocess.run([sys.executable, "run.py", "build-kg", "--base", str(BASE_PATH)], check=True)
-                    subprocess.run([sys.executable, "run.py", "analyze-topology", "--base", str(BASE_PATH)], check=True)
-                    subprocess.run([sys.executable, "run.py", "audit", "--base", str(BASE_PATH)], check=True) # Chiama il nuovo AuditEngine
+                    subprocess.run([sys.executable, "run.py", "build-kg", "--base", str(BASE_PATH)], check=True, cwd=PROJECT_ROOT)
+                    subprocess.run([sys.executable, "run.py", "analyze-topology", "--base", str(BASE_PATH)], check=True, cwd=PROJECT_ROOT)
+                    subprocess.run([sys.executable, "run.py", "audit", "--base", str(BASE_PATH)], check=True, cwd=PROJECT_ROOT)
                     st.success("✅ Tutti i report e i grafi sono stati aggiornati con successo!")
                     st.rerun() # Forza l'aggiornamento della UI per mostrare i nuovi dati
                 except subprocess.CalledProcessError as e:
