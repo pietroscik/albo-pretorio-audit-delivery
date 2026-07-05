@@ -112,10 +112,11 @@ class TestProcedureBuilder:
             AdministrativeEvent(
                 event_type=EventType.AFFIDAMENTO,
                 cig="Z123456",
-                document_date=datetime(2025, 1, 1),
+                document_date=datetime(2025, 1, i + 1),
                 economic_value=10000.0,
-            ),
-        ] * 5
+            )
+            for i in range(5)
+        ]
         builder.link_events_by_cig(events)
         anomalies = builder.detect_anomalies()
         assert "CIG_Z123456" in anomalies

@@ -76,7 +76,12 @@ class DelibereExtractor:
         if not iban:
             return False
         iban = re.sub(r'\s+', '', iban).upper()
-        return iban.startswith("IT") and len(iban) == 27
+        if not iban.startswith("IT") or len(iban) != 27:
+            return False
+        # Verifica checksum MOD97 (ISO 13616)
+        rearranged = iban[4:] + iban[:4]
+        numeric = ''.join(str(ord(c) - 55) if c.isalpha() else c for c in rearranged)
+        return int(numeric) % 97 == 1
 
     def extract_entities(self, text: str) -> dict:
         if not isinstance(text, str):
@@ -107,7 +112,8 @@ class DelibereExtractor:
                     val = float(s)
                     if 0.01 < val < 1000000000: # Filtro rumore
                         vals.append(val)
-                except: continue
+                except (ValueError, AttributeError):
+                    continue
             if vals: importo_max = max(vals)
             
         piva_matches = self.piva_pattern.findall(cleaned_text)
