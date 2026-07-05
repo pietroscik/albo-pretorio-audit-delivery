@@ -502,9 +502,21 @@ elif menu == "⚙️ Intelligence & Manutenzione":
             with st.spinner("Motori di elaborazione massiva in esecuzione..."):
                 # Passiamo tutto tramite il nuovo orchestratore run.py
                 try:
-                    subprocess.run([sys.executable, "run.py", "build-kg", "--base", str(BASE_PATH)], check=True, cwd=PROJECT_ROOT)
-                    subprocess.run([sys.executable, "run.py", "analyze-topology", "--base", str(BASE_PATH)], check=True, cwd=PROJECT_ROOT)
-                    subprocess.run([sys.executable, "run.py", "audit", "--base", str(BASE_PATH)], check=True, cwd=PROJECT_ROOT)
+                    subprocess.run(
+                        [sys.executable, str(PROJECT_ROOT / "run.py"), "build-kg", "--base", str(BASE_PATH)],
+                        check=True,
+                        cwd=str(PROJECT_ROOT),
+                    )
+                    subprocess.run(
+                        [sys.executable, str(PROJECT_ROOT / "run.py"), "analyze-topology", "--base", str(BASE_PATH)],
+                        check=True,
+                        cwd=str(PROJECT_ROOT),
+                    )
+                    subprocess.run(
+                        [sys.executable, str(PROJECT_ROOT / "run.py"), "audit", "--base", str(BASE_PATH)],
+                        check=True,
+                        cwd=str(PROJECT_ROOT),
+                    )
                     st.success("✅ Tutti i report e i grafi sono stati aggiornati con successo!")
                     st.rerun() # Forza l'aggiornamento della UI per mostrare i nuovi dati
                 except subprocess.CalledProcessError as e:
