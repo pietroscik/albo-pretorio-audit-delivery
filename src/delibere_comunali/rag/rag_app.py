@@ -54,7 +54,6 @@ DEFAULT_LLM_MODELS = [
     "pixtral-large-latest",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
-    "gemini-1.5-flash",
 ]
 
 MODEL_PROFILES = {
@@ -96,7 +95,6 @@ MODEL_PROFILES = {
             "gemini-2.5-flash",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
-            "gemini-1.5-flash",
         ],
         "embed_batch_size": 35,
         "embed_pause_sec": 60.0,
@@ -109,8 +107,7 @@ MODEL_PROFILES = {
         ],
         "llm_models": [
             "gemini-2.5-flash",
-            "gemini-1.5-flash",
-            "gemini-3.1-flash-lite",
+python run.py pipeline            "gemini-3.1-flash-lite",
         ],
         "embed_batch_size": 40,
         "embed_pause_sec": 60.0,
@@ -670,6 +667,7 @@ def run_standalone_app():
     """Funzione per eseguire l'app RAG come applicazione Streamlit a sé stante."""
     st.set_page_config(page_title="RAG Motore di Ricerca Albo", layout="wide", page_icon="🤖")
 
+    # Supporto per il parametro ente attraverso query parameters
     current_ente = None
     if hasattr(st, "query_params"):
         if "ente" in st.query_params:
@@ -678,11 +676,15 @@ def run_standalone_app():
         params = st.experimental_get_query_params()
         if "ente" in params:
             current_ente = params["ente"][0]
-            
+    
+    # Usa 'avella' come default se non specificato
+    if current_ente is None:
+        current_ente = st.sidebar.text_input("Nome Ente (default: avella)", value="avella")
+    
     APP_BASE_DIR = get_tenant_dir(current_ente)
 
     st.title("🤖 Motore di Ricerca RAG - Albo Pretorio")
-    st.markdown("Fai domande sui documenti dell'albo pretorio. L'AI cercherà le informazioni rilevanti e ti risponderà citando le fonti.")
+    st.markdown(f"Fai domande sui documenti dell'albo pretorio di **{current_ente.upper()}**. L'AI cercherà le informazioni rilevanti e ti risponderà citando le fonti.")
 
     st.sidebar.header("Modalita' Ricerca")
     profile_name = st.sidebar.selectbox("Profilo quote", list(MODEL_PROFILES.keys()), index=0)
@@ -739,6 +741,9 @@ def run_standalone_app():
     st.sidebar.markdown("---")
     st.sidebar.subheader("🎯 Focus Dominio")
     only_accounting = st.sidebar.checkbox("Filtra solo Contabilità e Appalti", value=True, help="L'IA restringerà la ricerca ai soli atti con rilevanza finanziaria, ignorando le altre delibere.")
+    
+    # Aggiungiamo anche il filtro per competenze del personale
+    only_personnel_competence = st.sidebar.checkbox("Filtra solo Competenze Personale", value=False, help="L'IA restringerà la ricerca ai soli atti con rilevanza per competenze del personale.")
 
     rag_chain = None
     active_embedding_model = None
@@ -844,7 +849,11 @@ def run_standalone_app():
 
         with st.spinner("Ricerca nei documenti e ragionamento in corso..."):
             try:
-                response = rag_chain.invoke(user_question, only_accounting=only_accounting)
+                # Passiamo anche il parametro only_personnel_competence se disponibile
+                if hasattr(rag_chain, 'invoke') and 'only_personnel_competence' in rag_chain.invoke.__code__.co_varnames:
+                    response = rag_chain.invoke(user_question, only_accounting=only_accounting, only_personnel_competence=only_personnel_competence)
+                else:
+                    response = rag_chain.invoke(user_question, only_accounting=only_accounting)
                 with st.chat_message("assistant"):
                     st.markdown(response)
                     if hasattr(rag_chain, "last_model") and rag_chain.last_model:

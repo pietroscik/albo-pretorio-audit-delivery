@@ -4,9 +4,37 @@ import pandas as pd
 from pathlib import Path
 import sys
 import logging
+import re
 
 logger = logging.getLogger("analyze_topology")
 logging.basicConfig(level=logging.INFO)
+
+def _normalizza_rup(nome_rup: str) -> str:
+    """Normalizza i nomi dei RUP rimuovendo appellativi e formule burocratiche"""
+    if not isinstance(nome_rup, str) or not nome_rup.strip():
+        return "NON IDENTIFICATO"
+    
+    nome = nome_rup.upper().strip()
+    
+    # Rimuovi formule burocratiche
+    formule_burocratiche = ["VISTO", "VISTI", "PREMESSO", "ACCERTATA", "SULLA BASE", "DECRETO", 
+                           "FUNZIONI ATTRIBUITE", "AI SENSI", "IL RESPONSABILE", "DEL SERVIZIO", 
+                           "COPIA PIAZZA", "F.TO", "FIRMA", "TIMBRO"]
+    if any(formula in nome for formula in formule_burocratiche):
+        return "NON IDENTIFICATO"
+    
+    # Rimuovi appellativi e titoli professionali
+    nome = re.sub(r'^(DOTT\.?|ARCH\.?|ING\.?|GEOM\.?|AVV\.?|SSA|DR\.?|DOTT\.SSA|DR\.SSA)\s*', '', nome).strip()
+    nome = re.sub(r'\b(DOTT\.?|ARCH\.?|ING\.?|GEOM\.?|AVV\.?|SSA|DR\.?|DOTT\.SSA|DR\.SSA)\b', '', nome).strip()
+    
+    # Rimuovi parole comuni che non fanno parte del nome
+    nome = re.sub(r'\b(DEL|DELLA|DEI|DELL|DI|E|LA|IL|LO|LE|GLI|I|UN|UNA|PER|SU|DA|CON|SE|NON|MA|O|COME|A|IN|CONTRAENTE|RESPONSABILE)\b', ' ', nome)
+    
+    # Rimuovi caratteri speciali e comprimi spazi multipli
+    nome = re.sub(r'[^\w\s]', ' ', nome)
+    nome = re.sub(r'\s+', ' ', nome).strip()
+    
+    return nome if nome else "NON IDENTIFICATO"
 
 def main():
     parser = argparse.ArgumentParser(description="Analisi Topologica del Knowledge Graph degli Appalti.")
@@ -98,8 +126,9 @@ def main():
     for i, rup_id in enumerate(rup_ranked[:args.top_k], 1):
         out_edges = G_simple.out_edges(rup_id)
         num_atti_gestiti = len(out_edges)
-        display_name = str(rup_id).replace("f.to ", "").strip()
-        insights.append(f"{i:2d}. {display_name[:45]:<45} | Atti Gestiti: {num_atti_gestiti}")
+        # Normalizziamo il nome del RUP rimuovendo appellativi
+        normalized_name = _normalizza_rup(str(rup_id))
+        insights.append(f"{i:2d}. {normalized_name[:45]:<45} | Atti Gestiti: {num_atti_gestiti}")
 
     insights.append("\n" + "="*60 + "\n")
 

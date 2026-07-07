@@ -450,16 +450,26 @@ class LLMFailoverRAGChain:
             formatted.append(f"{meta_str}\nTesto: {d.page_content}")
         return "\n\n".join(formatted)
 
-    def invoke(self, question: str, only_accounting: bool = False) -> str:
+    def invoke(self, question: str, only_accounting: bool = False, only_personnel_competence: bool = False, k: int = 6) -> str:
+        # Controlliamo se il retriever è un FAISS vectorstore
         if hasattr(self.retriever, "as_retriever"):
-            k_fetch = 20 if only_accounting else 6
+            # Per i vectorstores FAISS, dobbiamo gestire i filtri diversamente
+            k_fetch = 20 if (only_accounting or only_personnel_competence) else 6
+            
+            # Recuperiamo i documenti senza filtri inizialmente
             docs = self.retriever.as_retriever(search_kwargs={"k": k_fetch}).invoke(question)
+            
+            # Ora applichiamo i filtri ai documenti recuperati
             if only_accounting:
                 docs = [d for d in docs if d.metadata.get("accounting_relevant", False)][:6]
+            elif only_personnel_competence:
+                # Filtra per documenti rilevanti per competenze del personale
+                docs = [d for d in docs if d.metadata.get("is_personnel_competence_relevant", False)][:6]
             else:
                 docs = docs[:6]
         else:
-            docs = self.retriever.invoke(question, only_accounting=only_accounting)
+            # Per il retriever locale, passiamo i parametri direttamente
+            docs = self.retriever.invoke(question, only_accounting=only_accounting, only_personnel_competence=only_personnel_competence, k=k)
             
         context = self._format_docs(docs)
         prompt_value = self.prompt.format(context=context, question=question)
@@ -653,6 +663,7 @@ def esegui_query_rag_core(query: str, ente: str = "avella", only_accounting: boo
             chain = None
             if google_api_key:
                 try:
+                    # Inizializziamo il sistema RAG con un approccio più sicuro
                     chain, _ = _init_rag_system_core(
                         embedding_models=tuple(embedding_models),
                         llm_models=tuple(llm_models),
@@ -661,14 +672,67 @@ def esegui_query_rag_core(query: str, ente: str = "avella", only_accounting: boo
                         build_if_missing=False,
                         base_dir=tenant_dir
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Mostra un messaggio all'utente che il sistema RAG sta avendo problemi
+                    st.toast(f"⚠️ Problema con il sistema RAG cloud: {str(e)[:100]}...", icon="☁️")
+                    pass  # Prosegui con il metodo locale se la chiave API è presente ma il sistema RAG fallisce
                     
             if chain is None:
-                chain = _init_local_chain_core(tenant_dir)
+                # Prima prova a caricare il chain locale, ma con gestione degli errori
+                try:
+                    import threading
+                    import time
+                    import queue
+                    
+                    # Usiamo una coda per gestire il caricamento del chain locale in modo sicuro
+                    result_queue = queue.Queue()
+                    
+                    def load_local_chain():
+                        try:
+                            result = _init_local_chain_core(tenant_dir)
+                            result_queue.put(('success', result))
+                        except Exception as e:
+                            result_queue.put(('error', str(e)))
+                    
+                    thread = threading.Thread(target=load_local_chain)
+                    thread.daemon = True
+                    thread.start()
+                    
+                    # Aspettiamo fino a 30 secondi per il caricamento
+                    thread.join(timeout=30)
+                    
+                    if thread.is_alive():
+                        # Thread ancora in esecuzione, consideriamo come timeout
+                        st.toast("⚠️ Tempo limite superato durante il caricamento del motore di ricerca locale. Utilizzo metodo alternativo.", icon="⏱️")
+                        result_queue.queue.clear()
+                        chain = None
+                    else:
+                        # Thread completato, controlliamo il risultato
+                        try:
+                            status, result = result_queue.get_nowait()
+                            if status == 'success':
+                                chain = result
+                            else:
+                                st.toast(f"⚠️ Errore nel caricamento del motore di ricerca locale: {result[:100]}...", icon="❌")
+                                chain = None
+                        except queue.Empty:
+                            chain = None
+                            
+                except Exception as e:
+                    # Se threading fallisce per qualche motivo, prova comunque il caricamento diretto
+                    # ma con un controllo del tempo più semplice
+                    start_time = time.time()
+                    try:
+                        chain = _init_local_chain_core(tenant_dir)
+                        # Controlla se il caricamento ha richiesto troppo tempo
+                        elapsed = time.time() - start_time
+                        if elapsed > 20:  # Se ci vuole più di 20 secondi
+                            st.toast(f"⚠️ Caricamento del motore RAG richiesto {elapsed:.1f}s. Considera di ottimizzare i dati.", icon="⏰")
+                    except Exception:
+                        chain = None
 
             if chain is None:
-                return f"❌ Errore: Motore RAG non disponibile (mancano i documenti corpus in {tenant_dir}?)."
+                return f"❌ Errore: Motore RAG non disponibile (mancano i documenti corpus in {tenant_dir} o tempo limite superato durante il caricamento?)."
                 
             _multi_tenant_rag_chains[chain_key] = chain
 

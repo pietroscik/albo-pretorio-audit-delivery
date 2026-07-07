@@ -1,21 +1,28 @@
+#!/usr/bin/env python3
+"""
+Modulo di post-processing per ottimizzare la classificazione dei documenti.
+Questo modulo implementa le logiche di risoluzione delle ambiguità e miglioramento
+del modello ML sviluppate per risolvere i problemi identificati.
+"""
+
 import pandas as pd
 import numpy as np
+import joblib
+import logging
+from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import accuracy_score, classification_report, precision_recall_fscore_support
 from sklearn.utils.class_weight import compute_class_weight
-import joblib
-import os
 import argparse
-from pathlib import Path
-import logging
 
 # Configura il logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def apply_advanced_classification_rules(text_str, oggetto_str=""):
     """Applica regole avanzate di classificazione per risolvere ambiguità."""
@@ -227,162 +234,58 @@ def enhance_model_with_resolved_data(df, base_path):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--base", default="albo_download", help="Percorso base dei dati")
+    parser = argparse.ArgumentParser(description="Post-process classification results to improve quality")
+    parser.add_argument("--base", default="albo_download", help="Base directory for data files")
     args = parser.parse_args()
-
-    # 1. Caricamento del dataset
+    
     base_path = Path(args.base)
-    file_path = base_path / 'documenti_features.csv'
-    allegati_path = base_path / 'allegati_parsed.csv'
-    excel_path = base_path / 'albo_analisi.xlsx'
-
-    if not file_path.exists():
-        print(f"ERRORE: File {file_path} non trovato. Esegui analyze_albo.py prima.")
-        return
-
-    df_features = pd.read_csv(file_path)
-    try:
-        df_allegati = pd.read_csv(allegati_path)
-    except FileNotFoundError:
-        print(f"ERRORE: File {allegati_path} non trovato.")
-        return
-
-    # --- FEEDBACK LOOP (ACTIVE LEARNING) ---
-    if excel_path.exists():
-        try:
-            xl = pd.ExcelFile(excel_path)
-            if 'revisione_ml' in xl.sheet_names:
-                df_revision = pd.read_excel(xl, sheet_name='revisione_ml')
-                if 'categoria_corretta' in df_revision.columns:
-                    corrections = df_revision.dropna(subset=['categoria_corretta']).copy()
-                    if not corrections.empty:
-                        print(f"[*] Trovate {len(corrections)} correzioni manuali in Excel. Aggiorno il dataset...")
-                        corr_map = dict(zip(corrections['pdf_name'], corrections['categoria_corretta']))
-                        for name, cat in corr_map.items():
-                            df_features.loc[df_features['pdf_name'] == name, 'category'] = cat
-                            df_features.loc[df_features['pdf_name'] == name, 'classification_confidence'] = 'high'
-                            df_allegati.loc[df_allegati['pdf_name'] == name, 'category'] = cat
-                            df_allegati.loc[df_allegati['pdf_name'] == name, 'classification_confidence'] = 'high'
-                        df_features.to_csv(file_path, index=False)
-                        df_allegati.to_csv(allegati_path, index=False)
-        except Exception as e:
-            print(f"[WARN] Impossibile leggere correzioni Excel: {e}")
-
-    # Uniamo i due dataset
-    df = pd.merge(df_features, df_allegati, on='pdf_name', how='inner', suffixes=('', '_allegati'))
-
-    # Selezione colonna testo
-    text_column = next((c for c in ['text_preview', 'text', 'extracted_text'] if c in df.columns), None)
-    if not text_column:
-        print("ERRORE: Nessuna colonna di testo trovata.")
-        return
-
-    df = df.dropna(subset=[text_column, 'category'])
-
-    # 2. Training e Test Set
-    # Consideriamo 'high' confidence o 'high_ml' (già validate)
-    train_mask = df['classification_confidence'].isin(['high', 'high_ml'])
-    high_conf_df = df[train_mask].copy()
     
-    if len(high_conf_df) < 5:
-        print(f"Dataset troppo piccolo per il training ({len(high_conf_df)} documenti validi). Saltaggio training.")
-        return
-
-    X = high_conf_df[text_column]
-    y = high_conf_df['category']
-
-    # Divisione stratificata
-    try:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    except:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    # 3. Ottimizzazione degli iperparametri
-    print("🔍 Ottimizzazione degli iperparametri...")
-    pipeline = Pipeline([
-        ('tfidf', TfidfVectorizer(max_features=10000, ngram_range=(1, 3), max_df=0.85, min_df=2, stop_words='english')),
-        ('clf', RandomForestClassifier(random_state=42, n_jobs=-1))
-    ])
-
-    # Griglia di iperparametri da testare
-    param_grid = {
-        'tfidf__max_features': [5000, 7500, 10000],
-        'tfidf__ngram_range': [(1, 2), (1, 3), (1, 4)],
-        'tfidf__max_df': [0.8, 0.85, 0.9],
-        'tfidf__min_df': [2, 3, 5],
-        'clf__n_estimators': [100, 200, 300],
-        'clf__max_depth': [10, 20, 30, None],
-        'clf__min_samples_split': [2, 5, 10],
-        'clf__min_samples_leaf': [1, 2, 4],
-        'clf__class_weight': ['balanced', 'balanced_subsample', None]
-    }
-
-    # Ricerca a griglia con cross-validation
-    print("🔍 Esecuzione della ricerca a griglia...")
-    grid_search = GridSearchCV(pipeline, param_grid, cv=3, scoring='f1_macro', n_jobs=-1, verbose=1)
-    grid_search.fit(X_train, y_train)
-
-    # Otteniamo il miglior modello
-    best_pipeline = grid_search.best_estimator_
-    print(f"✅ Migliori parametri: {grid_search.best_params_}")
-
-    # 4. Valutazione del miglior modello
-    y_pred = best_pipeline.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    precision, recall, f1, support = precision_recall_fscore_support(y_test, y_pred, average='macro', zero_division=0)
+    # Carica i dati
+    allegati_path = base_path / "allegati_parsed.csv"
+    features_path = base_path / "documenti_features.csv"
     
-    print(f"\n📊 Risultati del modello ottimizzato:")
-    print(f"Accuracy Globale: {accuracy:.4f}")
-    print(f"Macro Precision: {precision:.4f}")
-    print(f"Macro Recall: {recall:.4f}")
-    print(f"Macro F1-Score: {f1:.4f}")
-    print("\n📋 Classification Report Dettagliato:")
-    print(classification_report(y_test, y_pred, zero_division=0))
-
-    # 5. Salvataggio del miglior modello
-    model_dir = base_path / 'faiss_index' # Salviamo nella cartella dell'ente per isolamento
-    model_dir.mkdir(parents=True, exist_ok=True)
-    model_path = model_dir / 'random_forest_model.joblib'
-    joblib.dump(best_pipeline, model_path)
-    print(f"[OK] Modello salvato in: {model_path}")
-
-    # 6. Riclassifica i documenti ambigui utilizzando il modello appena addestrato
-    print("🔄 Riclassificazione documenti ambigui...")
+    if not allegati_path.exists():
+        logger.error(f"File {allegati_path} non trovato")
+        return
+    
+    df = pd.read_csv(allegati_path)
+    
+    # Carica anche il file features se esiste
+    if features_path.exists():
+        df_features = pd.read_csv(features_path)
+        # Unisci i dati mantenendo le colonne uniche
+        df = pd.merge(df, df_features, on='pdf_name', how='left', suffixes=('', '_feat'))
+    
+    logger.info(f"Dati caricati: {len(df)} documenti")
+    
+    # Carica il modello ML
+    model_path = base_path / "faiss_index" / "random_forest_model.joblib"
+    if not model_path.exists():
+        logger.warning(f"Modello ML non trovato: {model_path}. Impossibile procedere con la riclassificazione.")
+        return
+    
+    try:
+        rf_model = joblib.load(model_path)
+        logger.info(f"Modello ML caricato da: {model_path}")
+    except Exception as e:
+        logger.error(f"Errore nel caricamento del modello: {e}")
+        return
     
     # Conta i documenti ambigui prima della riclassificazione
     ambiguous_before = len(df[df['classification_confidence'] == 'ambiguous'])
-    print(f"Documenti ambigui prima della riclassificazione: {ambiguous_before}")
+    logger.info(f"Documenti ambigui prima della riclassificazione: {ambiguous_before}")
     
     if ambiguous_before > 0:
         # Risolvi le ambiguità utilizzando il modello ML e le regole avanzate
-        df = resolve_ambiguities_with_ml(df, best_pipeline, text_column)
+        df = resolve_ambiguities_with_ml(df, rf_model)
         
         # Conta i documenti ambigui dopo la riclassificazione
         ambiguous_after = len(df[df['classification_confidence'] == 'ambiguous'])
-        print(f"Documenti ambigui dopo la riclassificazione: {ambiguous_after}")
-        print(f"Ambiguità risolte: {ambiguous_before - ambiguous_after}")
-        
-        # Aggiorna i file CSV con le nuove classificazioni
-        df_features_update = df[['pdf_name', 'category', 'classification_confidence']].copy()
-        df_features = df_features.set_index('pdf_name')
-        df_features_update = df_features_update.set_index('pdf_name')
-        df_features.update(df_features_update)
-        df_features.reset_index(inplace=True)
-        
-        df_allegati_update = df[['pdf_name', 'category', 'classification_confidence']].copy()
-        df_allegati = df_allegati.set_index('pdf_name')
-        df_allegati_update = df_allegati_update.set_index('pdf_name')
-        df_allegati.update(df_allegati_update)
-        df_allegati.reset_index(inplace=True)
-        
-        # Salva i file aggiornati
-        df_features.to_csv(file_path, index=False)
-        df_allegati.to_csv(allegati_path, index=False)
-        print("✅ File CSV aggiornati con le nuove classificazioni")
-
-    # 7. Migliora il modello utilizzando i dati risolti
-    print("🚀 Miglioramento del modello ML con dati risolti...")
+        logger.info(f"Documenti ambigui dopo la riclassificazione: {ambiguous_after}")
+        logger.info(f"Ambiguità risolte: {ambiguous_before - ambiguous_after}")
+    
+    # Migliora il modello utilizzando i dati risolti
+    logger.info("Miglioramento del modello ML con dati risolti...")
     enhanced_model = enhance_model_with_resolved_data(df, base_path)
     
     if enhanced_model is not None:
@@ -391,9 +294,10 @@ def main():
         low_conf_docs = df[low_conf_mask].copy()
         
         if len(low_conf_docs) > 0:
-            print(f"Applicazione del modello migliorato ai {len(low_conf_docs)} documenti con bassa confidenza...")
+            logger.info(f"Applicazione del modello migliorato ai {len(low_conf_docs)} documenti con bassa confidenza...")
             
-            # Applica il modello migliorato ai documenti con bassa confidenza
+            # Seleziona la colonna del testo
+            text_column = 'text_preview' if 'text_preview' in low_conf_docs.columns else 'text'
             text_available = low_conf_docs[text_column].notna() & (low_conf_docs[text_column].astype(str).str.len() > 50)
             docs_with_text = low_conf_docs[text_available].copy()
             
@@ -419,27 +323,44 @@ def main():
                 df.loc[docs_with_text.index, 'classification_confidence'] = updated_confidence
                 
                 improved_count = len(docs_with_text[mask_high_conf]) + len(docs_with_text[mask_medium_conf])
-                print(f"Riclassificati {improved_count} documenti da bassa a media/alta confidenza")
-                
-                # Aggiorna e salva i file CSV
-                df_features_update = df[['pdf_name', 'category', 'classification_confidence']].copy()
-                df_features = df_features.set_index('pdf_name')
-                df_features_update = df_features_update.set_index('pdf_name')
-                df_features.update(df_features_update)
-                df_features.reset_index(inplace=True)
-                
-                df_allegati_update = df[['pdf_name', 'category', 'classification_confidence']].copy()
-                df_allegati = df_allegati.set_index('pdf_name')
-                df_allegati_update = df_allegati_update.set_index('pdf_name')
-                df_allegati.update(df_allegati_update)
-                df_allegati.reset_index(inplace=True)
-                
-                # Salva i file aggiornati
-                df_features.to_csv(file_path, index=False)
-                df_allegati.to_csv(allegati_path, index=False)
-                print("✅ File CSV aggiornati con le nuove classificazioni dal modello migliorato")
-
-    print("✅ Processo completato con successo!")
+                logger.info(f"Riclassificati {improved_count} documenti da bassa a media/alta confidenza")
+    
+    # Salva i dati aggiornati
+    df.to_csv(allegati_path, index=False)
+    logger.info(f"Dati aggiornati salvati in: {allegati_path}")
+    
+    # Se esiste il file features, aggiorna anche quello
+    if features_path.exists():
+        df_features_subset = df[['pdf_name', 'category', 'classification_confidence']].copy()
+        df_features_orig = pd.read_csv(features_path)
+        df_features_orig = df_features_orig.set_index('pdf_name')
+        df_features_subset = df_features_subset.set_index('pdf_name')
+        df_features_orig.update(df_features_subset)
+        df_features_orig.reset_index(inplace=True)
+        df_features_orig.to_csv(features_path, index=False)
+        logger.info(f"File features aggiornato salvato in: {features_path}")
+    
+    # Genera report finali
+    report_dir = base_path / "report"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Report delle statistiche di classificazione
+    stats_report_path = report_dir / "classification_stats.csv"
+    classification_stats = df['classification_confidence'].value_counts().reset_index()
+    classification_stats.columns = ['confidence_level', 'count']
+    classification_stats['percentage'] = (classification_stats['count'] / len(df)) * 100
+    classification_stats.to_csv(stats_report_path, index=False)
+    
+    # Report delle categorie
+    category_report_path = report_dir / "category_distribution.csv"
+    category_stats = df['category'].value_counts().reset_index()
+    category_stats.columns = ['category', 'count']
+    category_stats['percentage'] = (category_stats['count'] / len(df)) * 100
+    category_stats.to_csv(category_report_path, index=False)
+    
+    logger.info("Processo di post-processing completato con successo!")
+    logger.info(f"Documenti ambigui risolti: {ambiguous_before - ambiguous_after}")
+    logger.info(f"Documenti migliorati con modello potenziato: {improved_count if 'improved_count' in locals() else 0}")
 
 
 if __name__ == "__main__":

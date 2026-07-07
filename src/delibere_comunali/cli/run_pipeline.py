@@ -82,6 +82,8 @@ def main() -> None:
                     help="salta il motore di audit")
     p.add_argument("--skip-validate", action="store_true",
                     help="salta la validazione output")
+    p.add_argument("--skip-post-process", action="store_true",
+                    help="salta il post-processing della classificazione")
     p.add_argument("--only-audit", action="store_true",
                     help="esegui solo audit")
     p.add_argument("--only-analyze", action="store_true",
@@ -138,7 +140,19 @@ def main() -> None:
 )
 
     # =========================================================
-    # FASE 3: PULIZIA TESTI
+    # FASE 3: POST-PROCESSING CLASSIFICAZIONE
+    # =========================================================
+    if not args.skip_post_process and not args.only_audit and not args.only_analyze:
+        run_step(
+            _module_command(
+                "delibere_comunali.processing.post_process_classification",
+                ["--base", resolved_base]
+            ),
+            "Post-process classification improvements"
+        )
+
+    # =========================================================
+    # FASE 4: PULIZIA TESTI
     # =========================================================
     if not args.skip_clean and not args.only_audit:
         if _script_exists("scripts/clean_texts.py"):
@@ -150,7 +164,7 @@ def main() -> None:
             print("⚠️  scripts/clean_texts.py non trovato (skip)")
 
     # =========================================================
-    # FASE 4: KNOWLEDGE GRAPH
+    # FASE 5: KNOWLEDGE GRAPH
     # =========================================================
     if not args.skip_kg and not args.only_audit and not args.only_analyze:
         if _script_exists("scripts/build_knowledge_graph.py"):
@@ -170,7 +184,7 @@ def main() -> None:
             )
 
     # =========================================================
-    # FASE 5: AUDIT ENGINE (+ LLM opzionale)
+    # FASE 6: AUDIT ENGINE (+ LLM opzionale)
     # =========================================================
     if not args.skip_audit and not args.only_analyze:
         run_step(
@@ -182,7 +196,7 @@ def main() -> None:
         )
 
     # =========================================================
-    # FASE 6: VALIDAZIONE OUTPUT
+    # FASE 7: VALIDAZIONE OUTPUT
     # =========================================================
     if not args.skip_validate and not args.only_analyze:
         if _script_exists("scripts/validate_output.py"):

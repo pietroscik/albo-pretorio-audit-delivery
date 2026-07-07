@@ -105,6 +105,61 @@ try:
 except ImportError:
     DelibereExtractor = None
 
+# Importiamo la funzione infer_doc_type da analyzer
+try:
+    from .analyzer import infer_doc_type
+except ImportError:
+    # Definizione di fallback se non disponibile
+    def infer_doc_type(pdf_path, text_content):
+        import os
+        import re
+        
+        pdf_name = os.path.basename(pdf_path) if isinstance(pdf_path, (str, os.PathLike)) else str(pdf_path)
+        text_lower = text_content.lower() if text_content else ""
+        name_lower = pdf_name.lower()
+        
+        # Controlla prima il nome del file
+        if any(keyword in name_lower for keyword in ['determinazione', 'determina', 'determ']):
+            return "Determinazione"
+        if any(keyword in name_lower for keyword in ['delibera', 'delib']):
+            return "Delibera"
+        if any(keyword in name_lower for keyword in ['bando']):
+            return "Bando"
+        if any(keyword in name_lower for keyword in ['ordinanza', 'ord.']):
+            return "Ordinanza"
+        if any(keyword in name_lower for keyword in ['avviso']):
+            return "Avviso"
+        if any(keyword in name_lower for keyword in ['atto']):
+            return "Atto"
+        if any(keyword in name_lower for keyword in ['liquidazione', 'impegno', 'mandato', 'pagamento']):
+            return "Numeraria"
+        if any(keyword in name_lower for keyword in ['certificato']):
+            return "Certificato"
+        if any(keyword in name_lower for keyword in ['parere', 'visto']):
+            if 'tecnico' in name_lower or 'contabile' in name_lower:
+                return "ParereTecnico" if 'tecnico' in name_lower else "VistoContabile"
+        
+        # Controlla il contenuto del testo
+        if any(keyword in text_lower for keyword in ['determina', 'determinazione']):
+            return "Determinazione"
+        if any(keyword in text_lower for keyword in ['delibera', 'deliberazione']):
+            return "Delibera"
+        if any(keyword in text_lower for keyword in ['ordina', 'ordinanza']):
+            return "Ordinanza"
+        if any(keyword in text_lower for keyword in ['esito', 'aggiudicazione', 'verbale']):
+            return "Esito"
+        if any(keyword in text_lower for keyword in ['contratto', 'convenzione']):
+            return "Contratto"
+        if any(keyword in text_lower for keyword in ['liquidazione', 'impegno', 'mandato', 'pagamento']):
+            return "Numeraria"
+        if any(keyword in text_lower for keyword in ['certificato di pubblicazione', 'pubblicazione']):
+            return "AttestazionePubblicazione"
+        if any(keyword in text_lower for keyword in ['parere di regolarit', 'visto contabile']):
+            return "ParereTecnico" if 'regolarit' in text_lower else "VistoContabile"
+        
+        # Default
+        return "unknown"
+
 # Inizializza l'estrattore avanzato globale
 advanced_extractor = DelibereExtractor() if DelibereExtractor else None
 
@@ -608,7 +663,7 @@ CATEGORY_RULES = {
     "Ambiente": ["ambiente", "ecologia", "rifiuti", "inquinamento"],
     "Commercio": ["commercio", "suap", "attività produttive"],
     "Regolamenti": ["regolamento", "approvazione", "modifica"],
-    "Affari Generali": ["affari generali", "protocollo", "archivio", "statuto"],
+    "Affari Generali": ["affari generali", "protocollo generale", "archivio comunale", "statuto comunale", "ufficio protocollo", "gestione documentale", "archiviazione documentale", "servizio affari generali"],
     "Servizi Demografici": ["servizi demografici", "anagrafe", "stato civile", "elettorale", "pubblicazione di matrimonio", "matrimonio", "cittadinanza"],
     "Pareri e Allegati": ["parere di regolarità tecnica", "parere tecnico", "parere contabile", "allegato tecnico", "certificato di pagamento"],
 }
@@ -788,24 +843,63 @@ def classify_document(oggetto, text, rf_model=None):
 
     if scores:
         ranked = sorted(scores.items(), key=lambda item: (-item[1][0], item[0]))
-        category = ranked[0][0]
+        top_score, top_matches = ranked[0]
+        category = top_score
         confidence = "high"
-        terms = ranked[0][1][1]
-        if len(ranked) > 1 and ranked[0][1][0] == ranked[1][1][0]:
-            confidence = "ambiguous"
+        terms = top_matches[1]  # [score, matched_terms]
+        
+        # Controlla se c'è ambiguità tra diverse categorie
+        if len(ranked) > 1:
+            second_best_score = ranked[1][1][0]
+            # Se il secondo punteggio è vicino al primo, consideriamo ambiguo
+            if abs(top_matches[0] - second_best_score) <= 1:  # Soglia per ambiguità
+                confidence = "ambiguous"
+            # Se entrambe le categorie sono "Affari Generali" e un'altra categoria, potrebbe essere ambigua
+            elif top_score == "Affari Generali" and second_best_score != "Affari Generali":
+                # Riduci la confidenza se la prima categoria è troppo generica
+                if top_matches[0] < 5:  # Se il punteggio è basso
+                    confidence = "low"
+    else:
+        # Nessuna corrispondenza precisa, affidiamoci al ML
+        confidence = "none"
 
     # ML Fallback per documenti ambigui o non classificati
-    if (category is None or confidence == "ambiguous") and rf_model is not None:
+    if (category is None or confidence in ["ambiguous", "none", "low"]) and rf_model is not None:
         text_preview = normalize_text_for_ml(text_str)[:1200]
         if len(text_preview) > 50:
             try:
-                max_prob = np.max(rf_model.predict_proba([text_preview]))
-                if max_prob >= 0.50:
+                # Otteniamo la probabilità massima per valutare la confidenza
+                prediction_probs = rf_model.predict_proba([text_preview])
+                max_prob = np.max(prediction_probs)
+                
+                # Aumentiamo la soglia di confidenza da 0.50 a 0.65 per predizioni affidabili
+                if max_prob >= 0.65:
                     category = rf_model.predict([text_preview])[0]
-                    confidence = "ml_predicted"
+                    confidence = "ml_predicted_high_conf"
                     terms = ["random_forest"]
+                elif max_prob >= 0.50:
+                    # Predizione accettabile ma con confidenza media
+                    category = rf_model.predict([text_preview])[0]
+                    confidence = "ml_predicted_medium_conf"
+                    terms = ["random_forest"]
+                else:
+                    # Anche il modello ML è incerto, manteniamo la classificazione come ambigua
+                    if confidence == "none":
+                        confidence = "ml_predicted_low_conf"
+                        # Assegniamo comunque una categoria dal modello ML anche se con bassa confidenza
+                        category = rf_model.predict([text_preview])[0]
+                        terms = ["random_forest"]
             except Exception as e:
                 logger.warning(f"Errore durante la predizione ML: {e}")
+                # Se il modello ML fallisce, ritorniamo comunque una categoria di default
+                if category is None:
+                    category = "Altro"
+                    confidence = "ml_prediction_failed"
+        else:
+            # Testo troppo breve per il modello ML
+            if category is None:
+                category = "Altro"
+                confidence = "text_too_short"
 
     subcategory = None
     for sub, sub_keywords in SUBCATEGORY_RULES.items():
@@ -813,21 +907,6 @@ def classify_document(oggetto, text, rf_model=None):
             subcategory = sub
             break
     return category, subcategory, confidence, ",".join(terms) if terms else None
-
-def infer_doc_type(filename, text):
-    name = filename.lower()
-    head = (text or "")[:2500].lower()
-    name_rules = [
-        ("VistoContabile", ("vistocontabile", "visto_contabile")),
-        ("AttestazionePubblicazione", ("attestazionepubblicazione", "certificatopubblicazione")),
-        ("Elenco", ("elencoelettori", "elenco_", "_elenco")),
-        ("Ordinanza", ("ordinanza", "ordinanzesindacali")),
-        ("Decreto", ("decreto", "decretosindacale")),
-        ("Determinazione", ("determina", "determinazione")),
-        ("Delibera", ("delibera", "deliberazione")),
-        ("Bando", ("bando",)),
-        ("Avviso", ("avviso",)),
-    ]
     for label, needles in name_rules:
         if any(n in name for n in needles):
             return label

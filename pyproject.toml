@@ -103,6 +103,7 @@ analyze = "delibere_comunali.parsing.analyze_albo:main"
 pipeline = "delibere_comunali.cli.run_pipeline:main"
 rag = "delibere_comunali.rag.rag_app:main"
 control-room = "delibere_comunali.cli.app_control_room:main"
+post-process-classification = "delibere_comunali.processing.post_process_classification:main"
 
 # === SCRIPT DI UTILITÀ (Wrapper via run.py) ===
 # Questi chiamano run.py internamente per mantenere un unico entry point

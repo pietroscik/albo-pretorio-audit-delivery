@@ -36,8 +36,16 @@ COMMAND_MAP = {
     "validate-csv": (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
     "control-room":     ("-m", "delibere_comunali.cli.app_control_room"),
     "audit":            ("-m", "delibere_comunali.processing.audit_engine"),
+    "post-process-classification": ("-m", "delibere_comunali.processing.post_process_classification"),
+    "apply-corrections": (str(PROJECT_ROOT / "scripts" / "apply_feedback_corrections.py"),),
+    
+    # --- Nuovi moduli integrati ---
+    "risk-assessment":  ("-m", "delibere_comunali.risk_assessment.risk_calculator"),
+    "actuarial-analysis": ("-m", "delibere_comunali.actuarial_analysis.provisioning"),
+    "management-kpi":   ("-m", "delibere_comunali.management_kpi.kpi_calculator"),
 
     # --- Alias comodi ---
+    "post-process":     ("-m", "delibere_comunali.processing.post_process_classification"),
     "ui":               ("-m", "delibere_comunali.cli.app_control_room"),
     "dashboard":        ("-m", "delibere_comunali.cli.app_control_room"),
     "run-pipeline":     ("-m", "delibere_comunali.cli.run_pipeline"),
@@ -64,36 +72,22 @@ COMMAND_MAP = {
     "random-forest":    (str(PROJECT_ROOT / "scripts" / "randomForest.py"),),
 }
 
-# Comando speciale: streamlit va lanciato diversamente
 STREAMLIT_COMMANDS = {"control-room", "ui", "dashboard", "rag"}
-
-def normalize_command(cmd):
-    return cmd.lower().replace("_", "-")
 
 def main():
     if len(sys.argv) < 2:
-        print("Uso: python run.py <comando> [args...]")
-        print("\nComandi disponibili:")
+        print("Usage: python run.py <command> [args...]")
+        print("\nAvailable commands:")
         for cmd in sorted(COMMAND_MAP.keys()):
-            print(f"  - {cmd}")
-        print("\nEsempi:")
-        print("  python run.py scrape --ente baiano")
-        print("  python run.py pipeline --ente baiano --force")
-        print("  python run.py build-kg --base data/baiano/albo_download")
-        print("  python run.py control-room")
+            print(f"  {cmd}")
         sys.exit(0)
 
-    cmd = normalize_command(sys.argv[1])
+    cmd = sys.argv[1]
     args = sys.argv[2:]
 
     if cmd not in COMMAND_MAP:
-        suggestions = [c for c in COMMAND_MAP.keys() if cmd in c or c in cmd]
-        error_msg = f"❌ Comando sconosciuto: {sys.argv[1]}"
-        if suggestions:
-            error_msg += f"\nDid you mean: {', '.join(suggestions)}?"
-        else:
-            error_msg += f"\nComandi disponibili: {', '.join(sorted(COMMAND_MAP.keys()))}"
-        print(error_msg)
+        print(f"❌ Comando sconosciuto: {cmd}")
+        print("Comandi disponibili:", ", ".join(sorted(COMMAND_MAP.keys())))
         sys.exit(1)
 
     cmd_config = COMMAND_MAP[cmd]

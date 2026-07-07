@@ -13,6 +13,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 from delibere_comunali.web.rag_chat import esegui_query_rag_core
 import re
+import warnings
+
+# Suppressione avvisi specifici di PyTorch
+warnings.filterwarnings("ignore", message=".*torch.classes.*")
+
+# Definizione di PROJECT_ROOT
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 def _norm_pdf_key(v):
     if pd.isna(v):
@@ -108,7 +115,6 @@ focus_domain = st.sidebar.radio(
 )
 
 # --- CARICAMENTO E PRE-PROCESSING DATI ---
-@st.cache_data
 def load_and_clean_data(base_path):
     csv_path = base_path / "allegati_parsed.csv"
     if not csv_path.exists(): return pd.DataFrame()
@@ -144,47 +150,64 @@ def load_and_clean_data(base_path):
     else:
         df['importo_clean'] = 0.0
     
-    # 3. Normalizzazione Confidenza
+    # 3. Normalizzazione Confidenza - AGGIORNATA PER RIFLETTERE I MIGLIORAMENTI
     def parse_conf(val):
         if pd.isna(val): return 0.40
         v_str = str(val).lower()
         if v_str == 'high': return 0.95
         if v_str == 'ml_predicted': return 0.85
-        if v_str == 'ambiguous': return 0.50
+        if v_str == 'ambiguous': return 0.10  # Ridotto da 0.50 a 0.10 per riflettere l'effettiva scarsa affidabilità
         if v_str == 'human_reviewed': return 1.0
         try: return float(val)
         except ValueError: return 0.40
         
     df['conf_numeric'] = df['classification_confidence'].apply(parse_conf)
     
+    # 3.B. Calcolo confidenza combinata usando veridicità_score e solidità_globale (scala 0-100 convertita a 0-1)
+    if 'veridicità_score' in df.columns and 'solidità_globale' in df.columns:
+        # Convertiamo i punteggi da 0-100 a 0-1 e calcoliamo una media ponderata
+        veridicita_scaled = pd.to_numeric(df['veridicità_score'], errors='coerce') / 100.0
+        solidita_scaled = pd.to_numeric(df['solidità_globale'], errors='coerce') / 100.0
+        
+        # Media ponderata: veridicità 60%, solidità 40% (può essere aggiustata in base alle esigenze)
+        combined_score = (veridicita_scaled * 0.6) + (solidita_scaled * 0.4)
+        
+        # Riempire i valori NaN con la confidenza basata su classification_confidence
+        df['conf_combined'] = combined_score.fillna(df['conf_numeric'])
+    else:
+        df['conf_combined'] = df['conf_numeric']
+    
     # 4. Arricchimento Mese/Anno per Time Series
     df['anno_mese'] = df['data_parsed'].dt.to_period('M').astype(str)
     # 5. Arricchimento opzionale con i dati del Motore Audit (se esiste)
     audit_path = base_path / "atti_audited.csv"
     if audit_path.exists():
-        df_audit_raw = pd.read_csv(audit_path)
+        try:
+            df_audit_raw = pd.read_csv(audit_path)
 
-        if 'pdf_name' in df_audit_raw.columns:
-            df_audit_raw['pdf_key'] = df_audit_raw['pdf_name'].apply(_norm_pdf_key)
-        elif 'pdf_path' in df_audit_raw.columns:
-            df_audit_raw['pdf_key'] = df_audit_raw['pdf_path'].apply(_norm_pdf_key)
-        else:
-            df_audit_raw['pdf_key'] = ""
+            if 'pdf_name' in df_audit_raw.columns:
+                df_audit_raw['pdf_key'] = df_audit_raw['pdf_name'].apply(_norm_pdf_key)
+            elif 'pdf_path' in df_audit_raw.columns:
+                df_audit_raw['pdf_key'] = df_audit_raw['pdf_path'].apply(_norm_pdf_key)
+            else:
+                df_audit_raw['pdf_key'] = ""
 
-        keep = [c for c in ['pdf_key', 'risk_score', 'anomalie_rilevate'] if c in df_audit_raw.columns]
-        if 'pdf_key' in keep:
-            df_audit = df_audit_raw[keep].copy()
-            if 'risk_score' in df_audit.columns:
-                df_audit['risk_score'] = pd.to_numeric(df_audit['risk_score'], errors='coerce').fillna(0.0)
-            # dedup per documento
-            agg_map = {}
-            if 'risk_score' in df_audit.columns:
-                agg_map['risk_score'] = 'max'
-            if 'anomalie_rilevate' in df_audit.columns:
-                agg_map['anomalie_rilevate'] = lambda s: " | ".join(sorted(set([str(x) for x in s.dropna() if str(x).strip()])))
-            df_audit = df_audit.groupby('pdf_key', as_index=False).agg(agg_map)
+            keep = [c for c in ['pdf_key', 'risk_score', 'anomalie_rilevate'] if c in df_audit_raw.columns]
+            if 'pdf_key' in keep:
+                df_audit = df_audit_raw[keep].copy()
+                if 'risk_score' in df_audit.columns:
+                    df_audit['risk_score'] = pd.to_numeric(df_audit['risk_score'], errors='coerce').fillna(0.0)
+                # dedup per documento
+                agg_map = {}
+                if 'risk_score' in df_audit.columns:
+                    agg_map['risk_score'] = 'max'
+                if 'anomalie_rilevate' in df_audit.columns:
+                    agg_map['anomalie_rilevate'] = lambda s: " | ".join(sorted(set([str(x) for x in s.dropna() if str(x).strip()])))
+                df_audit = df_audit.groupby('pdf_key', as_index=False).agg(agg_map)
 
-            df = pd.merge(df, df_audit, on='pdf_key', how='left', suffixes=('', '_audit'))
+                df = pd.merge(df, df_audit, on='pdf_key', how='left', suffixes=('', '_audit'))
+        except Exception as e:
+            st.warning(f"⚠️ Attenzione: impossibile caricare il file atti_audited.csv: {str(e)[:100]}...")
 
     if 'risk_score' not in df.columns:
         df['risk_score'] = 0.0
@@ -221,10 +244,11 @@ if 'conf_numeric' not in df_all.columns:
 
 if 'classification_confidence' not in df_all.columns:
     df_all['classification_confidence'] = 'rules'
+
 # ----------------------------------------------------------------
-# Dataset Certificato (Filtro Forense > 0.85)
+# Dataset Certificato (Filtro Forense > 0.85) - AGGIORNATO PER USARE conf_combined
 df_certified = df_all[
-    (df_all['conf_numeric'] >= 0.85) | (df_all['classification_confidence'] == 'ml_predicted')
+    (df_all['conf_combined'] >= 0.85) | (df_all['classification_confidence'] == 'ml_predicted')
 ].copy()
 
 # ==========================================
@@ -244,7 +268,17 @@ if menu == "📊 Dashboard Direzionale":
     c2.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atti Analizzati</div><div class="kpi-value">{len(df_all)}</div></div>""", unsafe_allow_html=True)
     c3.markdown(f"""<div class="kpi-card"><div class="kpi-label">Fornitori Unici</div><div class="kpi-value">{df_certified['piva_beneficiario'].nunique()}</div></div>""", unsafe_allow_html=True)
     
-    quota_certificata = (len(df_certified) / len(df_all)) if len(df_all) else 0.0
+    # Calcolo aggiornato dell'indice di veridicità basato sui valori effettivi di veridicità_score
+    if 'veridicità_score' in df_all.columns:
+        # Calcoliamo la percentuale di documenti con veridicità_score sufficientemente alto
+        # (es. sopra una soglia ragionevole, ad esempio 50 su 100)
+        threshold_veridicita = 50
+        alta_veridicita = (df_all['veridicità_score'] >= threshold_veridicita).sum()
+        quota_certificata = alta_veridicita / len(df_all) if len(df_all) > 0 else 0.0
+    else:
+        # Fallback al vecchio metodo se non esiste veridicità_score
+        quota_certificata = (len(df_certified) / len(df_all)) if len(df_all) else 0.0
+    
     status_cls = "status-active" if quota_certificata >= 0.85 else "status-low"
     c4.markdown(
         f"""<div class="kpi-card"><div class="kpi-label">Indice Veridicità</div><div class="kpi-value {status_cls}">{quota_certificata:.1%}</div></div>""",
@@ -416,79 +450,86 @@ elif menu == "🕵️ Analisi Antifrode & Anomalie":
     audit_file_path = BASE_PATH / "atti_audited.csv"
     
     if audit_file_path.exists():
-        df_audit = pd.read_csv(audit_file_path)
-        
-        # Filtriamo solo gli atti con anomalie (Risk Score > 0)
-        df_anomalies = df_audit[df_audit['risk_score'] > 0].copy()
-        
-        if not df_anomalies.empty:
-            # --- KPI DIREZIONALI ---
-            c1, c2, c3 = st.columns(3)
-            c1.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atti Sospetti (Hit Rate)</div><div class="kpi-value status-low">{len(df_anomalies)} / {len(df_audit)}</div></div>""", unsafe_allow_html=True)
-            c2.markdown(f"""<div class="kpi-card"><div class="kpi-label">Rischio Medio (Anomalie)</div><div class="kpi-value">{df_anomalies['risk_score'].mean():.1f}/100</div></div>""", unsafe_allow_html=True)
-            c3.markdown(f"""<div class="kpi-card"><div class="kpi-label">Valore Economico Sospetto</div><div class="kpi-value">€ {df_anomalies['importo_clean'].sum():,.2f}</div></div>""", unsafe_allow_html=True)
+        try:
+            df_audit = pd.read_csv(audit_file_path)
             
-            st.markdown("---")
-            
-            # --- GRAFICI INTERATTIVI ---
-            col_chart1, col_chart2 = st.columns(2)
-            
-            with col_chart1:
-                st.subheader("📊 Distribuzione Tipologie Anomalie")
-                # Espandiamo le stringhe per contare le anomalie (es. "Smurfing | CIG Fantasma")
-                anomalie_list = (
-                    df_anomalies['anomalie_rilevate']
-                    .str.split(' | ', regex=False, expand=True)
-                    .stack()
-                    .value_counts()
-                    .reset_index()
-                )
-                anomalie_list.columns = ['Tipo Anomalia', 'Frequenza']
-                
-                fig_anomalie = px.bar(anomalie_list, x='Frequenza', y='Tipo Anomalia', orientation='h', 
-                                      color='Frequenza', color_continuous_scale='Reds')
-                fig_anomalie.update_layout(height=350, yaxis={'categoryorder':'total ascending'})
-                st.plotly_chart(fig_anomalie, use_container_width=True)
-                
-            with col_chart2:
-                st.subheader("🎯 Entità a Maggior Rischio")
-                # I 5 fornitori con i Risk Score più alti
-                top_risk_ben = df_anomalies.groupby('beneficiario_norm')['risk_score'].max().sort_values(ascending=False).head(5).reset_index()
-                fig_risk = px.bar(top_risk_ben, x='beneficiario_norm', y='risk_score', 
-                                  title="Top 5 Beneficiari (Score Massimo)", color='risk_score', color_continuous_scale='Reds')
-                fig_risk.update_layout(height=350)
-                st.plotly_chart(fig_risk, use_container_width=True)
-                
-            st.markdown("---")
-            
-            # --- TABELLA ESPLORATIVA CON SLIDER ---
-            st.subheader("🔍 Esploratore Atti Sospetti")
-            
-            # Slider dinamico per filtrare il rumore
-            min_risk = st.slider("🎯 Filtra per Risk Score Minimo:", min_value=0, max_value=100, value=25, step=5)
-            df_filtered = df_anomalies[df_anomalies['risk_score'] >= min_risk].sort_values('risk_score', ascending=False)
-            
-            st.write(f"Mostrando **{len(df_filtered)}** atti che superano la soglia di rischio.")
-            
-            # Colonne da visualizzare
-            cols_to_display = ['risk_score', 'anomalie_rilevate', 'beneficiario_norm', 'importo_clean', 'data_atto', 'pdf_name', 'cig']
-            cols_to_display = [c for c in cols_to_display if c in df_filtered.columns]
-            table_anom = df_filtered[cols_to_display]
-
-            if MATPLOTLIB_AVAILABLE and 'risk_score' in cols_to_display:
-                st.dataframe(
-                    table_anom.style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100)
-                    .format({'importo_clean': '€ {:.2f}', 'risk_score': '{:.1f}'}),
-                    use_container_width=True,
-                    height=400
-                )
+            # Verifica che il DataFrame non sia vuoto
+            if df_audit.empty:
+                st.warning("⚠️ Nessun dato disponibile nel file atti_audited.csv")
             else:
-                st.dataframe(table_anom, use_container_width=True, height=400)
-            
-        else:
-            st.success("🎉 Ottime notizie! Nessuna anomalia statistica è stata rilevata nel dataset.")
+                # Filtriamo solo gli atti con anomalie (Risk Score > 0)
+                df_anomalies = df_audit[df_audit['risk_score'] > 0].copy()
+                
+                if not df_anomalies.empty:
+                    # --- KPI DIREZIONALI ---
+                    c1, c2, c3 = st.columns(3)
+                    c1.markdown(f"""<div class="kpi-card"><div class="kpi-label">Atti Sospetti (Hit Rate)</div><div class="kpi-value status-low">{len(df_anomalies)} / {len(df_audit)}</div></div>""", unsafe_allow_html=True)
+                    c2.markdown(f"""<div class="kpi-card"><div class="kpi-label">Rischio Medio (Anomalie)</div><div class="kpi-value">{df_anomalies['risk_score'].mean():.1f}/100</div></div>""", unsafe_allow_html=True)
+                    c3.markdown(f"""<div class="kpi-card"><div class="kpi-label">Valore Economico Sospetto</div><div class="kpi-value">€ {df_anomalies['importo_clean'].sum():,.2f}</div></div>""", unsafe_allow_html=True)
+                    
+                    st.markdown("---")
+                    
+                    # --- GRAFICI INTERATTIVI ---
+                    col_chart1, col_chart2 = st.columns(2)
+                    
+                    with col_chart1:
+                        st.subheader("📊 Distribuzione Tipologie Anomalie")
+                        # Espandiamo le stringhe per contare le anomalie (es. "Smurfing | CIG Fantasma")
+                        anomalie_list = (
+                            df_anomalies['anomalie_rilevate']
+                            .str.split(' | ', regex=False, expand=True)
+                            .stack()
+                            .value_counts()
+                            .reset_index()
+                        )
+                        anomalie_list.columns = ['Tipo Anomalia', 'Frequenza']
+                        
+                        fig_anomalie = px.bar(anomalie_list, x='Frequenza', y='Tipo Anomalia', orientation='h', 
+                                              color='Frequenza', color_continuous_scale='Reds')
+                        fig_anomalie.update_layout(height=350, yaxis={'categoryorder':'total ascending'})
+                        st.plotly_chart(fig_anomalie, use_container_width=True)
+                        
+                    with col_chart2:
+                        st.subheader("🎯 Entità a Maggior Rischio")
+                        # I 5 fornitori con i Risk Score più alti
+                        top_risk_ben = df_anomalies.groupby('beneficiario_norm')['risk_score'].max().sort_values(ascending=False).head(5).reset_index()
+                        fig_risk = px.bar(top_risk_ben, x='beneficiario_norm', y='risk_score', 
+                                          title="Top 5 Beneficiari (Score Massimo)", color='risk_score', color_continuous_scale='Reds')
+                        fig_risk.update_layout(height=350)
+                        st.plotly_chart(fig_risk, use_container_width=True)
+                        
+                    st.markdown("---")
+                    
+                    # --- TABELLA ESPLORATIVA CON SLIDER ---
+                    st.subheader("🔍 Esploratore Atti Sospetti")
+                    
+                    # Slider dinamico per filtrare il rumore
+                    min_risk = st.slider("🎯 Filtra per Risk Score Minimo:", min_value=0, max_value=100, value=25, step=5)
+                    df_filtered = df_anomalies[df_anomalies['risk_score'] >= min_risk].sort_values('risk_score', ascending=False)
+                    
+                    st.write(f"Mostrando **{len(df_filtered)}** atti che superano la soglia di rischio.")
+                    
+                    # Colonne da visualizzare
+                    cols_to_display = ['risk_score', 'anomalie_rilevate', 'beneficiario_norm', 'importo_clean', 'data_atto', 'pdf_name', 'cig']
+                    cols_to_display = [c for c in cols_to_display if c in df_filtered.columns]
+                    table_anom = df_filtered[cols_to_display]
+
+                    if MATPLOTLIB_AVAILABLE and 'risk_score' in cols_to_display:
+                        st.dataframe(
+                            table_anom.style.background_gradient(subset=['risk_score'], cmap='Reds', vmin=0, vmax=100)
+                            .format({'importo_clean': '€ {:.2f}', 'risk_score': '{:.1f}'}),
+                            use_container_width=True,
+                            height=400
+                        )
+                    else:
+                        st.dataframe(table_anom, use_container_width=True, height=400)
+                    
+                else:
+                    st.success("🎉 Ottime notizie! Nessuna anomalia statistica è stata rilevata nel dataset.")
+        except Exception as e:
+            st.error(f"⚠️ Errore nel caricamento del file atti_audited.csv: {str(e)[:100]}...")
     else:
-        st.warning(f"⚠️ File di audit non trovato ({audit_file_path}). Esegui prima il Motore Audit per generarlo.")
+        st.warning("⚠️ File atti_audited.csv non trovato. Eseguire prima il modulo di audit.")
 
 # ==========================================
 # 6. MODULO: MANUTENZIONE
@@ -626,26 +667,85 @@ elif menu == "🕵️ Audit HITL & Validazione":
         # Seleziona l'Atto
         df_valid = df_all.dropna(subset=['pdf_name', 'oggetto'])
         if not df_valid.empty:
-            opzioni_atti = df_valid['pdf_name'].astype(str) + " - " + df_valid['oggetto'].astype(str).str[:100] + "..."
-            atto_selezionato = st.selectbox("Seleziona l'Atto o la Determina da correggere:", opzioni_atti, key="hitl_selector")
+            # ORDINAMENTO PER CRITICITÀ: i documenti più problematici devono apparire per primi
+            # 1. Calcoliamo un punteggio di criticità combinato
+            df_ordered = df_valid.copy()
+            
+            # Invertiamo i punteggi di confidenza (meno è la confidenza, maggiore è la criticità)
+            if 'conf_combined' in df_ordered.columns:
+                confidence_score = 1 - df_ordered['conf_combined']
+            elif 'conf_numeric' in df_ordered.columns:
+                confidence_score = 1 - df_ordered['conf_numeric']
+            else:
+                confidence_score = pd.Series([0.5] * len(df_ordered))
+            
+            # Invertiamo i punteggi di veridicità (meno è la veridicità, maggiore è la criticità)
+            veridicita_score = 0
+            if 'veridicità_score' in df_ordered.columns:
+                veridicita_score = (100 - df_ordered['veridicità_score']) / 100.0
+            
+            # Invertiamo i punteggi di solidità (meno è la solidità, maggiore è la criticità)
+            solidita_score = 0
+            if 'solidità_globale' in df_ordered.columns:
+                solidita_score = (100 - df_ordered['solidità_globale']) / 100.0
+            
+            # I risk score alti indicano maggiore criticità
+            risk_score = 0
+            if 'risk_score' in df_ordered.columns:
+                risk_score = df_ordered['risk_score'] / 100.0  # Normalizziamo a 0-1
+            
+            # Calcoliamo il punteggio complessivo di criticità
+            # Usiamo pesi per dare priorità ai diversi fattori
+            df_ordered['criticality_score'] = (
+                confidence_score * 0.4 +    # 40% per bassa confidenza
+                veridicita_score * 0.2 +   # 20% per bassa veridicità
+                solidita_score * 0.2 +     # 20% per bassa solidità
+                risk_score * 0.2           # 20% per alto rischio
+            )
+            
+            # Ordiniamo per punteggio di criticità decrescente
+            df_ordered = df_ordered.sort_values(by='criticality_score', ascending=False)
+            
+            # Creiamo le opzioni per il selectbox, mostrando prima i documenti più critici
+            opzioni_atti = df_ordered['pdf_name'].astype(str) + " - " + df_ordered['oggetto'].astype(str).str[:100] + "..."
+            atto_selezionato = st.selectbox("Seleziona l'Atto o la Determina da correggere (ordinati per criticità):", opzioni_atti, key="hitl_selector")
             
             if atto_selezionato:
                 nome_pdf = atto_selezionato.split(" - ")[0]
-                riga_atto = df_all[df_all['pdf_name'] == nome_pdf].iloc[0]
+                # Cerchiamo la riga nel DataFrame ordinato
+                riga_atto = df_ordered[df_ordered['pdf_name'] == nome_pdf].iloc[0]
                 
                 st.write(f"**Valori attuali per {nome_pdf}:**")
+                st.write(f"- Tipo Doc: `{riga_atto.get('doc_type', 'N/A')}`")
+                st.write(f"- Categoria: `{riga_atto.get('category', 'N/A')}`")
                 st.write(f"- RUP: `{riga_atto.get('responsabile', 'N/A')}`")
                 st.write(f"- Beneficiario: `{riga_atto.get('beneficiario', 'N/A')}`")
-                st.write(f"- Categoria: `{riga_atto.get('category', 'N/A')}`")
+                st.write(f"- Importo Max: `{riga_atto.get('importo_max', 'N/A')}`")
+                st.write(f"- CIG: `{riga_atto.get('cig', 'N/A')}`")
+                st.write(f"- CUP: `{riga_atto.get('cup', 'N/A')}`")
+                st.write(f"- Oggetto: `{riga_atto.get('oggetto', 'N/A')}`")
+                st.write(f"- Data Atto: `{riga_atto.get('data_atto', 'N/A')}`")
+                st.write(f"- Numero Atto: `{riga_atto.get('numero_atto', 'N/A')}`")
+                st.write(f"- IBAN: `{riga_atto.get('iban', 'N/A')}`")
+                st.write(f"- P.IVA Beneficiario: `{riga_atto.get('piva_beneficiario', 'N/A')}`")
                 
                 with st.form("feedback_form"):
+                    # Parametri principali
+                    nuova_cat = st.selectbox("Modifica Categoria:", 
+                                           sorted(list(df_ordered['category'].dropna().unique())), 
+                                           index=sorted(list(df_ordered['category'].dropna().unique())).index(str(riga_atto.get('category', ''))) if pd.notna(riga_atto.get('category', '')) and str(riga_atto.get('category', '')) in df_ordered['category'].dropna().unique() else 0)
+                    
+                    nuovo_tipo_doc = st.text_input("Modifica Tipo Documento:", value=str(riga_atto.get('doc_type', '')))
                     nuovo_rup = st.text_input("Modifica RUP (Responsabile):", value=str(riga_atto.get('responsabile', '')))
                     nuovo_benef = st.text_input("Modifica Beneficiario:", value=str(riga_atto.get('beneficiario', '')))
-                    
-                    categorie_uniche = sorted(list(df_all['category'].dropna().unique()))
-                    cat_corrente = str(riga_atto.get('category', ''))
-                    idx_cat = categorie_uniche.index(cat_corrente) if cat_corrente in categorie_uniche else 0
-                    nuova_cat = st.selectbox("Modifica Categoria:", categorie_uniche, index=idx_cat)
+                    nuovo_piva = st.text_input("Modifica P.IVA Beneficiario:", value=str(riga_atto.get('piva_beneficiario', '')))
+                    nuovo_importo = st.text_input("Modifica Importo Max:", value=str(riga_atto.get('importo_max', '')))
+                    nuovo_cig = st.text_input("Modifica CIG:", value=str(riga_atto.get('cig', '')))
+                    nuovo_cup = st.text_input("Modifica CUP:", value=str(riga_atto.get('cup', '')))
+                    nuova_data = st.text_input("Modifica Data Atto (gg/mm/aaaa):", value=str(riga_atto.get('data_atto', '')))
+                    nuovo_numero = st.text_input("Modifica Numero Atto:", value=str(riga_atto.get('numero_atto', '')))
+                    nuovo_iban = st.text_input("Modifica IBAN:", value=str(riga_atto.get('iban', '')))
+                    nuovo_oggetto = st.text_area("Modifica Oggetto:", value=str(riga_atto.get('oggetto', '')), height=100)
                     
                     falso_positivo = st.checkbox("Segnala questo Alert Antifrode come FALSO POSITIVO")
                     
@@ -656,10 +756,10 @@ elif menu == "🕵️ Audit HITL & Validazione":
                         report_dir.mkdir(exist_ok=True, parents=True)
                         feedback_file = report_dir / "feedback_operatore.csv"
                         
-                        nuova_riga = f'"{nome_pdf}","{nuovo_rup}","{nuovo_benef}","{nuova_cat}","{"SI" if falso_positivo else "NO"}","{datetime.now().isoformat()}"\n'
+                        nuova_riga = f'"{nome_pdf}","{nuovo_tipo_doc}","{nuovo_rup}","{nuovo_benef}","{nuovo_piva}","{nuovo_importo}","{nuovo_cig}","{nuovo_cup}","{nuova_data}","{nuovo_numero}","{nuovo_iban}","{nuovo_oggetto}","{nuova_cat}","{"SI" if falso_positivo else "NO"}","{datetime.now().isoformat()}"\n'
                         
                         if not feedback_file.exists():
-                            feedback_file.write_text("pdf_name,responsabile,beneficiario,category,falso_positivo,timestamp\n", encoding="utf-8")
+                            feedback_file.write_text("pdf_name,doc_type,responsabile,beneficiario,piva_beneficiario,importo_max,cig,cup,data_atto,numero_atto,iban,oggetto,category,falso_positivo,timestamp\n", encoding="utf-8")
                             
                         with open(feedback_file, "a", encoding="utf-8") as f:
                             f.write(nuova_riga)
@@ -670,7 +770,8 @@ elif menu == "🕵️ Audit HITL & Validazione":
         if 'atto_selezionato' in locals() and atto_selezionato:
             st.subheader("📄 Visualizzatore Documento")
             nome_pdf = atto_selezionato.split(" - ")[0]
-            riga_atto = df_all[df_all['pdf_name'] == nome_pdf].iloc[0]
+            # Cerchiamo la riga nel DataFrame ordinato
+            riga_atto = df_ordered[df_ordered['pdf_name'] == nome_pdf].iloc[0]
             pdf_path = Path(riga_atto['pdf_path'])
             if pdf_path.exists():
                 st.markdown(get_pdf_display(pdf_path), unsafe_allow_html=True)

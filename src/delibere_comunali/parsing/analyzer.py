@@ -32,15 +32,16 @@ import numpy as np
 import pypdfium2 as pdfium
 from dateutil import parser as dateparser
 from dotenv import load_dotenv
+from delibere_comunali.utils.extraction_core import StatisticalValidator
 
 try:
     import joblib
 except ImportError:  # pragma: no cover - optional dependency
     joblib = None
 
-from logger import get_logger
-from metrics import get_metrics_collector
-from config import get_config
+from ..utils.logger import get_logger
+from ..utils.metrics import get_metrics_collector
+from ..utils.config import get_config
 config = get_config()
 
 try:
@@ -494,8 +495,8 @@ CATEGORY_RULES = {
     "Ambiente": ["ambiente", "ecologia", "rifiuti", "inquinamento"],
     "Commercio": ["commercio", "suap", "attività produttive"],
     "Regolamenti": ["regolamento", "approvazione", "modifica"],
-    "Affari Generali": ["affari generali", "protocollo", "archivio", "statuto"],
-    "Servizi Demografici": ["servizi demografici", "anagrafe", "stato civile", "elettorale"],
+    "Affari Generali": ["affari generali", "protocollo generale", "archivio comunale", "statuto comunale", "ufficio protocollo", "gestione documentale", "archiviazione documentale", "servizio affari generali"],
+    "Servizi Demografici": ["servizi demografici", "anagrafe", "stato civile", "elettorale", "pubblicazione di matrimonio", "matrimonio", "cittadinanza"],
 }
 
 SUBCATEGORY_RULES = {
@@ -522,6 +523,7 @@ def normalize_amount(txt):
         if "," in s and "." not in s:
             s = s.replace(",", ".")
         # se solo punto: assumilo come decimale (ok)
+
     try:
         return float(s)
     except Exception:
@@ -680,24 +682,63 @@ def classify_document(oggetto, text, rf_model=None):
 
     if scores:
         ranked = sorted(scores.items(), key=lambda item: (-item[1][0], item[0]))
-        category = ranked[0][0]
+        top_score, top_matches = ranked[0]
+        category = top_score
         confidence = "high"
-        terms = ranked[0][1][1]
-        if len(ranked) > 1 and ranked[0][1][0] == ranked[1][1][0]:
-            confidence = "ambiguous"
+        terms = top_matches[1]  # [score, matched_terms]
+        
+        # Controlla se c'è ambiguità tra diverse categorie
+        if len(ranked) > 1:
+            second_best_score = ranked[1][1][0]
+            # Se il secondo punteggio è vicino al primo, consideriamo ambiguo
+            if abs(top_matches[0] - second_best_score) <= 1:  # Soglia per ambiguità
+                confidence = "ambiguous"
+            # Se entrambe le categorie sono "Affari Generali" e un'altra categoria, potrebbe essere ambigua
+            elif top_score == "Affari Generali" and second_best_score != "Affari Generali":
+                # Riduci la confidenza se la prima categoria è troppo generica
+                if top_matches[0] < 5:  # Se il punteggio è basso
+                    confidence = "low"
+    else:
+        # Nessuna corrispondenza precisa, affidiamoci al ML
+        confidence = "none"
 
     # ML Fallback per documenti ambigui o non classificati
-    if (category is None or confidence == "ambiguous") and rf_model is not None:
+    if (category is None or confidence in ["ambiguous", "none", "low"]) and rf_model is not None:
         text_preview = normalize_text_for_ml(text_str)[:1200]
         if len(text_preview) > 50:
             try:
-                max_prob = np.max(rf_model.predict_proba([text_preview]))
-                if max_prob >= 0.50:
+                # Otteniamo la probabilità massima per valutare la confidenza
+                prediction_probs = rf_model.predict_proba([text_preview])
+                max_prob = np.max(prediction_probs)
+                
+                # Aumentiamo la soglia di confidenza da 0.50 a 0.65 per predizioni affidabili
+                if max_prob >= 0.65:
                     category = rf_model.predict([text_preview])[0]
-                    confidence = "ml_predicted"
+                    confidence = "ml_predicted_high_conf"
                     terms = ["random_forest"]
+                elif max_prob >= 0.50:
+                    # Predizione accettabile ma con confidenza media
+                    category = rf_model.predict([text_preview])[0]
+                    confidence = "ml_predicted_medium_conf"
+                    terms = ["random_forest"]
+                else:
+                    # Anche il modello ML è incerto, manteniamo la classificazione come ambigua
+                    if confidence == "none":
+                        confidence = "ml_predicted_low_conf"
+                        # Assegniamo comunque una categoria dal modello ML anche se con bassa confidenza
+                        category = rf_model.predict([text_preview])[0]
+                        terms = ["random_forest"]
             except Exception as e:
                 logger.warning(f"Errore durante la predizione ML: {e}")
+                # Se il modello ML fallisce, ritorniamo comunque una categoria di default
+                if category is None:
+                    category = "Altro"
+                    confidence = "ml_prediction_failed"
+        else:
+            # Testo troppo breve per il modello ML
+            if category is None:
+                category = "Altro"
+                confidence = "text_too_short"
 
     subcategory = None
     for sub, sub_keywords in SUBCATEGORY_RULES.items():
@@ -706,59 +747,54 @@ def classify_document(oggetto, text, rf_model=None):
             break
     return category, subcategory, confidence, ",".join(terms) if terms else None
 
-def infer_doc_type(filename, text):
-    name = filename.lower()
-    head = (text or "")[:2500].lower()
-    name_rules = [
-        ("VistoContabile", ("vistocontabile", "visto_contabile")),
-        ("AttestazionePubblicazione", ("attestazionepubblicazione", "certificatopubblicazione")),
-        ("Elenco", ("elencoelettori", "elenco_", "_elenco")),
-        ("Ordinanza", ("ordinanza", "ordinanzesindacali")),
-        ("Decreto", ("decreto", "decretosindacale")),
-        ("Determinazione", ("determina", "determinazione")),
-        ("Delibera", ("delibera", "deliberazione")),
-        ("Bando", ("bando",)),
-        ("Avviso", ("avviso",)),
-    ]
-    for label, needles in name_rules:
-        if any(n in name for n in needles):
-            return label
 
-    rules = [
-        ("VistoContabile", ("visto di regolarità contabile", "visto di regolarita contabile")),
-        ("AttestazionePubblicazione", ("certificato di pubblicazione", "attestazione di pubblicazione")),
-        ("Elenco", ("elenco dei cittadini", "elenco elettori")),
-        ("Ordinanza", ("ordinanza sindacale", "ordinanza n.")),
-        ("Decreto", ("decreto sindacale", "decreto n.")),
-        ("Determinazione", ("determina", "determinazione")),
-        ("Delibera", ("delibera", "deliberazione")),
-        ("Bando", ("bando",)),
-        ("Avviso", ("avviso",)),
+def is_accounting_relevant(text: str, doc_type: str, category: str) -> bool:
+    """Determina se un documento è rilevante ai fini contabili."""
+    if pd.isna(text):
+        text = ""
+    else:
+        text = str(text)
+        
+    haystack = text.lower()
+    
+    # 1. Check tipo documento contabile
+    if doc_type in ("Determinazione", "Delibera", "VistoContabile"):
+        return True
+        
+    # 2. Check categoria contabile
+    if category in ("Contabilità", "Lavori Pubblici"):
+        return True
+        
+    # 3. Check keywords contabili
+    accounting_keywords = [
+        "impegno", "liquidazione", "accertamento", "competenza", "cassa",
+        "spesa", "entrata", "bilancio", "capitolo", "articolo", "paragrafo",
+        "fondo", "previsione", "variazione", "assestamento", "rimborso",
+        "anticipazione", "quota", "importo", "euro", "€", "fattura",
+        "contratto", "aggiudicazione", "appalto", "prestazione", "corrispettivo",
+        "pagamento", "mandato", "ricevuta", "parcella", "onorario", "costo",
+        "finanziamento", "contributo", "sovvenzione", "agevolazione", "tributo",
+        "tariffa", "diritto", "sanzione", "ammortamento", "residuo", "competenza"
     ]
-    for label, needles in rules:
-        if any(n in head for n in needles):
-            return label
-    return "unknown"
-
-def is_accounting_relevant(text, doc_type, category):
-    haystack = (text or "").lower()
-    if doc_type in {"Ordinanza", "Decreto", "Elenco", "AttestazionePubblicazione"}:
-        return False
-    if doc_type == "VistoContabile":
-        return True
-    markers = [
-        "liquidazione", "impegno di spesa", "determina di impegno", "determina di liquidazione",
-        "cig", "cup", "fattura", "fornitore", "pagamento", "capitolo",
-        "accertamento", "visto contabile", "regolarità contabile", "regolarita contabile",
-        "spesa complessiva", "quadro economico", "importo contrattuale",
+    
+    for keyword in accounting_keywords:
+        if keyword in haystack:
+            return True
+            
+    # 4. Check espressioni contabili complesse
+    accounting_expressions = [
+        "disponibilità di cassa", "impegno di spesa", "accertamento di entrata",
+        "liquidazione del credito", "mandato di pagamento", "visto di regolarità",
+        "stato di previsione", "bilancio di previsione", "bilancio consuntivo",
+        "rendiconto finanziario", "conto del bilancio", "bilancio civilistico"
     ]
-    if any(m in haystack for m in markers):
-        return True
-    if category == "Contabilità" and doc_type == "Determinazione":
-        return True
-    if doc_type == "Determinazione" and any(m in haystack for m in ("servizio", "lavori", "fornitura")):
-        return True
+    
+    for expr in accounting_expressions:
+        if expr in haystack:
+            return True
+    
     return False
+
 
 def normalize_text_for_ml(text):
     """Normalizza solo spazi e caratteri di controllo, senza perdere contenuto utile."""
@@ -784,6 +820,60 @@ def text_features(text):
         "date_mentions": len(re.findall(r"\b\d{1,2}/\d{1,2}/20\d{2}\b", text)),
         "years_mentioned": ",".join(years),
     }
+
+
+def infer_doc_type(pdf_path, text_content):
+    """
+    Inferisce il tipo di documento basandosi sul nome del file e sul contenuto del testo.
+    """
+    import os
+    import re
+    
+    pdf_name = os.path.basename(pdf_path) if isinstance(pdf_path, (str, os.PathLike)) else str(pdf_path)
+    text_lower = text_content.lower() if text_content else ""
+    name_lower = pdf_name.lower()
+    
+    # Controlla prima il nome del file
+    if any(keyword in name_lower for keyword in ['determinazione', 'determina', 'determ']):
+        return "Determinazione"
+    if any(keyword in name_lower for keyword in ['delibera', 'delib']):
+        return "Delibera"
+    if any(keyword in name_lower for keyword in ['bando']):
+        return "Bando"
+    if any(keyword in name_lower for keyword in ['ordinanza', 'ord.']):
+        return "Ordinanza"
+    if any(keyword in name_lower for keyword in ['avviso']):
+        return "Avviso"
+    if any(keyword in name_lower for keyword in ['atto']):
+        return "Atto"
+    if any(keyword in name_lower for keyword in ['liquidazione', 'impegno', 'mandato', 'pagamento']):
+        return "Numeraria"
+    if any(keyword in name_lower for keyword in ['certificato']):
+        return "Certificato"
+    if any(keyword in name_lower for keyword in ['parere', 'visto']):
+        if 'tecnico' in name_lower or 'contabile' in name_lower:
+            return "ParereTecnico" if 'tecnico' in name_lower else "VistoContabile"
+    
+    # Controlla il contenuto del testo
+    if any(keyword in text_lower for keyword in ['determina', 'determinazione']):
+        return "Determinazione"
+    if any(keyword in text_lower for keyword in ['delibera', 'deliberazione']):
+        return "Delibera"
+    if any(keyword in text_lower for keyword in ['ordina', 'ordinanza']):
+        return "Ordinanza"
+    if any(keyword in text_lower for keyword in ['esito', 'aggiudicazione', 'verbale']):
+        return "Esito"
+    if any(keyword in text_lower for keyword in ['contratto', 'convenzione']):
+        return "Contratto"
+    if any(keyword in text_lower for keyword in ['liquidazione', 'impegno', 'mandato', 'pagamento']):
+        return "Numeraria"
+    if any(keyword in text_lower for keyword in ['certificato di pubblicazione', 'pubblicazione']):
+        return "AttestazionePubblicazione"
+    if any(keyword in text_lower for keyword in ['parere di regolarit', 'visto contabile']):
+        return "ParereTecnico" if 'regolarit' in text_lower else "VistoContabile"
+    
+    # Default
+    return "unknown"
 
 
 def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir: Path = None) -> dict:
@@ -831,7 +921,7 @@ def extract_from_pdf(path: Path, use_llm: bool = False, rf_model=None, text_dir:
         "responsabile": None,
         "ufficio": None,
         "impegno_num": None,
-        "impegno_anno": None,
+        "impeggo_anno": None,
         "accert_num": None,
         "accert_anno": None,
         "quadro_economico": None,
@@ -1353,6 +1443,38 @@ def main():
     df_atti.to_csv(out_csv_atti, index=False, encoding="utf-8")
     if not failed_df.empty:
         failed_df.to_csv(out_csv_failed, index=False, encoding="utf-8")
+
+    # --- Validazione statistica importi ---
+    # Equivalente a: df = pd.read_csv('data/avella/albo_download/allegati_parsed.csv')
+    df_stats = pd.read_csv(out_csv_allegati, encoding="utf-8")
+
+    # Inizializza il validatore
+    validator = StatisticalValidator(df_stats)
+
+    # Calcola una sola volta il risultato della validazione per riga
+    stat_results = df_stats["importo_max"].apply(
+        lambda x: validator.validate_importo(x) if pd.notna(x) else None
+    )
+
+    # Aggiungi colonne di validazione statistica
+    df_stats["stat_z_score"] = stat_results.apply(lambda r: r.z_score if r is not None else None)
+    df_stats["stat_iqr_outlier"] = stat_results.apply(lambda r: r.iqr_outlier if r is not None else None)
+    df_stats["stat_benford"] = stat_results.apply(lambda r: r.benford_compliant if r is not None else None)
+    df_stats["stat_anomalies"] = stat_results.apply(
+        lambda r: "; ".join(r.anomalies) if (r is not None and r.anomalies) else None
+    )
+
+    # Filtra record con anomalie
+    anomalies_stat_df = df_stats[
+        df_stats["stat_anomalies"].notna() & (df_stats["stat_anomalies"] != "")
+    ]
+
+    # Salva report
+    out_csv_stat_anomalies = base / "anomalie_statistiche.csv"
+    anomalies_stat_df.to_csv(out_csv_stat_anomalies, index=False, encoding="utf-8")
+
+    # (Opzionale) aggiorna anche allegati_parsed.csv con le nuove colonne statistiche
+    df_stats.to_csv(out_csv_allegati, index=False, encoding="utf-8")
     
     logger.info("CSV salvati con successo!")
     logger.info("Salvataggio Excel con motore 'xlsxwriter'...")

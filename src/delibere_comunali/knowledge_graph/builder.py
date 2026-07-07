@@ -44,7 +44,7 @@ class EntityResolver:
         self.entity_map: Dict[str, str] = {}  # canonical_name -> entity_id
         self.aliases: Dict[str, List[str]] = {}  # entity_id -> list of aliases
     
-    def normalize_entity_name(self, name: str) -> str:
+    def normalize_entity_name(self, name: str, entity_type: Optional[NodeType] = None) -> str:
         """
         Normalize entity name for comparison.
         
@@ -53,6 +53,7 @@ class EntityResolver:
         - Case differences
         - Extra whitespace
         - Common abbreviations
+        - Professional titles for RUP (dott., arch., etc.)
         """
         if not name or not isinstance(name, str):
             return ""
@@ -60,7 +61,24 @@ class EntityResolver:
         # Lowercase and strip
         normalized = name.strip().lower()
         
-        # Remove common prefixes/suffixes
+        # Special handling for RUP entities
+        if entity_type == NodeType.RUP:
+            # Remove professional titles and bureaucratic formulas
+            bureaucratic_formulas = ["visto", "visti", "premesso", "accertata", "sulla base", "decreto", 
+                                   "funzioni attribuite", "ai sensi", "il responsabile", "del servizio", 
+                                   "copia piazza", "f.to", "firma", "timbro", "sig", "sig.ra", "prof", "prof.ssa"]
+            if any(formula in normalized for formula in bureaucratic_formulas):
+                return "non identificato"
+            
+            # Remove professional titles
+            import re
+            normalized = re.sub(r'^(dott\.?|arch\.?|ing\.?|geom\.?|avv\.?|ssa|dr\.?|dott\.?ssa|dr\.?ssa)\s*', '', normalized).strip()
+            normalized = re.sub(r'\b(dott\.?|arch\.?|ing\.?|geom\.?|avv\.?|ssa|dr\.?|dott\.?ssa|dr\.?ssa)\b', '', normalized).strip()
+            
+            # Remove common bureaucratic words
+            normalized = re.sub(r'\b(del|della|dei|dell|di|e|la|il|lo|le|gli|i|un|una|per|su|da|con|se|non|ma|o|come|a|in|contrattante|responsabile)\b', ' ', normalized)
+        
+        # Remove common prefixes/suffixes (for all entity types)
         prefixes_suffixes = [
             "comune di", "comune", "di", "del", "della", "dell'",
             "s.p.a.", "s.r.l.", "srl", "spa",
@@ -69,7 +87,9 @@ class EntityResolver:
         for ps in prefixes_suffixes:
             normalized = normalized.replace(ps, "").strip()
         
-        # Remove extra whitespace
+        # Remove extra whitespace and special characters
+        import re
+        normalized = re.sub(r'[^\w\s]', ' ', normalized)
         normalized = " ".join(normalized.split())
         
         return normalized
@@ -84,7 +104,9 @@ class EntityResolver:
         if not name:
             return ""
         
-        normalized = self.normalize_entity_name(name)
+        normalized = self.normalize_entity_name(name, entity_type)
+        if normalized == "non identificato":
+            return "non identificato"
         
         if normalized in self.entity_map:
             # Entity already exists, return canonical ID
