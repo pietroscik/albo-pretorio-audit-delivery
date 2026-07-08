@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Entry point universale per albo-pretorio-audit-delivery.
-Funziona su Windows (py) e Linux (python3)."""
+Funziona su Windows (py) e Linux (python3).
+
+Comandi principali di coordinamento:
+- orchestrate: Esegue la pipeline completa di coordinamento tra tutti i moduli avanzati
+- data-coord: Interfaccia per il coordinatore dati centralizzato
+
+Per maggiori informazioni sui comandi di coordinamento, vedere COORDINATION_GUIDE.md
+"""
 
 import os
 import sys
@@ -21,10 +28,25 @@ def _run_tool(script_candidates: list[str], module_candidates: list[str], args: 
     if script:
         cmd = [sys.executable, str(script), *args]
     else:
-        mod = next((m for m in module_candidates if m), None)
+        # Cerca il modulo tra i candidati
+        mod = None
+        for m in module_candidates:
+            # Controlla se il modulo esiste cercando il file corrispondente
+            module_parts = m.split('.')
+            module_path = PROJECT_ROOT / "src"
+            for part in module_parts:
+                module_path = module_path / part
+            # Controlla se esiste come file .py o come directory con __init__.py
+            module_file = module_path.with_suffix('.py')
+            module_dir = module_path / "__init__.py"
+            if module_file.exists() or module_dir.exists():
+                mod = m
+                break
+        
         if not mod:
-            raise FileNotFoundError(f"Nessun entrypoint trovato. Cercati script: {script_candidates}")
-        cmd = [sys.executable, "-m", mod, *args]
+            raise FileNotFoundError(f"Nessun entrypoint trovato. Cercati script: {script_candidates}, moduli: {module_candidates}")
+        
+        cmd = [sys.executable, "-m", mod] + args
     subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
 
 COMMAND_MAP = {
@@ -43,6 +65,10 @@ COMMAND_MAP = {
     "risk-assessment":  ("-m", "delibere_comunali.risk_assessment.risk_calculator"),
     "actuarial-analysis": ("-m", "delibere_comunali.actuarial_analysis.provisioning"),
     "management-kpi":   ("-m", "delibere_comunali.management_kpi.kpi_calculator"),
+
+    # --- Moduli di coordinamento centrale ---
+    "orchestrate":      ("-m", "delibere_comunali.core.orchestrator"),  # Coordinamento centrale tra tutti i moduli avanzati (Risk Assessment, KPI, ML, Audit)
+    "data-coord":       ("-m", "delibere_comunali.core.data_coordinator"),  # Coordinatore dati centralizzato per la gestione dei dati condivisi tra i moduli
 
     # --- Alias comodi ---
     "post-process":     ("-m", "delibere_comunali.processing.post_process_classification"),
@@ -80,6 +106,14 @@ def main():
         print("\nAvailable commands:")
         for cmd in sorted(COMMAND_MAP.keys()):
             print(f"  {cmd}")
+        print("\nCore orchestration commands:")
+        print("  orchestrate    Execute full coordination pipeline between all advanced modules (Risk Assessment, KPI, ML, Audit)")
+        print("  data-coord     Interact with centralized data coordinator for shared data management")
+        print("\nAdvanced analysis commands:")
+        print("  risk-assessment     Execute risk assessment analysis")
+        print("  actuarial-analysis  Execute actuarial analysis and provisioning")
+        print("  management-kpi      Execute management KPI calculation")
+        print("\nFor more information on orchestration commands, see COORDINATION_GUIDE.md")
         sys.exit(0)
 
     cmd = sys.argv[1]
@@ -99,27 +133,31 @@ def main():
     if src_path not in existing_pythonpath.split(os.pathsep):
         env["PYTHONPATH"] = src_path + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
 
-    # Streamlit richiede lancio speciale
-    if cmd in STREAMLIT_COMMANDS and cmd_config[0] == "-m":
-        module_path = cmd_config[1].replace(".", "/")
-        script_path = PROJECT_ROOT / "src" / f"{module_path}.py"
-        full_cmd = [sys.executable, "-m", "streamlit", "run", str(script_path), *args]
-    elif cmd_config[0] == "-m":
-        full_cmd = [sys.executable, *cmd_config, *args]
+    if cmd in STREAMLIT_COMMANDS:
+        # Per i comandi streamlit, lanciamo direttamente lo script con streamlit
+        subprocess.run([sys.executable, "-m", "streamlit", "run"] + cmd_config[1:] + args, env=env, cwd=PROJECT_ROOT)
     else:
-        full_cmd = [sys.executable, *cmd_config, *args]
-
-    try:
-        result = subprocess.run(full_cmd, check=True, env=env)
-        sys.exit(result.returncode)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Errore nell'esecuzione di {' '.join(str(x) for x in full_cmd)}")
-        print(f"Codice di uscita: {e.returncode}")
-        sys.exit(e.returncode)
-    except FileNotFoundError as e:
-        print(f"❌ Comando non trovato: {e.filename}")
-        print("Assicurati che Python sia installato e nel PATH")
-        sys.exit(1)
+        # Per gli altri comandi, usiamo il metodo standard
+        if cmd_config[0] == "-m":
+            # Se il primo elemento è "-m", allora è un modulo
+            _run_tool([], (cmd_config[1],), args)
+        elif len(cmd_config) == 1 and not cmd_config[0].endswith('.py'):
+            # Se il comando è un percorso ma non ha estensione .py, potrebbe essere un modulo
+            # Controlla se esiste come modulo
+            module_path = PROJECT_ROOT / "src"
+            module_parts = cmd_config[0].split('.')
+            for part in module_parts:
+                module_path = module_path / part
+            module_file = module_path.with_suffix('.py')
+            module_dir = module_path / "__init__.py"
+            
+            if module_file.exists() or module_dir.exists():
+                _run_tool([], cmd_config, args)
+            else:
+                _run_tool(cmd_config, [], args)
+        else:
+            # Altrimenti è uno script
+            _run_tool(cmd_config, [], args)
 
 if __name__ == "__main__":
     main()

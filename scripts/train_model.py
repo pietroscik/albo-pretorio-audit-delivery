@@ -9,12 +9,26 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import classification_report, precision_recall_fscore_support
 import numpy as np
 
+# Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
+from delibere_comunali.utils.config import get_tenant_dir
+
 def main():
     parser = argparse.ArgumentParser(description="Riaddestra il modello Random Forest con i dati revisionati.")
-    parser.add_argument("--base", default="albo_download", help="Cartella base dei dati.")
+    parser.add_argument("--base", default=None, help="Cartella base dei dati.")
+    parser.add_argument("--ente", default=None, help="Nome dell'ente per cui addestrare il modello (per supporto multi-tenant).")
     args = parser.parse_args()
 
-    base = Path(args.base)
+    # Se viene fornito il nome dell'ente, usa il percorso standard per quell'ente
+    if args.ente:
+        base_path = Path(get_tenant_dir(args.ente))
+    elif args.base:
+        base_path = Path(args.base)
+    else:
+        # Default fallback
+        base_path = Path("albo_download")
+    
+    # Assicurati che la directory esista
+    base = base_path / "albo_download" if base_path.name != "albo_download" else base_path
     csv_path = base / "allegati_parsed.csv"
     model_path = base / "random_forest_model.joblib"
 

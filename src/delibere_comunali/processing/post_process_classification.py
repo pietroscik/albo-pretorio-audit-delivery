@@ -19,6 +19,9 @@ from sklearn.metrics import accuracy_score, classification_report, precision_rec
 from sklearn.utils.class_weight import compute_class_weight
 import argparse
 
+# Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
+from delibere_comunali.utils.config import get_tenant_dir
+
 # Configura il logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,153 +54,134 @@ def apply_advanced_classification_rules(text_str, oggetto_str=""):
         elif any(term in full_text for term in ["impegno di spesa", "variazione di bilancio", "riconoscimento debito"]):
             return "Contabilità"
     
-    elif "ordinanza" in full_text:
-        if any(term in full_text for term in ["ufficio", "responsabile", "organizzazione"]):
-            return "Affari Generali"
+    elif "atto" in full_text and any(term in full_text for term in ["contabile", "finanziario", "bilancio", "spesa", "entrata"]):
+        return "Contabilità"
     
-    elif "pubblicazione" in full_text or "attestazione" in full_text:
-        return "Pubblicazione e Trasparenza"
+    elif any(term in full_text for term in ["pubblicazione", "albo pretorio", "avviso", "bando"]):
+        return "Pubblicazioni"
     
-    elif any(term in full_text for term in ["contenzioso", "incarico legale", "patrocinio", "tribunale"]):
-        return "Contenzioso"
+    elif any(term in full_text for term in ["protocollo", "ufficio", "servizio", "settore"]):
+        return "Organizzazione"
     
-    elif any(term in full_text for term in ["urbanistica", "piano di sviluppo", "permesso di costruire"]):
-        return "Urbanistica"
+    # Regole aggiuntive per casi specifici
+    if any(term in full_text for term in ["ufficio tecnico", "ingegnere", "architetto", "progettazione"]):
+        return "Lavori Pubblici"
     
-    elif any(term in full_text for term in ["servizi sociali", "assistenza", "contributo economico"]):
-        return "Servizi Sociali"
+    if any(term in full_text for term in ["ufficio ragioneria", "ragioniere", "contabilità", "tributo", "bilancio"]):
+        return "Contabilità"
     
-    elif any(term in full_text for term in ["cultura", "turismo", "manifestazione", "evento"]):
-        return "Cultura e Turismo"
+    if any(term in full_text for term in ["ufficio personale", "personale", "dipendenti", "dirigenza"]):
+        return "Personale"
     
-    elif any(term in full_text for term in ["ambiente", "ecologia", "rifiuti", "inquinamento"]):
-        return "Ambiente"
-    
-    elif any(term in full_text for term in ["commercio", "suap", "attività produttive"]):
-        return "Commercio"
-    
-    elif any(term in full_text for term in ["anagrafe", "stato civile", "elettorale"]):
-        return "Servizi Demografici"
-    
-    # Se nessuna regola specifica si applica, ritorna None per lasciare decidere al modello ML
+    # Se nessuna regola specifica è applicabile, restituisci None per mantenere la classificazione precedente
     return None
 
 
-def resolve_ambiguities_with_ml(df, rf_model, text_column='text_preview'):
-    """Riclassifica i documenti ambigui utilizzando il modello ML e regole avanzate."""
-    if rf_model is None:
-        logger.warning("Modello ML non fornito, impossibile risolvere le ambiguità")
+def resolve_ambiguities_with_ml(df, model):
+    """Risolvi le ambiguità utilizzando il modello ML e le regole avanzate."""
+    logger.info("Risoluzione ambiguità con modello ML e regole avanzate...")
+    
+    # Filtra solo i documenti ambigui
+    ambiguous_mask = df['classification_confidence'] == 'ambiguous'
+    ambiguous_docs = df[ambiguous_mask].copy()
+    
+    if len(ambiguous_docs) == 0:
+        logger.info("Nessun documento ambiguo da risolvere.")
         return df
     
-    # Filtra i documenti che hanno testo sufficiente
-    text_available = df[text_column].notna() & (df[text_column].astype(str).str.len() > 50)
-    docs_with_text = df[text_available].copy()
+    logger.info(f"Trovati {len(ambiguous_docs)} documenti ambigui da risolvere.")
     
-    if len(docs_with_text) == 0:
-        logger.info("Nessun documento con testo sufficiente per la riclassificazione ML")
-        return df
-    
-    logger.info(f"Riclassificazione di {len(docs_with_text)} documenti con testo sufficiente...")
-    
-    # Applica le regole avanzate prima del modello ML
-    updated_categories = []
-    updated_confidences = []
-    
-    for idx, row in docs_with_text.iterrows():
-        # Prima prova con le regole avanzate
-        rule_category = apply_advanced_classification_rules(
-            str(row[text_column]), 
-            str(row.get('oggetto', ''))
-        )
+    # Prova a risolvere usando le regole avanzate per prima
+    resolved_by_rules = 0
+    for idx in ambiguous_docs.index:
+        text_col = 'text_preview' if 'text_preview' in df.columns else 'text'
+        oggetto_col = 'oggetto' if 'oggetto' in df.columns else 'title'
         
-        if rule_category:
-            # Se le regole avanzate forniscono una categoria, usala
-            updated_categories.append(rule_category)
-            updated_confidences.append('rule_based')
-        else:
-            # Altrimenti usa il modello ML
-            text_preview = str(row[text_column])[:1200]
+        text_val = df.loc[idx, text_col] if text_col in df.columns else ""
+        oggetto_val = df.loc[idx, oggetto_col] if oggetto_col in df.columns else ""
+        
+        rule_category = apply_advanced_classification_rules(text_val, oggetto_val)
+        
+        if rule_category is not None:
+            df.loc[idx, 'category'] = rule_category
+            df.loc[idx, 'classification_confidence'] = 'rule_based'
+            resolved_by_rules += 1
+    
+    logger.info(f"Risolte {resolved_by_rules} ambiguità con regole avanzate.")
+    
+    # Per i documenti rimanenti, prova con il modello ML
+    still_ambiguous_mask = df['classification_confidence'] == 'ambiguous'
+    still_ambiguous_docs = df[still_ambiguous_mask].copy()
+    
+    if len(still_ambiguous_docs) > 0:
+        text_col = 'text_preview' if 'text_preview' in df.columns else 'text'
+        text_available = still_ambiguous_docs[text_col].notna() & (still_ambiguous_docs[text_col].astype(str).str.len() > 50)
+        docs_with_text = still_ambiguous_docs[text_available].copy()
+        
+        if len(docs_with_text) > 0:
             try:
-                # Otteniamo la probabilità massima per valutare la confidenza
-                prediction_probs = rf_model.predict_proba([text_preview])
-                max_prob = np.max(prediction_probs)
+                # Prepara i dati per la classificazione ML
+                X = docs_with_text[text_col].astype(str)
                 
-                predicted_category = rf_model.predict([text_preview])[0]
+                # Predici con il modello
+                predictions = model.predict(X)
+                prediction_probs = model.predict_proba(X)
+                max_probs = np.max(prediction_probs, axis=1)
                 
-                # Applica le soglie di confidenza
-                if max_prob >= 0.65:
-                    updated_categories.append(predicted_category)
-                    updated_confidences.append('ml_predicted_high_conf')
-                elif max_prob >= 0.50:
-                    updated_categories.append(predicted_category)
-                    updated_confidences.append('ml_predicted_medium_conf')
-                else:
-                    # Anche il modello ML è incerto, manteniamo come ambiguo ma con nuova categoria
-                    updated_categories.append(predicted_category)
-                    updated_confidences.append('ml_predicted_low_conf')
+                # Applica le predizioni ai documenti originali
+                for i, idx in enumerate(docs_with_text.index):
+                    df.loc[idx, 'category'] = predictions[i]
                     
+                    # Assegna confidenza in base alla probabilità
+                    if max_probs[i] >= 0.65:
+                        df.loc[idx, 'classification_confidence'] = 'ml_predicted_high_conf'
+                    elif max_probs[i] >= 0.50:
+                        df.loc[idx, 'classification_confidence'] = 'ml_predicted_medium_conf'
+                    else:
+                        df.loc[idx, 'classification_confidence'] = 'ml_predicted_low_conf'
+                
+                logger.info(f"Risolte {len(docs_with_text)} ambiguità con modello ML.")
             except Exception as e:
-                logger.warning(f"Errore durante la predizione ML per {row.get('pdf_name', idx)}: {e}")
-                # Manteniamo la classificazione originale se il modello fallisce
-                updated_categories.append(row['category'])
-                updated_confidences.append(row['classification_confidence'])
-    
-    # Aggiorna i dati originali
-    docs_with_text.loc[:, 'category'] = updated_categories
-    docs_with_text.loc[:, 'classification_confidence'] = updated_confidences
-    
-    # Aggiorna il dataframe completo
-    df.update(docs_with_text)
+                logger.warning(f"Errore durante la classificazione ML: {e}")
     
     return df
 
 
 def enhance_model_with_resolved_data(df, base_path):
     """Migliora il modello ML utilizzando i dati risolti dagli ambigui."""
-    # Seleziona i dati che hanno una classificazione con buona confidenza
-    high_confidence_mask = df['classification_confidence'].isin(['rule_based', 'ml_predicted_high_conf', 'ml_predicted_medium_conf'])
-    training_data = df[high_confidence_mask].copy()
+    logger.info("Miglioramento del modello ML con dati risolti...")
     
-    if len(training_data) == 0:
-        logger.warning("Nessun dato con sufficiente confidenza per migliorare il modello")
+    # Filtra i dati risolti (sia per regole che per ML con alta confidenza)
+    resolved_mask = (
+        (df['classification_confidence'] == 'rule_based') |
+        (df['classification_confidence'] == 'ml_predicted_high_conf') |
+        (df['classification_confidence'] == 'human_reviewed')
+    )
+    
+    resolved_data = df[resolved_mask].copy()
+    
+    if len(resolved_data) < 10:  # Minimo numero di campioni per fare un retraining
+        logger.info(f"Numero insufficiente di dati risolti ({len(resolved_data)}) per il retraining del modello.")
         return None
     
-    # Seleziona la colonna del testo da utilizzare
-    text_column = 'text_preview' if 'text_preview' in training_data.columns else 'text'
-    if text_column not in training_data.columns:
-        logger.warning(f"Colonna '{text_column}' non trovata nei dati per il miglioramento del modello")
-        return None
-    
-    # Rimuovi righe con testo o categoria mancanti
-    training_data = training_data.dropna(subset=[text_column, 'category'])
-    
-    if len(training_data) < 10:  # Minimo necessario per il training
-        logger.warning(f"Dataset troppo piccolo per il miglioramento del modello: {len(training_data)} documenti")
-        return None
-    
-    logger.info(f"Miglioramento del modello con {len(training_data)} documenti ad alta confidenza")
+    logger.info(f"Utilizzo di {len(resolved_data)} documenti risolti per il miglioramento del modello.")
     
     # Prepara i dati
-    X = training_data[text_column]
-    y = training_data['category']
+    text_col = 'text_preview' if 'text_preview' in df.columns else 'text'
+    X = resolved_data[text_col].astype(str)
+    y = resolved_data['category']
     
-    # Dividi i dati per il training
-    try:
-        # Se abbiamo meno di 10 campioni, usiamo tutti per il training
-        if len(X) < 10:
-            X_train = X
-            y_train = y
-        else:
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y if len(y.unique()) <= len(X)//2 else None)
-    except:
-        # Se la stratificazione fallisce, esegui senza
-        if len(X) >= 2:  # Assicurati di avere almeno 2 campioni
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        else:
-            X_train = X
-            y_train = y
-            X_test = X  # dummy
-            y_test = y  # dummy
+    # Rimuovi eventuali NaN
+    valid_idx = X.notna() & y.notna()
+    X = X[valid_idx]
+    y = y[valid_idx]
+    
+    if len(X) < 10:
+        logger.info("Numero insufficiente di dati validi per il retraining del modello.")
+        return None
+    
+    # Dividi i dati
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
     # Calcola i pesi delle classi per gestire lo sbilanciamento
     classes = np.unique(y_train)
@@ -235,10 +219,21 @@ def enhance_model_with_resolved_data(df, base_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Post-process classification results to improve quality")
-    parser.add_argument("--base", default="albo_download", help="Base directory for data files")
+    parser.add_argument("--base", default=None, help="Base directory for data files")
+    parser.add_argument("--ente", default=None, help="Nome dell'ente per cui eseguire il post-processing (per supporto multi-tenant).")
     args = parser.parse_args()
     
-    base_path = Path(args.base)
+    # Se viene fornito il nome dell'ente, usa il percorso standard per quell'ente
+    if args.ente:
+        base_path = Path(get_tenant_dir(args.ente))
+    elif args.base:
+        base_path = Path(args.base)
+    else:
+        # Default fallback
+        base_path = Path("albo_download")
+    
+    # Assicurati che la directory esista
+    base_path = base_path / "albo_download" if base_path.name != "albo_download" else base_path
     
     # Carica i dati
     allegati_path = base_path / "allegati_parsed.csv"

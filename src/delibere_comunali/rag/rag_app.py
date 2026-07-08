@@ -107,7 +107,7 @@ MODEL_PROFILES = {
         ],
         "llm_models": [
             "gemini-2.5-flash",
-python run.py pipeline            "gemini-3.1-flash-lite",
+            "gemini-3.1-flash-lite",
         ],
         "embed_batch_size": 40,
         "embed_pause_sec": 60.0,

@@ -1,106 +1,172 @@
-# Mappa Input/Output del Sistema di Audit dell'Albo Pretorio
+# Mappa di Input/Output del Sistema di Audit dell'Albo Pretorio
 
-Questa mappa funge da "cartina tornasole" per comprendere i flussi di dati nel sistema e garantire una visione chiara dell'architettura complessiva.
+## Panoramica
+
+Documento che mappa tutti i flussi di input/output del sistema, inclusi i nuovi flussi introdotti dal modulo di coordinamento centrale.
 
 ## Input Principali
 
-### 1. Dati Esterni
-- **Fonte Web**: Documenti PDF dell'albo pretorio comunale (tramite scraping)
+### Fonti Esterne
+- **Web Albo Pretorio**: URL pubbliche degli albi pretori comunali
 - **File PDF Locali**: Documenti scaricati precedentemente
-- **File CSV di Input**: Dati grezzi da analizzare (allegati_parsed.csv, albo_metadati.csv)
+- **Dataset Storici**: Dati di training e validazione precedenti
+- **Chiavi API**: Google API Key per LLM
 
-### 2. Parametri di Configurazione
-- **Parametri CLI**: Opzioni passate da linea di comando (`--ente`, `--use-llm`, ecc.)
-- **File di Configurazione**: `.env` per chiavi API e configurazioni esterne
-- **Parametri di Modello**: Iperparametri per i modelli ML
-
-### 3. Dati Storici
-- **File di Training**: Dati etichettati per addestramento modelli
-- **Feedback Umano**: File Excel con revisioni umane (`feedback_operatore.csv`)
-- **Storico Analisi**: Risultati precedenti per benchmark
+### Parametri di Configurazione
+- **ENTE**: Nome dell'ente comunale da analizzare
+- **Opzioni Pipeline**: --skip-scrape, --use-llm, --force, --strict-validation
+- **Parametri ML**: Opzioni per l'addestramento e la predizione
 
 ## Output Principali
 
-### 1. Risultati di Classificazione
-- **allegati_parsed.csv**: Dati estratti e classificati
-- **documenti_features.csv**: Features estratte per ML
-- **atti_audited.csv**: Documenti con annotazioni di audit
-
-### 2. Modelli e Analisi
-- **modelli_salvati/**: Modelli ML serializzati
-- **risk_assessment.csv**: Valutazioni di rischio per ogni documento
-- **provisioning_attuariale.xlsx**: Analisi attuariale degli impegni
-- **kpi_dashboard.xlsx**: Indicatori di governance e controllo
-
-### 3. Report e Dashboard
-- **report/**: Cartella contenente tutti i report generati
-- **knowledge_graph.html**: Visualizzazione del grafo delle relazioni
-- **topological_insights.txt**: Analisi topologica delle concentrazioni
-- **quality_metrics.json**: Metriche di qualità del processo
-
-### 4. File Intermedi
+### File Strutturati
+- **atti_parsed.csv**: Dati estratti dagli atti
+- **documenti_features.csv**: Features per ML
 - **documenti_corpus.jsonl**: Corpus per RAG
-- **procedures.json**: Procedure strutturate
+- **procedures.json**: Struttura del digital twin
 - **anomalies.json**: Anomalie rilevate
-- **cache/**: Cache temporanea per ottimizzare le esecuzioni
+
+### Report Specializzati
+- **risk_assessment.csv**: Risultati della valutazione del rischio
+- **kpi_dashboard.xlsx**: KPI manageriali
+- **provisioning_attuariale.xlsx**: Analisi attuariale
+- **atti_audited.csv**: Risultati dell'audit
+- **albo_analisi.xlsx**: Report principale
+
+### Output del Coordinamento
+- **coordinated_analysis_results.json**: Risultati coordinati tra tutti i moduli
+- **risk_assessment_coordinated.csv**: Versione coordinata del risk assessment
+- **kpi_manageriali_coordinated.csv**: Versione coordinata dei KPI
 
 ## Flusso degli Input/Output
 
 ```mermaid
 graph TD
-    A[Fonte Web/PDF] --> B[Scraping]
-    B --> C[Analisi/Parsing]
-    C --> D[Estrazione Features]
-    D --> E[Classificazione ML]
-    E --> F[Post-elaborazione]
-    F --> G[Validazione Umana]
-    G --> H[Risk Assessment]
-    H --> I[Analisi Attuariale]
-    I --> J[KPI Management]
-    J --> K[Controllo Anomalie]
-    K --> L[Report Finali]
-    
-    C --> M[Knowledge Graph]
-    M --> N[Topological Insights]
-    N --> O[Anomaly Detection]
-    
-    L --> P{Discrezionalità Dati}
-    P -->|Si| Q[Masking Informazioni Sensibili]
-    P -->|No| R[Dati Completi]
-    
-    Q --> S[Output Sicuro]
-    R --> S
-    
-    S --> T[Dashboard/Streamlit]
-    T --> U[Feedback Loop]
-    U --> E
-    
-    style H fill:#fff3e0
-    style I fill:#fff3e0
-    style J fill:#fff3e0
-    style K fill:#fff3e0
+    subgraph "INPUT ESTERNI"
+        A1[Web Albo Pretorio]
+        A2[PDF Locali]
+        A3[Dataset Storici]
+        A4[Chiavi API]
+    end
+
+    subgraph "MODULI CORE"
+        B1[Scraper]
+        B2[Parsing]
+        B3[ML Models]
+    end
+
+    subgraph "MODULI AVANZATI"
+        C1[Risk Assessment]
+        C2[KPI Manageriali]
+        C3[Analisi Attuariale]
+        C4[Audit Engine]
+    end
+
+    subgraph "COORDINAMENTO CENTRALE"
+        D1[CentralOrchestrator]
+        D2[DataCoordinator]
+    end
+
+    subgraph "OUTPUT SPECIALIZZATI"
+        E1[Risk Report]
+        E2[KPI Report]
+        E3[Actuarial Report]
+        E4[Audit Report]
+    end
+
+    subgraph "OUTPUT COORDINATI"
+        F1[Coordinated Results JSON]
+        F2[Coordinated Reports]
+    end
+
+    subgraph "OUTPUT FINALI"
+        G1[Excel Principale]
+        G2[CSV Strutturati]
+        G3[File RAG]
+    end
+
+    A1 --> B1
+    A2 --> B2
+    A3 --> B3
+    A4 --> B3
+
+    B1 --> B2
+    B2 --> B3
+    B3 --> C1
+    B3 --> C2
+    B3 --> C3
+    B3 --> C4
+
+    B2 --> D1
+    C1 --> D1
+    C2 --> D1
+    C3 --> D1
+    C4 --> D1
+
+    D1 --> D2
+    D2 --> C1
+    D2 --> C2
+    D2 --> C3
+    D2 --> C4
+
+    C1 --> E1
+    C2 --> E2
+    C3 --> E3
+    C4 --> E4
+
+    D1 --> F1
+    D1 --> F2
+
+    E1 --> G2
+    E2 --> G1
+    E3 --> G2
+    E4 --> G2
+    F1 --> G2
+    F2 --> G1
+
+    style D1 fill:#ffdd00
+    style D2 fill:#ffdd00
+    style F1 fill:#ffeeaa
+    style F2 fill:#ffeeaa
 ```
 
-## Discrezionalità dei Dati
+## Schema dei Dati Condivisi
 
-Il sistema implementa meccanismi per garantire la protezione delle informazioni sensibili:
+### Struttura dati coordinati
+```
+coordinated_analysis_results.json:
+{
+  "timestamp": "ISO datetime",
+  "risk_results": {
+    "risk_by_document": [...],
+    "summary_statistics": {...}
+  },
+  "kpi_results": {
+    "efficienza": {...},
+    "efficacia": {...},
+    "economicita": {...},
+    "trasparenza": {...}
+  },
+  "ml_results": {...},
+  "audit_results": {...}
+}
+```
 
-1. **Mascheramento**: Nasconde dati personali identificabili
-2. **Aggregazione**: Fornisce dati aggregati anziché individuali quando possibile
-3. **Controllo Accessi**: Diversi livelli di accesso ai dati
-4. **Conformità GDPR**: Rispetta le normative sulla privacy
+## Consumatori dei Dati
 
-## Tracciabilità e Manutenzione
+### Moduli Interni
+- **Control Room**: Utilizza tutti i report per la dashboard
+- **RAG System**: Usa i dati coordinati per migliorare le risposte
+- **ML Models**: Riceve feedback dai risultati coordinati
 
-Ogni componente del sistema è documentato per facilitare:
-- **Debug**: Identificazione rapida dei problemi
-- **Estensione**: Aggiunta di nuove funzionalità
-- **Manutenzione**: Aggiornamenti e correzioni
-- **Audit**: Revisione delle decisioni del sistema
+### Utenti Finali
+- **Operatori Umani**: Utilizzano i report per la validazione
+- **Analisti**: Studiano i risultati coordinati per insight
+- **Autorità di Controllo**: Ricevono report integrati
 
-## Note per la Manutenzione Futura
+## Frequenza di Aggiornamento
 
-1. **Versionamento**: Ogni output deve includere informazioni sulla versione del sistema
-2. **Log**: Tutti i processi devono essere tracciati con log dettagliati
-3. **Monitoraggio**: Ipercubo delle metriche di qualità
-4. **Documentazione**: Aggiornamento costante della documentazione tecnica
+- **Input**: Giornaliero per scraping, mensile per dataset storici
+- **Output Intermedi**: Ogni esecuzione della pipeline
+- **Output Coordinati**: Ogni esecuzione dell'orchestrator
+- **Report Finali**: Alla conclusione della pipeline completa

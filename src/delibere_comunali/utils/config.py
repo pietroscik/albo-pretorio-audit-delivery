@@ -15,6 +15,15 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def get_tenant_dir(ente: Optional[str] = None) -> Path:
+    """Funzione centralizzata per ottenere il percorso del tenant secondo la norma multi-tenant."""
+    if ente:
+        tenant_path = Path("data") / ente / "albo_download"
+        if tenant_path.exists():
+            return tenant_path
+    return Path("albo_download")
+
+
 def _parse_list_env(value):
     """Accept JSON list or comma-separated values."""
     if isinstance(value, list):

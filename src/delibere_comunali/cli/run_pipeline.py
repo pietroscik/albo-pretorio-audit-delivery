@@ -84,6 +84,8 @@ def main() -> None:
                     help="salta la validazione output")
     p.add_argument("--skip-post-process", action="store_true",
                     help="salta il post-processing della classificazione")
+    p.add_argument("--skip-orchestration", action="store_true",
+                    help="salta la fase di coordinamento tra moduli")
     p.add_argument("--only-audit", action="store_true",
                     help="esegui solo audit")
     p.add_argument("--only-analyze", action="store_true",
@@ -100,116 +102,85 @@ def main() -> None:
     # flag LLM da propagare agli step che li supportano
     llm_args = []
     if args.use_llm:
-        llm_args.append("--use-llm")
-    if args.llm_provider:
-        llm_args.extend(["--llm-provider", args.llm_provider])
-    if args.llm_model:
-        llm_args.extend(["--llm-model", args.llm_model])
+        if args.llm_provider:
+            llm_args.extend(["--llm-provider", args.llm_provider])
+        if args.llm_model:
+            llm_args.extend(["--llm-model", args.llm_model])
 
-    # =========================================================
-    # FASE 1: SCRAPING
-    # =========================================================
-    if not args.skip_scrape and not args.only_audit and not args.only_analyze:
+    # Pipeline steps
+    steps = []
+
+    # Scraping (if not skipped)
+    if not args.skip_scrape:
+        scrape_args = ["--ente", ente, "--base", resolved_base] + limit_args
         if args.adapter:
-            adapter_module = f"delibere_comunali.scraping.adapters.{args.adapter}_adapter"
-            adapter_out = args.adapter_out or f"data/{ente}/adapter_output.jsonl"
-            run_step(
-                _module_command(adapter_module, ["--ente", ente, "--out", adapter_out] + limit_args),
-                f"Adapter scrape ({args.adapter})"
-            )
-            run_step(
-                _module_command("delibere_comunali.scraping.ingest", [adapter_out, "--ente", ente]),
-                "Ingest adapter output -> albo_download"
-            )
-        else:
-            run_step(
-                _module_command("delibere_comunali.scraping.new_albo_scraper", ["--ente", ente] + limit_args),
-                "Scrape documents"
-            )
+            scrape_args.extend(["--adapter", args.adapter])
+        if args.adapter_out:
+            scrape_args.extend(["--adapter-out", args.adapter_out])
+        steps.append((_module_command("delibere_comunali.scraping.new_albo_scraper", scrape_args), "Scraping"))
 
-    # =========================================================
-    # FASE 2: ANALISI / PARSING (+ LLM opzionale)
-    # =========================================================
-    if not args.only_audit:
-        run_step(
-    _module_command(
-        "delibere_comunali.parsing.analyze_albo",
-        ["--base", resolved_base, "--ente", ente] + llm_args + (["--force"] if args.force else [])
-    ),
-    f"Analyze documents {'(+LLM)' if args.use_llm else ''}"
-)
+    # Analyze/Parse
+    analyze_args = ["--ente", ente, "--base", resolved_base] + limit_args + llm_args
+    steps.append((_module_command("delibere_comunali.parsing.analyze_albo", analyze_args), "Parsing/Analysis"))
 
-    # =========================================================
-    # FASE 3: POST-PROCESSING CLASSIFICAZIONE
-    # =========================================================
-    if not args.skip_post_process and not args.only_audit and not args.only_analyze:
-        run_step(
-            _module_command(
-                "delibere_comunali.processing.post_process_classification",
-                ["--base", resolved_base]
-            ),
-            "Post-process classification improvements"
-        )
+    # Clean texts (optional)
+    if not args.skip_clean:
+        clean_args = ["--ente", ente, "--base", resolved_base]
+        steps.append((_script_command("scripts/clean_texts.py", clean_args), "Text Cleaning"))
 
-    # =========================================================
-    # FASE 4: PULIZIA TESTI
-    # =========================================================
-    if not args.skip_clean and not args.only_audit:
-        if _script_exists("scripts/clean_texts.py"):
-            run_step(
-                _script_command("scripts/clean_texts.py", ["--base", resolved_base]),
-                "Clean texts"
-            )
-        else:
-            print("⚠️  scripts/clean_texts.py non trovato (skip)")
+    # Post-process classification (optional)
+    if not args.skip_post_process:
+        post_proc_args = ["--ente", ente, "--base", resolved_base] + llm_args
+        steps.append((_module_command("delibere_comunali.processing.post_process_classification", post_proc_args), "Post-Processing Classification"))
 
-    # =========================================================
-    # FASE 5: KNOWLEDGE GRAPH
-    # =========================================================
-    if not args.skip_kg and not args.only_audit and not args.only_analyze:
-        if _script_exists("scripts/build_knowledge_graph.py"):
-            run_step(
-                _script_command("scripts/build_knowledge_graph.py", ["--base", resolved_base]),
-                "Build Knowledge Graph",
-                optional=True
-            )
-        else:
-            print("⚠️  scripts/build_knowledge_graph.py non trovato (skip)")
+    # Knowledge Graph (optional)
+    if not args.skip_kg:
+        kg_args = ["--ente", ente, "--base", resolved_base]
+        steps.append((_script_command("scripts/build_knowledge_graph.py", kg_args), "Knowledge Graph Building"))
 
-        if _script_exists("scripts/analyze_topology.py"):
-            run_step(
-                _script_command("scripts/analyze_topology.py", ["--base", resolved_base]),
-                "Analyze Topology",
-                optional=True
-            )
+    # ML Training (optional)
+    train_args = ["--ente", ente, "--base", resolved_base] + llm_args
+    steps.append((_script_command("scripts/train_model.py", train_args), "ML Model Training"))
 
-    # =========================================================
-    # FASE 6: AUDIT ENGINE (+ LLM opzionale)
-    # =========================================================
-    if not args.skip_audit and not args.only_analyze:
-        run_step(
-            _module_command(
-                "delibere_comunali.processing.audit_engine",
-                ["--base", resolved_base, "--ente", ente] + llm_args
-            ),
-            f"Audit Engine {'(+LLM)' if args.use_llm else ''}"
-        )
+    # Audit (optional)
+    if not args.only_analyze and not args.skip_audit:
+        audit_args = ["--ente", ente, "--base", resolved_base] + llm_args
+        steps.append((_module_command("delibere_comunali.processing.audit_engine", audit_args), "Audit Engine"))
 
-    # =========================================================
-    # FASE 7: VALIDAZIONE OUTPUT
-    # =========================================================
-    if not args.skip_validate and not args.only_analyze:
-        if _script_exists("scripts/validate_output.py"):
-            run_step(
-                _script_command("scripts/validate_output.py", ["--base", resolved_base]),
-                "Validate output",
-                optional=True
-            )
+    # Validation (optional)
+    if not args.skip_validate:
+        validate_args = ["--ente", ente, "--base", resolved_base]
+        steps.append((_script_command("scripts/validate_output.py", validate_args), "Output Validation"))
+
+    # Esegui tutti i passaggi pianificati
+    for command, title in steps:
+        run_step(command, title)
+
+    # Fase di coordinamento centrale (se non saltata)
+    if not args.skip_orchestration:
+        print("\n" + "=" * 72)
+        print("STEP: Coordinamento tra moduli avanzati")
+        print("=" * 72)
+        
+        # Esegui l'orchestrator per coordinare i vari moduli
+        orchestrator_args = ["--ente", ente, "--base-path", resolved_base]
+        if args.skip_audit:
+            orchestrator_args.append("--skip-audit")
+        if args.skip_post_process:
+            orchestrator_args.append("--skip-kpi")  # Considera che i KPI dipendono dal post-processing
+        
+        try:
+            orchestrator_cmd = [sys.executable, "-m", "delibere_comunali.core.orchestrator"] + orchestrator_args
+            result = subprocess.run(orchestrator_cmd, cwd=PROJECT_ROOT)
+            if result.returncode != 0:
+                print(f"⚠️  Orchestrator fallito, continuiamo comunque...")
+            else:
+                print("✅ Coordinamento tra moduli completato con successo")
+        except Exception as e:
+            print(f"⚠️  Errore nell'esecuzione dell'orchestrator: {e}")
 
     print("\n" + "=" * 72)
-    print(f"✅ Pipeline completata per '{ente}' → {resolved_base}")
-    if args.use_llm:
-        print(f"   LLM: {args.llm_provider or 'default'} / {args.llm_model or 'default'}")
+    print("PIPELINE COMPLETATO")
     print("=" * 72)
 
 if __name__ == "__main__":

@@ -11,6 +11,9 @@ import json
 import re
 from pathlib import Path
 
+# Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
+from delibere_comunali.utils.config import get_tenant_dir
+
 PATTERNS_TO_REMOVE = [
     # Intestazioni Avella
     r"COPIA Piazza Municipio[^\n]*?http://www\.comune\.avella\.av\.it\.",
@@ -110,10 +113,22 @@ def process_corpus(corpus_path: Path, output_path: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Pulisce il boilerplate burocratico dai testi estratti.")
-    parser.add_argument("--base", type=str, default="./albo_download", help="Cartella base con i dati scaricati.")
+    parser.add_argument("--base", type=str, default=None, help="Cartella base con i dati scaricati.")
+    parser.add_argument("--ente", type=str, default=None, help="Nome dell'ente per cui pulire i testi (per supporto multi-tenant).")
     args = parser.parse_args()
 
-    base_dir = Path(args.base)
+    # Se viene fornito il nome dell'ente, usa il percorso standard per quell'ente
+    if args.ente:
+        base_dir = Path(get_tenant_dir(args.ente))
+    elif args.base:
+        base_dir = Path(args.base)
+    else:
+        # Default fallback
+        base_dir = Path("./albo_download")
+    
+    # Assicurati che la directory esista
+    base_dir = base_dir / "albo_download" if base_dir.name != "albo_download" else base_dir
+    
     process_texts(base_dir / "texts", base_dir / "texts")
     process_corpus(base_dir / "documenti_corpus.jsonl", base_dir / "documenti_corpus.jsonl")
 
