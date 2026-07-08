@@ -5,8 +5,9 @@ import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import make_pipeline
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.metrics import classification_report, precision_recall_fscore_support
+from scipy.stats import randint, uniform
 import numpy as np
 
 # Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
@@ -66,34 +67,44 @@ def main():
     # Splittiamo in Training e Test Set per valutare le prestazioni
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-    # Creazione della pipeline con ricerca a griglia per trovare i migliori iperparametri
+    # Creazione della pipeline con ricerca randomizzata per trovare i migliori iperparametri
     pipeline = make_pipeline(TfidfVectorizer(), RandomForestClassifier(random_state=42))
 
-    # Definizione della griglia di iperparametri
-    param_grid = {
-        'tfidfvectorizer__max_features': [5000, 7500, 10000],
+    # Definizione dello spazio di ricerca per RandomizedSearchCV
+    param_distributions = {
+        'tfidfvectorizer__max_features': randint(5000, 10000),
         'tfidfvectorizer__ngram_range': [(1, 2), (1, 3), (1, 4)],
-        'tfidfvectorizer__max_df': [0.8, 0.85, 0.9],
-        'tfidfvectorizer__min_df': [2, 3, 5],
-        'randomforestclassifier__n_estimators': [100, 200, 300],
+        'tfidfvectorizer__max_df': uniform(0.80, 0.10),  # Da 0.80 a 0.90
+        'tfidfvectorizer__min_df': randint(2, 6),
+        'randomforestclassifier__n_estimators': randint(100, 301),
         'randomforestclassifier__max_depth': [10, 20, 30, None],
-        'randomforestclassifier__min_samples_split': [2, 5, 10],
-        'randomforestclassifier__min_samples_leaf': [1, 2, 4],
+        'randomforestclassifier__min_samples_split': randint(2, 11),
+        'randomforestclassifier__min_samples_leaf': randint(1, 5),
         'randomforestclassifier__class_weight': ['balanced', 'balanced_subsample', None]
     }
 
-    print("🔍 Ottimizzazione degli iperparametri in corso...")
-    grid_search = GridSearchCV(pipeline, param_grid, cv=3, scoring='f1_macro', n_jobs=-1, verbose=1)
-    grid_search.fit(X_train, y_train)
+    print("🔍 Ottimizzazione degli iperparametri in corso (RandomizedSearchCV)...")
+    print(f"📊 Numero di combinazioni da provare: 200")
+    randomized_search = RandomizedSearchCV(
+        pipeline, 
+        param_distributions, 
+        n_iter=200,  # Numero ridotto di combinazioni da provare
+        cv=3, 
+        scoring='f1_macro', 
+        n_jobs=2,  # Ridotto il numero di job paralleli per evitare problemi di memoria
+        verbose=1,
+        random_state=42
+    )
+    randomized_search.fit(X_train, y_train)
 
-    print(f"✅ Migliori parametri trovati: {grid_search.best_params_}")
+    print(f"✅ Migliori parametri trovati: {randomized_search.best_params_}")
 
     # Otteniamo il miglior modello
-    best_model = grid_search.best_estimator_
+    best_model = randomized_search.best_estimator_
 
     print("\n🎯 Valutazione del modello ottimizzato sul Test Set:")
     y_pred = best_model.predict(X_test)
-    accuracy = grid_search.score(X_test, y_test)
+    accuracy = randomized_search.score(X_test, y_test)
     precision, recall, f1, support = precision_recall_fscore_support(y_test, y_pred, average='macro', zero_division=0)
     
     print(f"Accuracy: {accuracy:.4f}")

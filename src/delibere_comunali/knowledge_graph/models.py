@@ -167,54 +167,57 @@ class KnowledgeGraph(BaseModel):
         import networkx as nx
         G = nx.MultiDiGraph()
         
-        # Add nodes with attributes
+        # Add nodes
         for node in self.nodes:
             node_attrs = {
-                'type': node.node_type.value,
                 'label': node.label,
+                'type': node.node_type.value,
             }
-            # Add type-specific attributes
-            if isinstance(node, AttoNode):
-                node_attrs.update({
-                    'doc_type': node.doc_type,
-                    'importo': node.importo,
-                    'data_atto': node.data_atto.isoformat() if node.data_atto else None,
-                    'oggetto': node.oggetto,
-                })
-            elif isinstance(node, RupNode):
-                node_attrs.update({
-                    'area': node.area,
-                    'ruolo': node.ruolo,
-                    'codice_fiscale': node.codice_fiscale,
-                })
-            elif isinstance(node, BeneficiarioNode):
-                node_attrs.update({
-                    'tipo_soggetto': node.tipo_soggetto,
-                    'partita_iva': node.partita_iva,
-                })
-            elif isinstance(node, CigNode):
-                node_attrs.update({'codice': node.codice})
-            elif isinstance(node, CapitoloNode):
-                node_attrs.update({
-                    'codice': node.codice,
-                    'descrizione': node.descrizione,
-                })
             
-            # Add metadata
+            # Add dynamic properties, filtering out None values
+            for attr_name, attr_value in node.model_dump().items():
+                if attr_value is not None and attr_name not in ['node_id', 'label', 'node_type']:
+                    if not isinstance(attr_value, (str, int, float, bool)):
+                        # Convert other types to string representation
+                        node_attrs[attr_name] = str(attr_value)
+                    else:
+                        node_attrs[attr_name] = attr_value
+            
+            # Add metadata if present
             if node.metadata:
-                node_attrs['metadata'] = node.metadata.model_dump(exclude_unset=True)
+                metadata_dict = node.metadata.model_dump(exclude_unset=True) if hasattr(node.metadata, 'model_dump') else node.metadata
+                for key, value in metadata_dict.items():
+                    if value is not None:
+                        if not isinstance(value, (str, int, float, bool)):
+                            node_attrs[f'metadata_{key}'] = str(value)
+                        else:
+                            node_attrs[f'metadata_{key}'] = value
             
             G.add_node(node.node_id, **node_attrs)
         
         # Add edges
         for edge in self.edges:
             edge_attrs = {
-                'relation': edge.relation_type.value,
+                'relation': edge.relation_type,  # relation_type is already a string since RelationType is str, Enum
             }
-            if edge.attributes:
-                edge_attrs.update(edge.attributes)
+            
+            # Add edge attributes, filtering out None values
+            for attr_name, attr_value in edge.attributes.items():
+                if attr_value is not None:
+                    if not isinstance(attr_value, (str, int, float, bool)):
+                        edge_attrs[attr_name] = str(attr_value)
+                    else:
+                        edge_attrs[attr_name] = attr_value
+            
+            # Add edge metadata if present
             if edge.metadata:
-                edge_attrs['metadata'] = edge.metadata
+                for key, value in edge.metadata.items():
+                    if value is not None:
+                        if not isinstance(value, (str, int, float, bool)):
+                            edge_attrs[f'metadata_{key}'] = str(value)
+                        else:
+                            edge_attrs[f'metadata_{key}'] = value
+            
             G.add_edge(edge.source, edge.target, **edge_attrs)
         
         return G

@@ -115,6 +115,18 @@ Il sistema di coordinamento genera i seguenti file di output:
                     └─────────────────────────┘    └─────────────────────────┘    └─────────────────────────┘
 ```
 
+## Moduli Core Integrati
+
+Il sistema include i seguenti moduli core:
+
+1. **Orchestrator** (`src/delibere_comunali/core/orchestrator.py`): Coordinamento centrale tra tutti i moduli
+2. **Data Coordinator** (`src/delibere_comunali/core/data_coordinator.py`): Gestione coordinata dei dati tra i vari moduli
+3. **RAG Application** (`src/delibere_comunali/rag/rag_app.py`): Sistema di recupero aumentato per interrogazioni semantiche
+4. **Analyzer** (`src/delibere_comunali/parsing/analyze_albo.py`): Analisi e classificazione dei documenti
+5. **Audit Engine** (`src/delibere_comunali/processing/audit_engine.py`): Motore di audit per la verifica della conformità
+6. **Post-Processing Classification** (`src/delibere_comunali/processing/post_process_classification.py`): Ottimizzazione delle classificazioni
+7. **Procedural Understanding** (`src/delibere_comunali/processing/procedural_understanding.py`): Comprensione delle sequenze procedurali della Pubblica Amministrazione
+
 ## Conformità alle Norme di Progetto
 
 Questa implementazione soddisfa le seguenti norme di progetto:

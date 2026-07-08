@@ -10,7 +10,7 @@ import argparse
 import pandas as pd
 import networkx as nx
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 
 from .models import (
@@ -405,11 +405,22 @@ def main():
     parser = argparse.ArgumentParser(
         description='Build knowledge graph from parsed Albo Pretorio data'
     )
+    parser.add_argument("--ente", default=None, help='Name of the entity (for multi-tenant support)')
     parser.add_argument("--base", default='albo_download', help='Base directory containing CSV files')
-    parser.add_argument("--output", default=None, help='Output directory (default: <base>/report)")
+    parser.add_argument("--output", default=None, help='Output directory (default: <base>/report)')
     args = parser.parse_args()
     
-    base = Path(args.base)
+    # Se viene fornito il nome dell'ente, usa il percorso standard per quell'ente
+    if args.ente:
+        from delibere_comunali.utils.config import get_tenant_dir
+        base = Path(get_tenant_dir(args.ente))
+        # Assicurati che la directory esista
+        base = base / "albo_download" if base.name != "albo_download" else base
+    elif args.base:
+        base = Path(args.base)
+    else:
+        # Default fallback
+        base = Path("albo_download")
     
     # Find CSV file
     csv_path = find_csv_file(base)

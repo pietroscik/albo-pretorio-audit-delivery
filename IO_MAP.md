@@ -40,94 +40,27 @@ Documento che mappa tutti i flussi di input/output del sistema, inclusi i nuovi 
 
 ## Flusso degli Input/Output
 
-```mermaid
+``mermaid
 graph TD
-    subgraph "INPUT ESTERNI"
-        A1[Web Albo Pretorio]
-        A2[PDF Locali]
-        A3[Dataset Storici]
-        A4[Chiavi API]
-    end
-
-    subgraph "MODULI CORE"
-        B1[Scraper]
-        B2[Parsing]
-        B3[ML Models]
-    end
-
-    subgraph "MODULI AVANZATI"
-        C1[Risk Assessment]
-        C2[KPI Manageriali]
-        C3[Analisi Attuariale]
-        C4[Audit Engine]
-    end
-
-    subgraph "COORDINAMENTO CENTRALE"
-        D1[CentralOrchestrator]
-        D2[DataCoordinator]
-    end
-
-    subgraph "OUTPUT SPECIALIZZATI"
-        E1[Risk Report]
-        E2[KPI Report]
-        E3[Actuarial Report]
-        E4[Audit Report]
-    end
-
-    subgraph "OUTPUT COORDINATI"
-        F1[Coordinated Results JSON]
-        F2[Coordinated Reports]
-    end
-
-    subgraph "OUTPUT FINALI"
-        G1[Excel Principale]
-        G2[CSV Strutturati]
-        G3[File RAG]
-    end
-
-    A1 --> B1
-    A2 --> B2
-    A3 --> B3
-    A4 --> B3
-
-    B1 --> B2
-    B2 --> B3
-    B3 --> C1
-    B3 --> C2
-    B3 --> C3
-    B3 --> C4
-
-    B2 --> D1
-    C1 --> D1
-    C2 --> D1
-    C3 --> D1
-    C4 --> D1
-
-    D1 --> D2
-    D2 --> C1
-    D2 --> C2
-    D2 --> C3
-    D2 --> C4
-
-    C1 --> E1
-    C2 --> E2
-    C3 --> E3
-    C4 --> E4
-
-    D1 --> F1
-    D1 --> F2
-
-    E1 --> G2
-    E2 --> G1
-    E3 --> G2
-    E4 --> G2
-    F1 --> G2
-    F2 --> G1
-
-    style D1 fill:#ffdd00
-    style D2 fill:#ffdd00
-    style F1 fill:#ffeeaa
-    style F2 fill:#ffeeaa
+    A[URL Albo Pretorio] -->|scraping| B(allegati_parsed.csv)
+    A -->|scraping| C(PDF scaricati)
+    C -->|filtraggio| D(PDF filtrati - solo allegati reali)
+    B -->|analisi| E(analisi_rischi.csv)
+    D -->|elaborazione| F(documenti_features.csv)
+    B -->|classificazione| G(random_forest_model.joblib)
+    E -->|audit| H(alert_antifrode.md)
+    F -->|grafo| I(knowledge_graph.gexf)
+    G -->|validazione| L(verifica_classificazione.csv)
+    H -->|report| M(report_completo.md)
+    
+    %% Nuovi flussi per il modulo di filtraggio
+    C -->|analisi contenuto| J(filter_downloaded_files.py)
+    J -->|rimozione file introduttivi| D
+    J -->|aggiornamento dataframe| K(allegati_parsed_aggiornato.csv)
+    
+    %% Collegamento al modulo di comprensione procedurale
+    B -->|sequenze procedurali| N(procedural_understanding.py)
+    N -->|report analisi| O(procedural_analysis_report.md)
 ```
 
 ## Schema dei Dati Condivisi

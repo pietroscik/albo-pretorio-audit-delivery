@@ -12,7 +12,7 @@ This ensures interoperability and auditability as required by E.N.I.A. standards
 
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Any, List, Dict
 
 import networkx as nx
 
@@ -192,8 +192,8 @@ def _literal_value(value: Any) -> str:
         return str(value)
     if isinstance(value, str):
         # Escape quotes and special characters
-        escaped = value.replace("\", "\\\").replace("\"", "\\\"").replace("\n", "\\n")
-        return f"\"{escaped}\""
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        return f'"{escaped}"'
     return str(value)
 
 

@@ -148,73 +148,113 @@ def resolve_ambiguities_with_ml(df, model):
 
 
 def enhance_model_with_resolved_data(df, base_path):
-    """Migliora il modello ML utilizzando i dati risolti dagli ambigui."""
-    logger.info("Miglioramento del modello ML con dati risolti...")
+    """
+    Migliora il modello RF con i documenti già classificati con alta confidenza
+    """
+    # Controlla se esiste la colonna classification_quality_score
+    has_quality_score = 'classification_quality_score' in df.columns
     
-    # Filtra i dati risolti (sia per regole che per ML con alta confidenza)
-    resolved_mask = (
-        (df['classification_confidence'] == 'rule_based') |
-        (df['classification_confidence'] == 'ml_predicted_high_conf') |
-        (df['classification_confidence'] == 'human_reviewed')
+    # Filtra i documenti con classificazione affidabile
+    if has_quality_score:
+        high_confidence_mask = (
+            (df['classification_confidence'] == 'high') |
+            (df['classification_confidence'] == 'ml_predicted_high_conf') |
+            ((df['classification_confidence'].isin(['high_ml', 'ml_predicted'])) & 
+             (df['classification_quality_score'] > 0.7))
+        )
+    else:
+        # Versione legacy senza classification_quality_score
+        high_confidence_mask = (
+            (df['classification_confidence'] == 'high') |
+            (df['classification_confidence'] == 'ml_predicted_high_conf') |
+            (df['classification_confidence'].isin(['high_ml', 'ml_predicted']))
+        )
+    
+    resolved_df = df[high_confidence_mask].copy()
+    
+    if len(resolved_df) < 10:  # Troppo pochi dati per fare training utile
+        logger.info(f"Troppo pochi documenti risolti ({len(resolved_df)}) per migliorare il modello.")
+        return None
+    
+    # Controlla la distribuzione delle categorie
+    category_counts = resolved_df['category'].value_counts()
+    logger.info(f"Distribuzione delle categorie nei dati risolti: \n{category_counts}")
+    
+    # Filtra le categorie con troppo pochi esempi
+    min_samples_per_category = 2  # Aumentato da 1 a 2 per soddisfare il requisito di stratify
+    valid_categories = category_counts[category_counts >= min_samples_per_category].index
+    filtered_df = resolved_df[resolved_df['category'].isin(valid_categories)].copy()
+    
+    if len(filtered_df) < 10:
+        logger.warning(f"Dopo il filtro delle categorie rare, rimangono solo {len(filtered_df)} documenti. Impossibile allenare il modello.")
+        return None
+    
+    # Prepara i dati per il training
+    # Controlla se esiste la colonna _text
+    if '_text' in filtered_df.columns:
+        X_text = filtered_df['oggetto'].fillna('') + ' ' + filtered_df['_text'].fillna('')
+    else:
+        # Usa solo la colonna oggetto se _text non esiste
+        X_text = filtered_df['oggetto'].fillna('')
+    
+    y = filtered_df['category']
+    
+    # Controlla nuovamente la distribuzione dopo il filtro
+    final_category_counts = y.value_counts()
+    logger.info(f"Distribuzione finale delle categorie: \n{final_category_counts}")
+    
+    if len(final_category_counts) < 2:
+        logger.warning("Numero insufficiente di categorie per il training (meno di 2).")
+        return None
+    
+    # Usa stratify solo se tutte le categorie hanno almeno 2 esempi
+    min_count = final_category_counts.min()
+    if min_count >= 2:
+        # Abbiamo abbastanza esempi per ogni categoria per usare stratify
+        try:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_text, y, test_size=0.2, random_state=42, stratify=y
+            )
+        except ValueError as e:
+            # Se stratify fallisce comunque, usiamo divisione normale
+            logger.warning(f"Stratify fallito: {e}. Utilizzo divisione senza stratificazione.")
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_text, y, test_size=0.2, random_state=42
+            )
+    else:
+        # Non possiamo usare stratify, usiamo una divisione normale
+        logger.info("Numero insufficiente di esempi per alcune categorie, divisione senza stratificazione")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_text, y, test_size=0.2, random_state=42
+        )
+    
+    # Crea un nuovo modello basato sui dati risolti
+    # Risolto il problema con stop_words='italian' - usiamo None per ora
+    vectorizer = TfidfVectorizer(max_features=10000, stop_words=None, ngram_range=(1, 2))
+    X_train_vec = vectorizer.fit_transform(X_train)
+    X_test_vec = vectorizer.transform(X_test)
+    
+    # Alleniamo un nuovo modello Random Forest
+    rf_new = RandomForestClassifier(
+        n_estimators=100,
+        random_state=42,
+        n_jobs=-1,
+        min_samples_split=5,
+        min_samples_leaf=2
     )
+    rf_new.fit(X_train_vec, y_train)
     
-    resolved_data = df[resolved_mask].copy()
-    
-    if len(resolved_data) < 10:  # Minimo numero di campioni per fare un retraining
-        logger.info(f"Numero insufficiente di dati risolti ({len(resolved_data)}) per il retraining del modello.")
-        return None
-    
-    logger.info(f"Utilizzo di {len(resolved_data)} documenti risolti per il miglioramento del modello.")
-    
-    # Prepara i dati
-    text_col = 'text_preview' if 'text_preview' in df.columns else 'text'
-    X = resolved_data[text_col].astype(str)
-    y = resolved_data['category']
-    
-    # Rimuovi eventuali NaN
-    valid_idx = X.notna() & y.notna()
-    X = X[valid_idx]
-    y = y[valid_idx]
-    
-    if len(X) < 10:
-        logger.info("Numero insufficiente di dati validi per il retraining del modello.")
-        return None
-    
-    # Dividi i dati
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    
-    # Calcola i pesi delle classi per gestire lo sbilanciamento
-    classes = np.unique(y_train)
-    class_weights = compute_class_weight('balanced', classes=classes, y=y_train)
-    class_weight_dict = dict(zip(classes, class_weights))
-    
-    # Pipeline con TF-IDF e Random Forest
-    pipeline = Pipeline([
-        ('tfidf', TfidfVectorizer(max_features=5000, ngram_range=(1, 2), max_df=0.85, min_df=2)),
-        ('clf', RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42, n_jobs=1, class_weight=class_weight_dict))
-    ])
-    
-    # Addestra il modello
-    pipeline.fit(X_train, y_train)
-    
-    # Valutazione del modello (solo se abbiamo dati di test sufficienti)
-    if len(X_test) > 0 and len(y_test) > 0 and len(np.unique(y_test)) > 0:
-        y_pred = pipeline.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='macro', zero_division=0)
-        
-        logger.info(f"Risultati del modello migliorato:")
-        logger.info(f"Accuracy: {accuracy:.4f}")
-        logger.info(f"Macro Precision: {precision:.4f}")
-        logger.info(f"Macro Recall: {recall:.4f}")
-        logger.info(f"Macro F1-Score: {f1:.4f}")
+    # Valuta le prestazioni
+    y_pred = rf_new.predict(X_test_vec)
+    accuracy = accuracy_score(y_test, y_pred)
+    logger.info(f"Prestazioni del modello migliorato: Accuracy = {accuracy:.3f}")
     
     # Salva il modello migliorato
-    enhanced_model_path = base_path / "random_forest_model_enhanced.joblib"
-    joblib.dump(pipeline, enhanced_model_path)
-    logger.info(f"Modello migliorato salvato in: {enhanced_model_path}")
+    model_path = base_path / "random_forest_model_enhanced.joblib"
+    joblib.dump({'vectorizer': vectorizer, 'model': rf_new}, model_path)
+    logger.info(f"Modello migliorato salvato in: {model_path}")
     
-    return pipeline
+    return rf_new
 
 
 def main():
@@ -254,7 +294,12 @@ def main():
     logger.info(f"Dati caricati: {len(df)} documenti")
     
     # Carica il modello ML
-    model_path = base_path / "faiss_index" / "random_forest_model.joblib"
+    # Prima cerca nel percorso originale (nella directory principale)
+    model_path = base_path / "random_forest_model.joblib"
+    if not model_path.exists():
+        # Se non esiste, cerca nel vecchio percorso (nella sottodirectory faiss_index)
+        model_path = base_path / "faiss_index" / "random_forest_model.joblib"
+    
     if not model_path.exists():
         logger.warning(f"Modello ML non trovato: {model_path}. Impossibile procedere con la riclassificazione.")
         return
@@ -297,8 +342,18 @@ def main():
             docs_with_text = low_conf_docs[text_available].copy()
             
             if len(docs_with_text) > 0:
-                predictions = enhanced_model.predict(docs_with_text[text_column])
-                prediction_probs = enhanced_model.predict_proba(docs_with_text[text_column])
+                # Carica il modello migliorato completo di vettorizzatore
+                enhanced_model_bundle = joblib.load(base_path / "random_forest_model_enhanced.joblib")
+                enhanced_vectorizer = enhanced_model_bundle['vectorizer']
+                enhanced_model_instance = enhanced_model_bundle['model']
+                
+                # Vettorizza il testo utilizzando il vettorizzatore adatto
+                text_to_predict = docs_with_text[text_column].astype(str)
+                X_text_vec = enhanced_vectorizer.transform(text_to_predict)
+                
+                # Ora applica il modello al testo vettorizzato
+                predictions = enhanced_model_instance.predict(X_text_vec)
+                prediction_probs = enhanced_model_instance.predict_proba(X_text_vec)
                 max_probs = np.max(prediction_probs, axis=1)
                 
                 # Aggiorna le classificazioni per aumentare la confidenza dove possibile
@@ -354,8 +409,13 @@ def main():
     category_stats.to_csv(category_report_path, index=False)
     
     logger.info("Processo di post-processing completato con successo!")
-    logger.info(f"Documenti ambigui risolti: {ambiguous_before - ambiguous_after}")
-    logger.info(f"Documenti migliorati con modello potenziato: {improved_count if 'improved_count' in locals() else 0}")
+    
+    # Assicuriamoci che le variabili siano definite in tutti i percorsi
+    ambiguous_resolved = ambiguous_before - (ambiguous_after if 'ambiguous_after' in locals() else ambiguous_before)
+    improved_count_final = improved_count if 'improved_count' in locals() else 0
+    
+    logger.info(f"Documenti ambigui risolti: {ambiguous_resolved}")
+    logger.info(f"Documenti migliorati con modello potenziato: {improved_count_final}")
 
 
 if __name__ == "__main__":

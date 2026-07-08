@@ -92,6 +92,12 @@ def main() -> None:
                     help="esegui solo parsing/analyze")
     p.add_argument("--force", action="store_true",
                help="Ignora cache e forza ri-elaborazione")
+    # Aggiungi il parametro per saltare l'analisi procedurale
+    p.add_argument("--skip-procedural", action="store_true",
+                   help="salta l'analisi procedurale")
+    # Aggiungi il parametro per saltare il filtraggio dei file scaricati
+    p.add_argument("--skip-filter-files", action="store_true",
+                   help="salta il filtraggio dei file scaricati dallo scraper")
     args = p.parse_args()
 
     ente = args.ente
@@ -119,6 +125,11 @@ def main() -> None:
             scrape_args.extend(["--adapter-out", args.adapter_out])
         steps.append((_module_command("delibere_comunali.scraping.new_albo_scraper", scrape_args), "Scraping"))
 
+    # Filter downloaded files (if not skipped and scraping is not skipped)
+    if not args.skip_scrape and not args.skip_filter_files:
+        filter_args = ["--ente", ente, "--base", resolved_base]
+        steps.append((_script_command("scripts/filter_downloaded_files.py", filter_args), "Filter Downloaded Files"))
+
     # Analyze/Parse
     analyze_args = ["--ente", ente, "--base", resolved_base] + limit_args + llm_args
     steps.append((_module_command("delibere_comunali.parsing.analyze_albo", analyze_args), "Parsing/Analysis"))
@@ -142,6 +153,11 @@ def main() -> None:
     train_args = ["--ente", ente, "--base", resolved_base] + llm_args
     steps.append((_script_command("scripts/train_model.py", train_args), "ML Model Training"))
 
+    # Procedural Understanding (optional)
+    if not args.skip_procedural:
+        proc_args = ["--ente", ente, "--base", resolved_base]
+        steps.append((_module_command("delibere_comunali.processing.procedural_understanding", proc_args), "Procedural Understanding Analysis"))
+
     # Audit (optional)
     if not args.only_analyze and not args.skip_audit:
         audit_args = ["--ente", ente, "--base", resolved_base] + llm_args
@@ -149,7 +165,7 @@ def main() -> None:
 
     # Validation (optional)
     if not args.skip_validate:
-        validate_args = ["--ente", ente, "--base", resolved_base]
+        validate_args = ["--base", resolved_base]
         steps.append((_script_command("scripts/validate_output.py", validate_args), "Output Validation"))
 
     # Esegui tutti i passaggi pianificati

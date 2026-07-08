@@ -4,6 +4,10 @@ import networkx as nx
 from pathlib import Path
 from dateutil import parser
 import json
+
+# Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
+from delibere_comunali.utils.config import get_tenant_dir
+
 try:
     from pyvis.network import Network
 except ModuleNotFoundError as exc:
@@ -44,10 +48,18 @@ def save_interactive_graph(G, output_path):
 
 def main():
     parser_arg = argparse.ArgumentParser()
+    parser_arg.add_argument("--ente", default=None, help="Nome dell'ente per cui costruire il grafo (per supporto multi-tenant).")
     parser_arg.add_argument("--base", default="albo_download")
     args = parser_arg.parse_args()
     
-    base = Path(args.base)
+    # Se viene fornito il nome dell'ente, usa il percorso standard per quell'ente
+    if args.ente:
+        base_path = Path(get_tenant_dir(args.ente))
+        # Assicurati che la directory esista
+        base = base_path / "albo_download" if base_path.name != "albo_download" else base_path
+    else:
+        base = Path(args.base)
+    
     # Preferiamo allegati_parsed.csv che è quello arricchito dall'LLM
     atti_path = base / "allegati_parsed.csv"
     if not atti_path.exists():

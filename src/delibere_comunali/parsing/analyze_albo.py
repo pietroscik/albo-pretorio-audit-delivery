@@ -1071,6 +1071,327 @@ def text_features(text):
 def extract_from_pdf(pdf_file, use_llm=False, rf_model=None, ente_nome=None, text_dir=None):
     """Estrae testo e cattura campi principali da un PDF (testuale -> OCR fallback)."""
     
+    # Controllo se il file contiene effettivamente HTML, anche se ha estensione diversa
+    # Questo gestisce i casi in cui file HTML vengono rinominati come .pdf_1, .pdf_2, ecc.
+    try:
+        with open(pdf_file, 'r', encoding='utf-8', errors='ignore') as f:
+            sample_content = f.read(1024)  # Leggi solo i primi 1024 caratteri per rilevamento
+            if '<html' in sample_content.lower() or '<body' in sample_content.lower() or '<head' in sample_content.lower():
+                # Questo è un file HTML, processalo usando BeautifulSoup invece che come PDF
+                from bs4 import BeautifulSoup
+                full_content = sample_content + f.read()  # Leggi il resto del contenuto
+                soup = BeautifulSoup(full_content, 'html.parser')
+                text_one = soup.get_text(separator=' ', strip=True)
+                
+                # Ritorna risultati simulando l'estrazione da HTML
+                out = {
+                    "pdf_name": pdf_file.name,
+                    "pdf_path": str(pdf_file),
+                    "doc_type": "unknown",
+                    "category": None,
+                    "subcategory": None,
+                    "classification_confidence": None,
+                    "classification_terms": None,
+                    "oggetto": None,
+                    "numero_atto": None,
+                    "data_atto": None,
+                    "numero_registro": None,
+                    "data_registro": None,
+                    "importi_raw": [],
+                    "importo_max": None,
+                    "importo_sum": None,
+                    "importi_count": 0,
+                    "cig": None,
+                    "cup": None,
+                    "beneficiario": None,
+                    "piva_beneficiario": None,
+                    "iban": None,
+                    "codice_appalti": None,
+                    "tipo_procedura": None,
+                    "importo_lettere": None,
+                    "anomalie": None,
+                    "responsabile": None,
+                    "ufficio": None,
+                    "impegno_num": None,
+                    "impegno_anno": None,
+                    "accert_num": None,
+                    "accert_anno": None,
+                    "quadro_economico": None,
+                    "capitolo": None,
+                    "peg_riga": None,
+                    "is_visto_contabile": ("VistoContabile" in pdf_file.name),
+                    "source": "html",   # 'html' per indicare che è stato estratto da HTML
+                    "accounting_relevant": False,
+                    "missing_amount_expected": False,
+                    "veridicità_score": 0,
+                    "solidità_globale": 0,
+                    "is_personnel_competence_relevant": False,
+                    "personnel_competences": "[]",
+                    "decree_references": "[]"
+                }
+
+                text_one = remove_boilerplate(text_one)
+                text_one = normalize_text_for_ml(text_one)
+                out["_text"] = text_one
+                out["text_sha256"] = hashlib.sha256(text_one.encode("utf-8", errors="ignore")).hexdigest()
+                out.update(text_features(text_one))
+
+                # --- Competenze Personale ---
+                out["is_personnel_competence_relevant"] = is_personnel_competence_relevant(text_one)
+                out["personnel_competences"] = json.dumps([c.__dict__ for c in extract_personnel_competences(text_one)], ensure_ascii=False)
+                out["decree_references"] = json.dumps(extract_decree_references(text_one), ensure_ascii=False)
+
+                # Determiniamo in anticipo la natura giuridica del documento
+                out["doc_type"] = infer_doc_type(str(pdf_file), text_one)
+
+                # Processa il resto come per i file normali
+                # --- Estrazione Avanzata (Regex Potenziate) ---
+                adv_data = {}
+                if advanced_extractor:
+                    # Determina confidenza OCR di base
+                    ocr_confidence = 0.85 if out.get("source") == "ocr" else 1.0
+                    
+                    if hasattr(advanced_extractor, 'extract_entities_full'):
+                        adv_data = advanced_extractor.extract_entities_full(text_one, doc_type=out["doc_type"], ocr_conf=ocr_confidence)
+                    else:
+                        adv_data = advanced_extractor.extract_entities(text_one, doc_type=out["doc_type"])
+
+                # Aggiorniamo out con i metadati forensi (confidence e metodi)
+                if adv_data.get("confidence"):
+                    out["veridicità_score"] = int(adv_data.get("confidence", 0) * 100)
+                
+                out["anomalie"] = adv_data.get("forensic_flags")
+                out["extraction_method"] = adv_data.get("extraction_method")
+                out["trace_json"] = adv_data.get("trace_json")
+                out["beneficiario_raw"] = adv_data.get("beneficiario_raw")
+                out["layout_confidence"] = adv_data.get("layout_confidence")
+
+                # --- Estrazione via LLM (Opzionale) ---
+                llm_data = {}
+                if use_llm:
+                    llm_data = extract_metadata_with_gemini(text_one)
+                    
+                    # Applichiamo la Vision API solo se il documento è di natura contabile o un Lavoro Pubblico
+                    if out.get("accounting_relevant") or out.get("category") == "Lavori Pubblici":
+                        # Per file HTML non applichiamo vision API
+                        pass
+
+                # --- Oggetto, Numero Atto, Registro Generale ---
+                if llm_data.get("oggetto"):
+                    out["oggetto"] = llm_data["oggetto"]
+                else:
+                    m = RX_OGGETTO.search(text_one)
+                    if m:
+                        oggetto_estratto = m.group(1).strip()
+                        # Tronca se troppo lungo
+                        if len(oggetto_estratto) > 1500:
+                            oggetto_estratto = oggetto_estratto[:1500] + "..."
+                        out["oggetto"] = oggetto_estratto
+
+                # --- Classificazione ---
+                category, subcategory, confidence, terms = classify_document(out["oggetto"], text_one, rf_model=rf_model)
+                out["category"] = category
+                out["subcategory"] = subcategory
+                out["classification_confidence"] = confidence
+                out["classification_terms"] = terms
+                out["accounting_relevant"] = is_accounting_relevant(text_one, out["doc_type"], out["category"])
+
+                # --- importi ---
+                amts_norm = []
+                if llm_data.get("importi_raw"):
+                    for amount_raw in llm_data["importi_raw"]:
+                        normalized = normalize_amount(amount_raw)
+                        if normalized is not None:
+                            amts_norm.append(normalized)
+                else:
+                    amts_norm = extract_importi(text_one)
+                    
+                out["importi_raw"] = [str(a) for a in amts_norm]
+                
+                # Gestione S.A.L. e Liquidazioni: Evitiamo la doppia imputazione (totale progetto vs importo liquidato)
+                importo_specifico_liquidazione = None
+                if out["subcategory"] == "Liquidazione" or "s.a.l." in text_one.lower() or "sal n." in text_one.lower():
+                    m_liq = RX_IMPORTO_LIQUIDATO.search(text_one)
+                    if m_liq:
+                        importo_specifico_liquidazione = normalize_amount(m_liq.group(1))
+                        
+                if importo_specifico_liquidazione and importo_specifico_liquidazione > 0:
+                    out["importo_max"] = importo_specifico_liquidazione
+                else:
+                    out["importo_max"] = adv_data.get("importo_max_estratto") or (max(amts_norm) if amts_norm else None)
+                    
+                out["importo_sum"] = sum(amts_norm) if amts_norm else None
+                out["importi_count"] = len(amts_norm)
+                out["missing_amount_expected"] = bool(out["accounting_relevant"] and out["doc_type"] != "VistoContabile" and not amts_norm)
+
+                m = RX_NUM_ATTO.search(text_one)
+                if m:
+                    out["numero_atto"] = m.group(1)
+                    out["data_atto"] = m.group(2)
+
+                m = RX_REG_GEN.search(text_one)
+                if m:
+                    out["numero_registro"] = m.group(1)
+                    out["data_registro"] = m.group(2)
+
+                # --- CIG / CUP ---
+                try:
+                    if llm_data.get("cig"): out["cig"] = llm_data["cig"].upper()
+                    elif adv_data.get("cig_estratto"): out["cig"] = adv_data["cig_estratto"].upper()
+                    else:
+                        m = RX_CIG.search(text_one)
+                        if m: out["cig"] = m.group(1).upper()
+                        
+                    if llm_data.get("cup"): out["cup"] = llm_data["cup"].upper()
+                    elif adv_data.get("cup_estratto"): out["cup"] = adv_data["cup_estratto"].upper()
+                    else:
+                        m = RX_CUP.search(text_one)
+                        if m: out["cup"] = m.group(1).upper()
+                except Exception as e:
+                    logger.warning(f"Errore durante l'estrazione di CIG/CUP per {pdf_file.name}: {e}")
+
+                # --- LegalURN (NIR Standard) ---
+                out["legal_urn"] = generate_legal_urn(out.get("doc_type"), out.get("data_atto"), out.get("numero_atto"), ente_nome=ente_nome)
+
+                # --- Compliance (Firme e Accessibilità) ---
+                # Per file HTML non applichiamo controlli PDF specifici
+                compliance = {}
+                out.update(compliance)
+
+                # --- beneficiario/fornitore/aggiudicatario ---
+                if llm_data.get("beneficiario"):
+                    out["beneficiario"] = llm_data["beneficiario"].strip()
+                else:
+                    for rx_pattern in RX_BENEF:
+                        m = rx_pattern.search(text_one)
+                        if m:
+                            beneficiario_text = m.group(1).strip(" :;-|")
+                            beneficiario_text = re.sub(r'\s*-\s*Progressivo Fornitore.*', '', beneficiario_text, flags=re.IGNORECASE)
+                            if len(beneficiario_text) < 150:
+                                out["beneficiario"] = beneficiario_text.strip()
+                                break
+                
+                out["piva_beneficiario"] = adv_data.get("piva_beneficiario")
+
+                iban_estratto = adv_data.get("iban_estratto")
+                if not iban_estratto:
+                    m_iban = RX_IBAN.search(text_one)
+                    if m_iban:
+                        iban_estratto = re.sub(r'\s+', '', m_iban.group(0)).upper()
+                out["iban"] = iban_estratto
+
+                out["codice_appalti"] = adv_data.get("codice_appalti")
+                out["tipo_procedura"] = adv_data.get("tipo_procedura")
+                out["importo_lettere"] = adv_data.get("importo_lettere")
+                
+                anomalia_corrente = out.get("anomalie", "")
+                anomalia_nuova = adv_data.get("anomalie_rilevate")
+                if anomalia_nuova:
+                    out["anomalie"] = f"{anomalia_corrente} | {anomalia_nuova}" if anomalia_corrente else anomalia_nuova
+
+                cap_adv = adv_data.get("capitolo")
+                # Filtro antifrode: evitiamo di scambiare il CAP postale (es. 83022) per un Capitolo di spesa
+                if cap_adv and not (len(str(cap_adv)) == 5 and str(cap_adv).isdigit()):
+                    out["capitolo"] = cap_adv
+
+                if adv_data.get("beneficiario"):
+                    out["beneficiario"] = adv_data.get("beneficiario")
+                    
+                if adv_data.get("beneficiario_raw"):
+                    out["beneficiario_raw"] = adv_data.get("beneficiario_raw")
+
+                if adv_data.get("responsabile"):
+                    out["responsabile"] = adv_data.get("responsabile")
+
+                if adv_data.get("impegno_num"):
+                    out["impegno_num"] = adv_data.get("impegno_num")
+                # --- Responsabile, Area e Ruolo (Rule-Based NER) ---
+                if llm_data.get("responsabile"):
+                    out["rup_nome"] = str(llm_data["responsabile"]).strip().upper()
+                else:
+                    attori = estrai_attori_procedimento(text_one)
+                    out["rup_nome"] = attori["nome"]
+                    out["rup_area"] = attori["area"]
+                    out["rup_ruolo"] = attori["ruolo"]
+
+                # Mantieni retrocompatibilità per 'responsabile'
+                out["responsabile"] = normalizza_rup(out.get("rup_nome") or out.get("responsabile"))
+
+                # --- Override Categoria se LLM ha alta confidenza ---
+                conf_attuale = out.get("classification_confidence")
+                is_low_conf = conf_attuale in ("ambiguous", None) or (isinstance(conf_attuale, (int, float)) and conf_attuale < 0.70)
+                if llm_data.get("category") and is_low_conf:
+                    out["category"] = llm_data["category"]
+                    out["classification_confidence"] = 0.88 # Badge confidenza LLM
+                    out["extraction_method"] = (out.get("extraction_method") or "") + "+LLM_CAT"
+
+
+                # --- impegno/accertamento ---
+                m = RX_IMPEGNO.search(text_one)
+                if m:
+                    out["impegno_num"]  = m.group(1)
+                    if len(m.groups()) > 1 and m.group(2):
+                        out["impegno_anno"] = m.group(2)
+                        
+                m = RX_ACCERT.search(text_one)
+                if m:
+                    out["accert_num"]  = m.group(1)
+                    if len(m.groups()) > 1 and m.group(2):
+                        out["accert_anno"] = m.group(2)
+                
+
+                # --- capitolo & PEG ---
+                m = RX_CAPITOLO.search(text_one)
+                if m:
+                    cap_val = m.group(1)
+                    if not out.get("capitolo") and not (len(cap_val) == 5 and cap_val.isdigit()):
+                        out["capitolo"] = cap_val
+                m = RX_PEG.search(text_one)
+                if m:
+                    out["peg_riga"] = m.group(0)
+
+                # --- Digital Twin Event Creation ---
+                doc_type_enum, event_type_enum = route_document(text_one)
+
+                actors = []
+                if out.get("rup_nome") and out["rup_nome"] != "NON IDENTIFICATO":
+                    actors.append(Actor(
+                        name=out["rup_nome"],
+                        actor_type=ActorType.RUP,
+                        role=out.get("rup_ruolo"),
+                        area=out.get("rup_area")
+                    ))
+                if out.get("beneficiario") and out["beneficiario"] not in ["NON IDENTIFICATO", "DIVERSI/NON APPLICABILE"]:
+                     actors.append(Actor(
+                        name=out["beneficiario"],
+                        actor_type=ActorType.BENEFICIARIO
+                    ))
+
+                event = AdministrativeEvent(
+                    event_type=event_type_enum,
+                    document_type=doc_type_enum,
+                    document_id=pdf_file.stem,
+                    document_number=out.get("numero_atto"),
+                    document_date=out.get("data_atto"),
+                    title=out.get("oggetto"),
+                    economic_value=out.get("importo_max"),
+                    cig=out.get("cig"),
+                    cup=out.get("cup"),
+                    actors=actors,
+                    confidence=0.8, # Placeholder confidence
+                    raw_text=text_one,
+                    metadata={
+                        "urn": out.get("legal_urn"),
+                        "source_file": pdf_file.name   # <-- era path.name
+                    }
+                )
+                procedure_builder.add_event(event)
+                return out
+    except Exception as e:
+        # Se non riesce a leggere come testo, continua con la logica normale
+        logger.debug(f"Impossibile controllare contenuto HTML per {pdf_file.name}: {e}")
+        pass  # Continua con la logica normale per PDF
+    
     # Gestione preliminare dei file .p7m
     is_p7m = pdf_file.name.lower().endswith(".p7m")
     pdf_content_bytes = None
@@ -1468,10 +1789,26 @@ def extract_full_metadata(pdf_path: Path, filename: str = "", text_dir: Path = N
 def process_directory_to_csv(pdf_dir: Path, output_csv: Path, max_files: int = None) -> pd.DataFrame:
     """Elabora tutti i PDF in una directory e salva i risultati in un file CSV."""
     results = []
-    for i, pdf_file in enumerate(pdf_dir.glob("*.pdf")):
+    # Processa tutti i file PDF, PHP, P7M e HTML (che potrebbero contenere testo/metadata estratti)
+    for i, pdf_file in enumerate(pdf_dir.glob("*.[pP][dD][fF]")):
         if max_files and i >= max_files:
             break
         results.append(extract_full_metadata(pdf_file, pdf_file.name))
+    # Aggiungi anche file con estensione .php
+    for i, pdf_file in enumerate(pdf_dir.glob("*.[pP][hH][pP]"), start=len(results)):
+        if max_files and i >= max_files:
+            break
+        results.append(extract_full_metadata(pdf_file, pdf_file.name))
+    # Aggiungi anche file con estensione .p7m
+    for i, pdf_file in enumerate(pdf_dir.glob("*.[pP]7[mM]"), start=len(results)):
+        if max_files and i >= max_files:
+            break
+        results.append(extract_full_metadata(pdf_file, pdf_file.name))
+    # Aggiungi anche file con estensione .html che potrebbero contenere testo estratto
+    for i, html_file in enumerate(pdf_dir.glob("*.[hH][tT][mM][lL]"), start=len(results)):
+        if max_files and i >= max_files:
+            break
+        results.append(extract_full_metadata(html_file, html_file.name))
     df = pd.DataFrame(results)
     df.to_csv(output_csv, index=False, encoding="utf-8")
     return df
@@ -1567,8 +1904,16 @@ def main():
 
     # 3) Processa tutti i PDF locali indipendentemente dai metadati
     logger.info("Processando PDF locali...")
-    files = list(pdf_dir.glob("*.pdf")) + list(pdf_dir.glob("*.php")) + list(pdf_dir.glob("*.p7m"))
-    logger.info(f"Trovati {len(files)} file PDF/PHP")
+    # Includi tutti i file rilevanti: PDF, PHP, P7M e HTML (perché alcuni testi potrebbero essere già stati estratti)
+    files = (list(pdf_dir.glob("*.pdf")) + 
+             list(pdf_dir.glob("*.PDF")) + 
+             list(pdf_dir.glob("*.php")) + 
+             list(pdf_dir.glob("*.PHP")) + 
+             list(pdf_dir.glob("*.p7m")) + 
+             list(pdf_dir.glob("*.P7M")) +
+             list(pdf_dir.glob("*.html")) +
+             list(pdf_dir.glob("*.HTML")))
+    logger.info(f"Trovati {len(files)} file (PDF/PHP/P7M/HTML)")
     
     # Caricamento cache dei PDF già elaborati per evitare chiamate inutili all'API
     processed_cache = {}

@@ -44,6 +44,9 @@ from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter, Retry
 from urllib.robotparser import RobotFileParser
 
+# Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
+from delibere_comunali.utils.config import get_tenant_dir
+
 # -------------- Config di default --------------
 DEFAULT_DELAY = 1.0
 DEFAULT_MAX_PAGES = 20
@@ -80,11 +83,52 @@ def url_doc_name(url: str) -> str:
 def looks_like_attachment(href: str, label: str = "") -> bool:
     name = url_doc_name(href).lower()
     text = (label or "").lower()
-    if any(name.endswith(ext) for ext in ATTACH_EXTS):
+    
+    # Controlla se è un'estensione valida
+    has_valid_ext = any(name.endswith(ext) for ext in ATTACH_EXTS)
+    
+    # Se non ha estensione valida, probabilmente non è un allegato
+    if not has_valid_ext:
+        return False
+    
+    # Verifica se il nome del file o l'etichetta suggeriscono che è un file introduttivo anziché un vero allegato
+    intro_keywords = [
+        "introduzione", "descrizione", "copia", "anteprima", "preview", 
+        "dettagli", "dettaglio", "pagina", "scheda", "visualizza", "mostra",
+        "copertina", "frontespizio", "indice", "sommario", "prefazione",
+        "intro", "desc", "dettaglio_atto", "visualizza_atto", "mostra_dettagli"
+    ]
+    if any(keyword in name or keyword in text for keyword in intro_keywords):
+        return False  # Non è un vero allegato
+    
+    # Controlla se contiene indicatori di vero allegato
+    positive_indicators = [
+        "allegato", "documento", "pdf", "download", "vai", "atto", "determina", 
+        "delibera", "progetto", "relazione", "computo", "preventivo", "cronoprogramma",
+        "relazione", "tabelle", "elenco", "quadro", "scheda_tecnica", "capitolato",
+        "disciplinare", "metrico", "economico", "grafico", "foto", "immagine",
+        "pianta", "prospetto", "sezione", "dettaglio_tecnico", "tavola", "modulo",
+        "modello", "schema", "diagramma", "allegato_", "allegato-", "allegato.",
+        "computo_metrico", "quadro_economico", "cronoprogramma", "piano_esecutivo"
+    ]
+    has_positive_indicators = any(indicator in name or indicator in text for indicator in positive_indicators)
+    
+    # Controlla se contiene indicatori di file descrittivo
+    negative_indicators = [
+        "dettaglio", "pagina", "scheda", "visualizza", "mostra", "descrizione",
+        "introduzione", "anteprima", "preview", "info", "informazioni", "copia_"
+    ]
+    has_negative_indicators = any(indicator in name or indicator in text for indicator in negative_indicators)
+    
+    # Se ha indicatori positivi e non negativi, probabilmente è un allegato
+    if has_positive_indicators and not has_negative_indicators:
         return True
-    if "getdoc.php" in href.lower():
+    elif has_positive_indicators and has_negative_indicators:
+        # Se ha entrambi, diamo priorità agli indicatori positivi ma con cautela
         return True
-    return any(word in text for word in ("allegato", "documento", "pdf", "download", "vai"))
+    else:
+        # Se non ha indicatori positivi, non è un allegato
+        return False
 
 # Dizionario per inferire tipologia da filename
 TIPOLOGIA_FROM_FILENAME = {
@@ -427,9 +471,13 @@ def parse_detail_page(html: str, base_url: str) -> Tuple[Optional[str], Optional
 class AlboScraper:
     def __init__(self, args):
         self.args = args
-        if self.args.out:
+        if self.args.base:
+            # Se viene fornito --base, lo utilizza direttamente come percorso di output
+            self.out_dir = Path(self.args.base)
+        elif self.args.out:
             self.out_dir = Path(self.args.out)
         else:
+            # Se non è specificato né --base né --out, usa il percorso standard basato su --ente
             self.out_dir = Path(f"data/{self.args.ente}/albo_download")
         ensure_dir(self.out_dir)
         ensure_dir(self.out_dir / "pdf")
@@ -748,6 +796,7 @@ class AlboScraper:
 def build_parser():
     ap = argparse.ArgumentParser(description="Scraper Albo Pretorio (OpenWeb)")
     ap.add_argument("--ente", default="avella", help="Nome dell'ente per gestire cartelle separate (es. avella, tufino).")
+    ap.add_argument("--base", default=None, help="Percorso base dei dati (per compatibilità con altri moduli).")
     ap.add_argument("--start-url", help="URL iniziale (lista atti). Ignorato se usi --page-from.")
     ap.add_argument("--out", default=None, help="Cartella di output (default: data/{ente}/albo_download).")
     ap.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES, help="Numero max pagine da seguire.")
@@ -775,6 +824,11 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
+
+    # Se --ente è "avella" e non è specificato né --start-url né --page-from, 
+    # impostiamo automaticamente l'URL di partenza per Avella
+    if args.ente == "avella" and not args.start_url and args.page_from is None:
+        args.start_url = "https://servizi.comune.avella.av.it/openweb/albo/albo_pretorio_full.php"
 
     # Precondizioni minime
     if args.page_from is None and not args.start_url:
