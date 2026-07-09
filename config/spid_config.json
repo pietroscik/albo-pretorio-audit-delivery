@@ -1,0 +1,73 @@
+{
+  "entity_id": "https://albo-pretorio.ente.it/spid/metadata",
+  "assertion_consumer_service_url": "https://albo-pretorio.ente.it/spid/acs",
+  "metadata_url": "https://albo-pretorio.ente.it/spid/metadata.xml",
+  
+  "cert_path": "/etc/ssl/certs/spid_cert.pem",
+  "key_path": "/etc/ssl/private/spid_key.pem",
+  
+  "spid_provider_url": "https://spid.test.it",
+  "default_spid_level": 2,
+  
+  "contact_email": "admin@ente.it",
+  "contact_phone": "+39 XXX XXXXXXX",
+  
+  "organization_name": "Ente Pubblico",
+  "organization_url": "https://ente.it",
+  
+  "attribute_mapping": {
+    "fiscalNumber": "codice_fiscale",
+    "name": "nome",
+    "surname": "cognome",
+    "email": "email",
+    "spidCode": "spid_code",
+    "dateOfBirth": "data_nascita",
+    "gender": "sesso",
+    "mobilePhone": "telefono",
+    "address": "indirizzo",
+    "companyName": "ragione_sociale",
+    "registeredOffice": "sede_legale",
+    "ivaCode": "partita_iva"
+  },
+  
+  "identity_providers": [
+    {
+      "name": "Aruba ID",
+      "entity_id": "https://id.aruba.it",
+      "metadata_url": "https://id.aruba.it/metadata.xml",
+      "enabled": true
+    },
+    {
+      "name": "Poste ID",
+      "entity_id": "https://posteid.poste.it",
+      "metadata_url": "https://posteid.poste.it/metadata.xml",
+      "enabled": true
+    },
+    {
+      "name": "Sielte ID",
+      "entity_id": "https://identity.sieltecloud.it",
+      "metadata_url": "https://identity.sieltecloud.it/metadata.xml",
+      "enabled": true
+    },
+    {
+      "name": "Tim ID",
+      "entity_id": "https://login.id.tim.it",
+      "metadata_url": "https://login.id.tim.it/metadata.xml",
+      "enabled": true
+    },
+    {
+      "name": "Infocert ID",
+      "entity_id": "https://id.infocert.it",
+      "metadata_url": "https://id.infocert.it/metadata.xml",
+      "enabled": true
+    }
+  ],
+  
+  "security": {
+    "signature_algorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+    "digest_algorithm": "http://www.w3.org/2001/04/xmlenc#sha256",
+    "want_assertions_signed": true,
+    "want_response_signed": true,
+    "want_assertions_encrypted": false
+  }
+}
