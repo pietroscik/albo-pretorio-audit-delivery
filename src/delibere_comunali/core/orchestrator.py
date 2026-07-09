@@ -12,9 +12,13 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 import logging
 import json
+import hashlib
+import pickle
 from datetime import datetime
 import argparse
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import lru_cache, wraps
 
 # Import dei moduli esistenti
 from ..risk_assessment.risk_calculator import DeliberaRiskAssessor
@@ -27,17 +31,154 @@ from ..utils.config import get_tenant_dir  # Import corretto dal modulo centrali
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def get_data_hash(data: pd.DataFrame) -> str:
+    """
+    Genera un hash univoco per un DataFrame per il caching.
+    """
+    if data is None or data.empty:
+        return "empty_dataframe"
+    
+    # Usa un sottoinsieme di colonne per il calcolo dell'hash (per evitare problemi con colonne temporali)
+    hashable_cols = ['pdf_name', 'oggetto', 'doc_type', 'category']
+    available_cols = [col for col in hashable_cols if col in data.columns]
+    
+    if not available_cols:
+        # Se nessuna colonna disponibile, usa tutte le colonne
+        available_cols = list(data.columns)
+    
+    # Crea una stringa rappresentativa dei dati
+    data_str = str(data[available_cols].head(100).to_dict())  # Limita a 100 righe per performance
+    return hashlib.md5(data_str.encode()).hexdigest()
+
+
+class ResultCache:
+    """
+    Classe per gestire il caching dei risultati dei moduli.
+    """
+    
+    def __init__(self, cache_dir: str = None, max_size: int = 100):
+        self.cache_dir = cache_dir or "./cache"
+        self.max_size = max_size  # Numero massimo di voci in cache
+        self._cache: Dict[str, Any] = {}
+        self._cache_order: List[str] = []  # Per implementare LRU manualmente
+        
+        # Crea la directory di cache se non esiste
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # Carica la cache da disco se esiste
+        self._load_cache_from_disk()
+    
+    def _get_cache_path(self, key: str) -> str:
+        """Ottiene il percorso del file di cache per una chiave."""
+        return os.path.join(self.cache_dir, f"{key}.pkl")
+    
+    def _load_cache_from_disk(self):
+        """Carica la cache da disco."""
+        try:
+            cache_files = [f for f in os.listdir(self.cache_dir) if f.endswith('.pkl')]
+            for cache_file in cache_files:
+                key = cache_file[:-4]  # Rimuovi estensione .pkl
+                cache_path = self._get_cache_path(key)
+                try:
+                    with open(cache_path, 'rb') as f:
+                        self._cache[key] = pickle.load(f)
+                    self._cache_order.append(key)
+                except Exception as e:
+                    logger.warning(f"Errore nel caricamento della cache per {key}: {e}")
+            
+            # Limita la cache alla dimensione massima
+            if len(self._cache_order) > self.max_size:
+                self._cache_order = self._cache_order[-self.max_size:]
+                self._cache = {k: self._cache[k] for k in self._cache_order}
+            
+            logger.info(f"Cache caricata da disco: {len(self._cache)} voci")
+        except Exception as e:
+            logger.warning(f"Errore nel caricamento della cache da disco: {e}")
+    
+    def get(self, key: str) -> Optional[Any]:
+        """Ottiene un valore dalla cache."""
+        if key in self._cache:
+            # Aggiorna l'ordine per LRU (sposta in fondo)
+            if key in self._cache_order:
+                self._cache_order.remove(key)
+            self._cache_order.append(key)
+            return self._cache[key]
+        return None
+    
+    def set(self, key: str, value: Any):
+        """Imposta un valore nella cache."""
+        # Se la chiave esiste già, rimuovila dall'ordine
+        if key in self._cache_order:
+            self._cache_order.remove(key)
+        
+        # Aggiungi il nuovo valore
+        self._cache[key] = value
+        self._cache_order.append(key)
+        
+        # Salva su disco
+        self._save_to_disk(key, value)
+        
+        # Rimuovi voci vecchie se superiamo la dimensione massima
+        if len(self._cache_order) > self.max_size:
+            oldest_key = self._cache_order.pop(0)
+            del self._cache[oldest_key]
+            # Rimuovi anche da disco
+            try:
+                os.remove(self._get_cache_path(oldest_key))
+            except Exception:
+                pass
+    
+    def _save_to_disk(self, key: str, value: Any):
+        """Salva una voce di cache su disco."""
+        try:
+            cache_path = self._get_cache_path(key)
+            with open(cache_path, 'wb') as f:
+                pickle.dump(value, f)
+        except Exception as e:
+            logger.warning(f"Errore nel salvataggio della cache per {key}: {e}")
+    
+    def clear(self):
+        """Svuota la cache."""
+        self._cache.clear()
+        self._cache_order.clear()
+        
+        # Rimuovi tutti i file di cache da disco
+        try:
+            cache_files = [f for f in os.listdir(self.cache_dir) if f.endswith('.pkl')]
+            for cache_file in cache_files:
+                try:
+                    os.remove(os.path.join(self.cache_dir, cache_file))
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"Errore nella pulizia della cache: {e}")
+    
+    def get_stats(self) -> Dict:
+        """Ottiene statistiche sulla cache."""
+        return {
+            'size': len(self._cache),
+            'max_size': self.max_size,
+            'cache_dir': self.cache_dir
+        }
+
+
 class CentralOrchestrator:
     """
     Orchestrator centrale che coordina i vari moduli avanzati del sistema
     """
     
-    def __init__(self, ente: str = None, base_path: str = None):
+    def __init__(self, ente: str = None, base_path: str = None, max_workers: int = 4):
         self.ente = ente
         self.base_path = base_path or self._get_default_base_path()
         self.risk_assessor = DeliberaRiskAssessor()
         self.kpi_calculator = MunicipalManagementKPI()
         self.ml_diagnostics = StatisticalModelDiagnostics()
+        self.max_workers = max_workers  # Numero massimo di thread per parallelizzazione
+        
+        # Inizializza la cache
+        cache_dir = os.path.join(self.base_path, "cache") if self.base_path else "./cache"
+        self.cache = ResultCache(cache_dir=cache_dir, max_size=50)
         
         # Dati condivisi tra i moduli
         self.shared_data = {
@@ -53,7 +194,9 @@ class CentralOrchestrator:
         self.coordination_params = {
             'risk_kpi_feedback_enabled': True,
             'ml_model_adaptation_enabled': True,
-            'dynamic_thresholds': True
+            'dynamic_thresholds': True,
+            'parallel_execution': True,  # Abilita parallelizzazione per default
+            'use_caching': True  # Abilita caching per default
         }
     
     def _get_default_base_path(self) -> str:
@@ -95,9 +238,14 @@ class CentralOrchestrator:
         
         return self.shared_data['atti_parsed']
     
-    def run_risk_assessment(self, data: pd.DataFrame = None) -> Dict:
+    def _get_cache_key(self, module_name: str, data_hash: str) -> str:
+        """Genera una chiave di cache univoca per un modulo e dati specifici."""
+        return f"{module_name}_{data_hash}"
+    
+    def run_risk_assessment(self, data: pd.DataFrame = None, use_cache: bool = True) -> Dict:
         """
-        Esegue il risk assessment utilizzando i dati forniti o quelli condivisi
+        Esegue il risk assessment utilizzando i dati forniti o quelli condivisi.
+        Se use_cache è True, utilizza il caching per evitare calcoli ridondanti.
         """
         if data is None:
             data = self.shared_data['atti_parsed']
@@ -105,6 +253,22 @@ class CentralOrchestrator:
         if data is None or data.empty:
             logger.warning("Nessun dato disponibile per il risk assessment")
             return {}
+        
+        # Controlla se possiamo usare la cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('risk_assessment', data_hash)
+            cached_result = self.cache.get(cache_key)
+            
+            if cached_result is not None:
+                logger.info(f"Risultato risk assessment recuperato dalla cache per {cache_key}")
+                self.shared_data['risk_scores'] = cached_result
+                
+                # Se abilitato, usa i risultati del risk assessment per influenzare i KPI
+                if self.coordination_params['risk_kpi_feedback_enabled']:
+                    self._update_kpi_parameters_from_risk(cached_result)
+                
+                return cached_result
         
         logger.info("Esecuzione risk assessment...")
         # Usa il metodo corretto dal modulo risk_assessment
@@ -120,6 +284,12 @@ class CentralOrchestrator:
                 'risk_distribution': risk_results_df['risk_level'].value_counts().to_dict()
             }
         }
+        
+        # Salva in cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('risk_assessment', data_hash)
+            self.cache.set(cache_key, risk_results)
         
         # Aggiorna i dati condivisi con i risultati del risk assessment
         self.shared_data['risk_scores'] = risk_results
@@ -143,9 +313,10 @@ class CentralOrchestrator:
         # adattare alcuni KPI per riflettere questa condizione
         logger.info(f"Rischio medio calcolato: {avg_risk:.2f}. Adattamento parametri KPI...")
     
-    def run_kpi_calculation(self, data: pd.DataFrame = None) -> Dict:
+    def run_kpi_calculation(self, data: pd.DataFrame = None, use_cache: bool = True) -> Dict:
         """
-        Esegue il calcolo dei KPI utilizzando i dati forniti o quelli condivisi
+        Esegue il calcolo dei KPI utilizzando i dati forniti o quelli condivisi.
+        Se use_cache è True, utilizza il caching per evitare calcoli ridondanti.
         """
         if data is None:
             data = self.shared_data['atti_parsed']
@@ -154,9 +325,31 @@ class CentralOrchestrator:
             logger.warning("Nessun dato disponibile per il calcolo KPI")
             return {}
         
+        # Controlla se possiamo usare la cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('kpi_calculation', data_hash)
+            cached_result = self.cache.get(cache_key)
+            
+            if cached_result is not None:
+                logger.info(f"Risultato KPI recuperato dalla cache per {cache_key}")
+                self.shared_data['kpi_values'] = cached_result
+                
+                # Se abilitato, usa i risultati KPI per influenzare le soglie del risk assessment
+                if self.coordination_params['dynamic_thresholds']:
+                    self._update_risk_thresholds_from_kpi(cached_result)
+                
+                return cached_result
+        
         logger.info("Esecuzione calcolo KPI...")
         # Usa il metodo corretto dal modulo kpi_calculator
         kpi_results = self.kpi_calculator.generate_dashboard(data)
+        
+        # Salva in cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('kpi_calculation', data_hash)
+            self.cache.set(cache_key, kpi_results)
         
         # Aggiorna i dati condivisi con i risultati del KPI
         self.shared_data['kpi_values'] = kpi_results
@@ -180,9 +373,10 @@ class CentralOrchestrator:
             logger.info("Rilevata bassa efficienza. Adattamento soglie risk assessment...")
             # Qui potremmo modificare dinamicamente i pesi o le soglie del risk assessor
     
-    def run_ml_analysis(self, data: pd.DataFrame = None) -> Dict:
+    def run_ml_analysis(self, data: pd.DataFrame = None, use_cache: bool = True) -> Dict:
         """
-        Esegue l'analisi ML utilizzando i dati forniti o quelli condivisi
+        Esegue l'analisi ML utilizzando i dati forniti o quelli condivisi.
+        Se use_cache è True, utilizza il caching per evitare calcoli ridondanti.
         """
         if data is None:
             data = self.shared_data['atti_parsed']
@@ -190,6 +384,22 @@ class CentralOrchestrator:
         if data is None or data.empty:
             logger.warning("Nessun dato disponibile per l'analisi ML")
             return {}
+        
+        # Controlla se possiamo usare la cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('ml_analysis', data_hash)
+            cached_result = self.cache.get(cache_key)
+            
+            if cached_result is not None:
+                logger.info(f"Risultato ML recuperato dalla cache per {cache_key}")
+                self.shared_data['ml_models'] = cached_result
+                
+                # Se abilitato, usa i risultati ML per influenzare il risk assessment e i KPI
+                if self.coordination_params['ml_model_adaptation_enabled']:
+                    self._adapt_models_based_on_ml_results(cached_result)
+                
+                return cached_result
         
         # Prepara i dati per l'analisi ML includendo anche i risultati del risk assessment
         processed_data = self._prepare_ml_input_data(data)
@@ -209,6 +419,12 @@ class CentralOrchestrator:
                 'features_count': len(processed_data.select_dtypes(include=[np.number]).columns),
                 'risk_correlation': self._calculate_risk_ml_correlation(processed_data)
             }
+        
+        # Salva in cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('ml_analysis', data_hash)
+            self.cache.set(cache_key, ml_results)
         
         # Aggiorna i dati condivisi con i risultati ML
         self.shared_data['ml_models'] = ml_results
@@ -279,9 +495,10 @@ class CentralOrchestrator:
                 logger.info(f"Forte correlazione trovata per {risk_col}: {strong_correlations}")
                 # Potremmo usare queste informazioni per aggiustare i pesi nel risk calculator
     
-    def run_audit_analysis(self, data: pd.DataFrame = None) -> Dict:
+    def run_audit_analysis(self, data: pd.DataFrame = None, use_cache: bool = True) -> Dict:
         """
-        Esegue l'analisi di audit utilizzando i dati forniti o quelli condivisi
+        Esegue l'analisi di audit utilizzando i dati forniti o quelli condivisi.
+        Se use_cache è True, utilizza il caching per evitare calcoli ridondanti.
         """
         if data is None:
             data = self.shared_data['atti_parsed']
@@ -289,6 +506,17 @@ class CentralOrchestrator:
         if data is None or data.empty:
             logger.warning("Nessun dato disponibile per l'analisi di audit")
             return {}
+        
+        # Controlla se possiamo usare la cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('audit_analysis', data_hash)
+            cached_result = self.cache.get(cache_key)
+            
+            if cached_result is not None:
+                logger.info(f"Risultato audit recuperato dalla cache per {cache_key}")
+                self.shared_data['audit_results'] = cached_result
+                return cached_result
         
         # Combina i dati con i risultati degli altri moduli
         audit_input_data = self._prepare_audit_input_data(data)
@@ -302,6 +530,12 @@ class CentralOrchestrator:
             'documents_with_risk': len(audit_input_data[audit_input_data.get('final_score', 0) > 50]) if 'final_score' in audit_input_data.columns else 0,
             'high_risk_threshold': 70
         }
+        
+        # Salva in cache
+        if use_cache and self.coordination_params.get('use_caching', True):
+            data_hash = get_data_hash(data)
+            cache_key = self._get_cache_key('audit_analysis', data_hash)
+            self.cache.set(cache_key, audit_results)
         
         # Aggiorna i dati condivisi con i risultati dell'audit
         self.shared_data['audit_results'] = audit_results
@@ -325,6 +559,22 @@ class CentralOrchestrator:
         
         return audit_data
     
+    def _run_single_module(self, module_name: str, data: pd.DataFrame) -> Dict:
+        """
+        Esegue un singolo modulo e restituisce i risultati.
+        Metodo ausiliario per la parallelizzazione.
+        """
+        if module_name == 'risk':
+            return self.run_risk_assessment(data, use_cache=True)
+        elif module_name == 'kpi':
+            return self.run_kpi_calculation(data, use_cache=True)
+        elif module_name == 'ml':
+            return self.run_ml_analysis(data, use_cache=True)
+        elif module_name == 'audit':
+            return self.run_audit_analysis(data, use_cache=True)
+        else:
+            return {}
+    
     def run_full_coordination_pipeline(self, 
                                      load_data_path: str = None,
                                      skip_risk: bool = False,
@@ -332,7 +582,8 @@ class CentralOrchestrator:
                                      skip_ml: bool = False,
                                      skip_audit: bool = False) -> Dict:
         """
-        Esegue l'intero pipeline di coordinamento tra i moduli
+        Esegue l'intero pipeline di coordinamento tra i moduli.
+        Se parallel_execution è True, esegue i moduli indipendenti in parallelo.
         """
         logger.info("Inizio pipeline completo di coordinamento...")
         
@@ -344,21 +595,72 @@ class CentralOrchestrator:
             'risk_results': {},
             'kpi_results': {},
             'ml_results': {},
-            'audit_results': {}
+            'audit_results': {},
+            'cache_stats': self.cache.get_stats()
         }
         
-        # Esegue i moduli in sequenza ma con feedback reciproco
+        # Determina quali moduli eseguire
+        modules_to_run = []
         if not skip_risk:
-            results['risk_results'] = self.run_risk_assessment(data)
-        
+            modules_to_run.append('risk')
         if not skip_kpi:
-            results['kpi_results'] = self.run_kpi_calculation(data)
-        
+            modules_to_run.append('kpi')
         if not skip_ml:
-            results['ml_results'] = self.run_ml_analysis(data)
-        
+            modules_to_run.append('ml')
         if not skip_audit:
-            results['audit_results'] = self.run_audit_analysis(data)
+            modules_to_run.append('audit')
+        
+        if self.coordination_params.get('parallel_execution', True) and len(modules_to_run) > 1:
+            # Esecuzione parallela dei moduli indipendenti
+            logger.info(f"Esecuzione parallela di {len(modules_to_run)} moduli con {self.max_workers} workers...")
+            
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Sottometti tutti i task
+                future_to_module = {
+                    executor.submit(self._run_single_module, module, data): module 
+                    for module in modules_to_run
+                }
+                
+                # Processa i risultati man mano che diventano disponibili
+                for future in as_completed(future_to_module):
+                    module = future_to_module[future]
+                    try:
+                        module_results = future.result()
+                        if module == 'risk':
+                            results['risk_results'] = module_results
+                        elif module == 'kpi':
+                            results['kpi_results'] = module_results
+                        elif module == 'ml':
+                            results['ml_results'] = module_results
+                        elif module == 'audit':
+                            results['audit_results'] = module_results
+                        
+                        logger.info(f"Modulo '{module}' completato")
+                    except Exception as exc:
+                        logger.error(f"Modulo '{module}' generato un'eccezione: {exc}")
+                        # In caso di errore, esegui il modulo in modo sequenziale
+                        if module == 'risk':
+                            results['risk_results'] = self.run_risk_assessment(data)
+                        elif module == 'kpi':
+                            results['kpi_results'] = self.run_kpi_calculation(data)
+                        elif module == 'ml':
+                            results['ml_results'] = self.run_ml_analysis(data)
+                        elif module == 'audit':
+                            results['audit_results'] = self.run_audit_analysis(data)
+        else:
+            # Esecuzione sequenziale (comportamento originale)
+            logger.info("Esecuzione sequenziale dei moduli...")
+            if not skip_risk:
+                results['risk_results'] = self.run_risk_assessment(data)
+            
+            if not skip_kpi:
+                results['kpi_results'] = self.run_kpi_calculation(data)
+            
+            if not skip_ml:
+                results['ml_results'] = self.run_ml_analysis(data)
+            
+            if not skip_audit:
+                results['audit_results'] = self.run_audit_analysis(data)
         
         # Salva i risultati coordinati
         self.save_coordinated_results(results)
@@ -405,7 +707,7 @@ class CentralOrchestrator:
     
     def get_coordination_status(self) -> Dict:
         """
-        Ottiene lo stato corrente della coordinazione tra i moduli
+        Ottiene lo stato corrente della coordinamento tra i moduli
         """
         status = {
             'modules_loaded': {
@@ -421,10 +723,20 @@ class CentralOrchestrator:
                 'audit_results': bool(self.shared_data['audit_results'])
             },
             'coordination_params': self.coordination_params,
-            'last_run_timestamp': self.shared_data.get('last_run_timestamp', None)
+            'last_run_timestamp': self.shared_data.get('last_run_timestamp', None),
+            'parallel_execution_enabled': self.coordination_params.get('parallel_execution', True),
+            'caching_enabled': self.coordination_params.get('use_caching', True),
+            'cache_stats': self.cache.get_stats()
         }
         
         return status
+    
+    def clear_cache(self):
+        """
+        Svuota la cache dei risultati.
+        """
+        self.cache.clear()
+        logger.info("Cache svuotata")
     
     def enable_feedback_loop(self, feedback_source: str = "human_expert"):
         """
@@ -450,11 +762,29 @@ def main():
     parser.add_argument('--skip-ml', action='store_true', help='Salta l\'esecuzione dell\'analisi ML')
     parser.add_argument('--skip-audit', action='store_true', help='Salta l\'esecuzione dell\'audit')
     parser.add_argument('--dry-run', action='store_true', help='Esegue una simulazione senza salvare risultati')
+    parser.add_argument('--sequential', action='store_true', help='Forza esecuzione sequenziale (disabilita parallelizzazione)')
+    parser.add_argument('--no-cache', action='store_true', help='Disabilita il caching')
+    parser.add_argument('--workers', type=int, default=4, help='Numero massimo di thread worker per parallelizzazione')
+    parser.add_argument('--clear-cache', action='store_true', help='Svuota la cache prima di eseguire')
     
     args = parser.parse_args()
     
     # Crea l'orchestrator
-    orchestrator = CentralOrchestrator(ente=args.ente, base_path=args.base_path)
+    orchestrator = CentralOrchestrator(ente=args.ente, base_path=args.base_path, max_workers=args.workers)
+    
+    # Disabilita la parallelizzazione se richiesto
+    if args.sequential:
+        orchestrator.coordination_params['parallel_execution'] = False
+        logger.info("Esecuzione sequenziale forzata (parallelizzazione disabilitata)")
+    
+    # Disabilita il caching se richiesto
+    if args.no_cache:
+        orchestrator.coordination_params['use_caching'] = False
+        logger.info("Caching disabilitato")
+    
+    # Svuota la cache se richiesto
+    if args.clear_cache:
+        orchestrator.clear_cache()
     
     # Esegue il pipeline completo
     results = orchestrator.run_full_coordination_pipeline(
@@ -472,6 +802,7 @@ def main():
     print(f"KPI Results: {len(results['kpi_results']) if results['kpi_results'] else 0} categories")
     print(f"ML Results: {len(results['ml_results']) if results['ml_results'] else 0} entries")
     print(f"Audit Results: {len(results['audit_results']) if results['audit_results'] else 0} entries")
+    print(f"Cache Stats: {results.get('cache_stats', {})}")
     
     # Mostra lo stato di coordinamento
     status = orchestrator.get_coordination_status()
