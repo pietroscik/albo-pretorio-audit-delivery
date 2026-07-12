@@ -1,154 +1,104 @@
-# Visione Olistica del Comportamento Procedurale
+# Panoramica del Comportamento Procedurale
 
-## Panoramica
+## Introduzione
 
-Documento che fornisce una visione olistica del comportamento procedurale analizzato dal sistema, con particolare enfasi sulle nuove capacità introdotte dal modulo di coordinamento centrale.
+Questo documento descrive il comportamento procedurale del sistema "Albo Pretorio Audit Delivery", inclusi i flussi di lavoro, le interazioni tra componenti e i processi decisionali implementati.
 
-## Architettura del Sistema di Analisi
+## Flussi di Lavoro Principali
 
-### Sistema Pre-Coordinamento
-Prima dell'introduzione del coordinamento centrale, il sistema era caratterizzato da moduli avanzati che operavano in completa autonomia:
+### 1. Flusso Standard (Legacy)
+```
+Scraping → Parsing → ML Training → Knowledge Graph → Risk Assessment → Output
+```
 
-- **Risk Assessment**: Analisi del rischio senza feedback da altri moduli
-- **KPI Manageriali**: Calcolo di indicatori senza considerare risultati da altri domini
-- **Analisi Attuariale**: Valutazione finanziaria isolata dagli altri sistemi
-- **Audit Engine**: Controllo di conformità senza integrazione con altri moduli
+### 2. Flusso Enterprise (Nuovo)
+```
+Configurazione Enterprise → Scraping (opzionale) → Parsing → Coordinamento Moduli → Enterprise Workflow → Output Enterprise
+```
 
-### Sistema Post-Coordinamento (Attuale)
-Con l'introduzione del [CentralOrchestrator](src/delibere_comunali/core/orchestrator.py#L29-L436), il sistema ora presenta un'architettura integrata:
+## Componenti Procedurali
 
-- **Orchestrazione Centrale**: Coordinamento di tutti i moduli avanzati
-- **Scambio di Informazioni**: I moduli condividono risultati e si influenzano reciprocamente
-- **Feedback Continuo**: I risultati di un modulo possono influenzare i parametri di un altro
-- **Output Coordinati**: Risultati finali che combinano le analisi di tutti i moduli
+### Core Components
+- **ConfigManager**: Gestisce la configurazione centralizzata del sistema enterprise
+- **EnterpriseOrchestrator**: Coordinatore avanzato per l'esecuzione di workflow complessi
+- **DataCoordinator**: Gestisce i dati condivisi tra i diversi moduli
+- **CentralOrchestrator**: Coordinatore centrale per il sistema di analisi avanzata
 
-## Analisi del Comportamento Procedurale
+### Processi Decisionali
 
-### Pattern di Gestione Rilevati
+#### Selezione del Workflow
+Il sistema seleziona il workflow appropriato basandosi sui seguenti criteri:
+- Se vengono forniti parametri enterprise (`--enterprise-workflow`), viene attivato il flusso enterprise
+- Altrimenti, viene utilizzato il flusso standard
+- La configurazione viene validata prima dell'esecuzione
 
-#### 1. Concentrazione di Potere
-- **Rilevamento**: Uno solo RUP gestisce 100 atti (VINCENZO BIANCARDI)
-- **Analisi Coordinata**: Il modulo di risk assessment rileva questo pattern, che viene poi confermato dai KPI manageriali e dall'analisi attuariale
-- **Impatto**: Rischio elevato di conflitto di interessi e scarsa resilienza procedurale
+#### Gestione degli Errori
+- Ogni componente implementa meccanismi di logging dettagliato
+- I dati problematici vengono isolati e segnalati
+- I processi continuano anche in presenza di errori parziali
+- I risultati intermedi vengono salvati per analisi successive
 
-#### 2. Mancata Tracciabilità
-- **Rilevamento**: Solo 39.1% di documenti con CIG
-- **Analisi Coordinata**: Il modulo di audit evidenzia la mancanza di tracciabilità, mentre i KPI manageriali misurano l'impatto sulla governance
-- **Impatto**: Difficoltà nel monitoraggio e controllo dei procedimenti
+#### Coordinamento tra Moduli
+Come specificato nel "[模块协同与Pipeline协调规范](file:///c:/Users\39329\albo-pretorio-audit-delivery/ENTERPRISE_PARAMETERIZATION_GUIDE.md#L4-L12)", il coordinamento segue questi principi:
+1. I moduli comunicano attraverso rappresentazioni standardizzate (es. quality_metrics.json)
+2. Il coordinatore centrale gestisce l'ordine di esecuzione e i flussi di dati
+3. I feedback loops permettono aggiornamenti dinamici (es. ground truth aggiorna risk_assessment)
+4. I risultati sono salvati in formato JSON standardizzato
 
-#### 3. Tempi Procedurali Lunghi
-- **Rilevamento**: 203 giorni medi per approvazione
-- **Analisi Coordinata**: I KPI manageriali quantificano l'inefficienza, mentre il risk assessment ne valuta l'impatto sul rischio procedurale
-- **Impatto**: Rallentamento della macchina amministrativa
+## Nuovi Workflow Enterprise
 
-#### 4. Mancata Identificazione Controparti
-- **Rilevamento**: Elevata percentuale di "NON IDENTIFICATO"
-- **Analisi Coordinata**: Il modulo di audit evidenzia la problematica, mentre l'analisi attuariale ne quantifica l'impatto finanziario
-- **Impatto**: Rischi di natura finanziaria e di governance
+### 1. Workflow Completo (`full`)
+Esegue tutti i componenti disponibili:
+- Risk Assessment
+- Management KPI
+- ML Analysis
+- Audit
 
-#### 5. Concentrazione Economica Eccessiva
-- **Rilevamento**: HHI di 6835.71 (molto elevato)
-- **Analisi Coordinata**: I KPI economici evidenziano la concentrazione, mentre il risk assessment ne valuta l'impatto sul rischio di corruzione
-- **Impatto**: Rischi di concorrenza sleale e di concentrazione di potere economico
+### 2. Workflow Specializzato (`risk_only`, `kpi_only`, `ml_only`, `audit_only`)
+Esegue solo il componente specificato per analisi mirate.
 
-### Pattern Identificati grazie al Coordinamento
+### 3. Workflow Minimale (`minimal`)
+Esegue una verifica rapida per test e validazione.
 
-#### 1. Correlazione Rischi-KPI
-- **Pattern**: I documenti con alto rischio tendono a correlare con bassi punteggi KPI
-- **Analisi**: Il coordinamento ha permesso di evidenziare queste correlazioni
-- **Impatto**: Approccio predittivo alla gestione del rischio
+## Interazioni tra Componenti
 
-#### 2. Feedback ML-Risk
-- **Pattern**: I risultati del machine learning influenzano la valutazione del rischio
-- **Analisi**: Il coordinamento permette al modello ML di ricevere feedback dai risultati di risk assessment
-- **Impatto**: Miglioramento continuo delle prestazioni del sistema
+### Sequenza di Esecuzione
+1. **Inizializzazione**: [ConfigManager](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/config_manager.py) carica la configurazione
+2. **Preparazione**: [DataCoordinator](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/data_coordinator.py) prepara i dati condivisi
+3. **Coordinamento**: [CentralOrchestrator](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/orchestrator.py) orchestra i moduli
+4. **Esecuzione**: [EnterpriseOrchestrator](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/enterprise_orchestration.py) esegue il workflow specificato
+5. **Output**: Risultati salvati in formato strutturato
 
-#### 3. Allerta Multi-Modulo
-- **Pattern**: Quando un modulo rileva anomalie, gli altri moduli vengono attivati per approfondimenti
-- **Analisi**: Il coordinamento centrale implementa questo meccanismo
-- **Impatto**: Approccio proattivo alla rilevazione delle anomalie
+### Feedback Loops
+- I risultati del Risk Assessment influenzano i parametri dei KPI
+- I risultati dei KPI influenzano le soglie del Risk Assessment
+- I risultati ML influenzano l'adattamento dei modelli
+- I risultati dell'Audit influenzano tutti gli altri componenti
 
-## Analisi Comportamentale dei Responsabili
+## Sicurezza e Governance
 
-### Top RUP (Responsabili del Procedimento)
-1. **VINCENZO BIANCARDI**: 100 atti gestiti (possibile concentrazione di potere)
-2. **NICOLETTA LONGOBARDI**: 24 atti gestiti
-3. **ELISABETTA NISI**: Coinvolta in molte anomalie di smurfing
+Tutti i processi rispettano i principi di governance pubblica:
+- Solo documenti ufficiali pubblici vengono analizzati
+- Nessun trattamento di dati sensibili
+- Tutte le decisioni sono tracciabili
+- I risultati sono verificabili e riproducibili
 
-### Pattern di Comportamento
-- **Concentrazione di potere**: Uno solo RUP gestisce 100 atti
-- **Ripetitività negli errori**: ELISABETTA NISI coinvolta in più casi di smurfing
-- **Mancanza di controllo incrociato**: Poche persone gestiscono molti atti
+## Performance e Ottimizzazione
 
-## Analisi dei Fornitori e Beneficiari
+### Elaborazione Parallela
+- I moduli indipendenti possono essere eseguiti in parallelo
+- Il numero di worker è configurabile tramite parametri enterprise
+- La cache è utilizzata per evitare calcoli ridondanti
 
-### Top Beneficiari
-1. **"DIVERSI/NON APPLICABILE"**: 100 atti, volume stimato €8,084,340.95
-2. **INTERECO**: 30 atti, volume €272,502.83
-3. **G I P A**: 25 atti, volume €436,884.06
-4. **ECOVIGILANTES**: 20 atti, volume €409,570.66
+### Gestione delle Risorse
+- I parametri sono ottimizzati automaticamente in base alle risorse disponibili
+- I processi lunghi mostrano progressi intermedi
+- I dati temporanei sono gestiti efficientemente
 
-### Problemi Identificati
-- **Mancata identificazione**: Molte spese attribuite a "NON APPLICABILE" o "NON IDENTIFICATO"
-- **Ripetizione di fornitori**: Concentrazione su pochi operatori economici
-- **Assenza di tracciabilità**: Mancanza di CIG/CUP in molti documenti
+## Monitoraggio e Logging
 
-## Impatto del Coordinamento sui Risultati
-
-### Prima del Coordinamento
-- I risultati dei diversi moduli erano indipendenti
-- Nessuna correlazione tra i risultati di risk assessment, KPI e audit
-- Difficoltà nell'identificare pattern complessi che richiedono l'analisi combinata
-
-### Dopo il Coordinamento
-- I risultati dei moduli si integrano e si completano
-- Feedback ciclico tra i moduli porta a risultati più accurati
-- Identificazione di pattern complessi grazie all'analisi combinata
-
-## Azioni Consigliate
-
-### 1. Implementare Sistemi di Controllo Automatici
-- **Pre-Coordinamento**: Raccomandazione basata su singolo modulo
-- **Post-Coordinamento**: Raccomandazione basata su evidenze da tutti i moduli
-- **Implementazione**: Sistema che combina i risultati di risk assessment, KPI e audit
-
-### 2. Ridurre la Concentrazione di Potere
-- **Pre-Coordinamento**: Indicazione dal modulo di audit
-- **Post-Coordinamento**: Evidenza rinforzata da risk assessment e KPI manageriali
-- **Implementazione**: Sistema di rotazione automatica dei carichi di lavoro
-
-### 3. Migliorare l'Identificazione delle Controparti
-- **Pre-Coordinamento**: Problema rilevato da modulo singolo
-- **Post-Coordinamento**: Problema evidenziato da audit, risk e analisi attuariale
-- **Implementazione**: Processo di verifica obbligatoria con controllo incrociato
-
-### 4. Automatizzare i Controlli Antifrode
-- **Pre-Coordinamento**: Sistema basato su singolo modulo
-- **Post-Coordinamento**: Sistema combinato che utilizza tutti i moduli
-- **Implementazione**: Sistema di monitoraggio continuo con feedback automatico
-
-### 5. Ottimizzare i Tempi Procedurali
-- **Pre-Coordinamento**: Misurazione isolata da modulo specifico
-- **Post-Coordinamento**: Misurazione integrata con impatto sui rischi
-- **Implementazione**: Sistema di alert automatico quando i tempi superano le soglie
-
-## Linee Guida per il Miglioramento
-
-### Azioni Immediate
-1. **Implementare sistemi di controllo**: Blocco automatico per documenti senza CIG/CUP
-2. **Ridurre concentrazione di potere**: Distribuire carichi di lavoro tra più RUP
-3. **Migliorare identificazione controparti**: Processo di verifica obbligatoria
-
-### Azioni a Medio Termine
-1. **Automatizzare controlli antifrode**: Implementare sistemi di monitoraggio continuo
-2. **Ottimizzare tempi procedurali**: Ridurre i 203 giorni medi di approvazione
-3. **Incrementare trasparenza**: Aumentare la percentuale di documenti con CIG/CUP
-
-### Monitoraggio Continuo
-1. **Dashboard KPI**: Monitoraggio settimanale dei principali indicatori
-2. **Report Anomalie**: Aggiornamento automatico delle segnalazioni di frode
-3. **Analisi Topologica**: Monitoraggio delle concentrazioni di potere/spesa
-
-## Conclusioni
-
-L'introduzione del sistema di coordinamento centrale ha rivoluzionato la capacità del sistema di fornire una visione veramente olistica del comportamento procedurale. I risultati combinati di risk assessment, KPI manageriali, analisi attuariale e audit offrono insight molto più profondi e azionabili rispetto ai risultati dei singoli moduli. Questo approccio integrato permette di identificare pattern complessi e di implementare soluzioni più efficaci per migliorare la governance e ridurre i rischi procedurale.
+Ogni componente del sistema:
+- Registra dettagliatamente le proprie operazioni
+- Misura le performance e i tempi di esecuzione
+- Segnala eventuali anomalie o errori
+- Produce metriche di qualità e accuratezza

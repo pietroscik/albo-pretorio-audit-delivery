@@ -1,75 +1,153 @@
 # Albo Pretorio Audit Delivery
 
-## Panoramica
+Sistema enterprise per l'analisi, classificazione e audit dei documenti presenti negli albi pretori comunali italiani.
 
-Questo progetto contiene un sistema avanzato di audit e analisi del comportamento procedurale del Comune di Avella, basato sull'analisi automatica degli atti pubblici presenti nell'albo pretorio. Il sistema include un modulo centrale di coordinamento (CentralOrchestrator) che coordina tutti i moduli avanzati per garantire un'analisi integrata e coerente.
+## Funzionalità
 
-## Obiettivo
-
-Il sistema è progettato per:
-- Analizzare automaticamente i documenti dell'albo pretorio
-- Classificare i documenti in diverse categorie (Determinazioni, Delibere, Visti Contabili, ecc.)
-- Rilevare anomalie e potenziali frodi amministrative
-- Fornire una visione olistica del comportamento procedurale
-- Monitorare la qualità e la trasparenza della gestione pubblica
-- Coordinare in modo integrato i diversi moduli di analisi (Risk Assessment, KPI, ML, Audit)
-
-## Risultati Principali
-
-### Miglioramenti del Sistema
-- **Classificazioni ambigue**: Ridotte da 1,486 a 141 documenti (-90.5%)
-- **Categoria "Affari Generali"**: Ridotta dal 86.2% al 12.1% dei documenti
-- **Documenti senza categoria**: Solo 50 su 1,724 (2.89%)
-- **Tipo documento sconosciuto**: Solo 39 documenti (2.25%)
-
-### Scoperte Importanti
-- **Spesa totale analizzata**: 1.273.630.779,03 €
-- **Indice concentrazione HHI**: 6835.71 (molto elevato)
-- **Top fornitore**: "NON IDENTIFICATO" (oltre 1 miliardo €)
-- **CIG Fantasma**: 290 atti contabili senza CIG tracciabile
-- **Beneficiari Assenti**: Oltre 1 miliardo € attribuito a "NON IDENTIFICATO"
-- **Sindrome della Soglia (Smurfing)**: 4 casi identificati
-
-### Pattern di Comportamento
-- **VINCENZO BIANCARDI**: 100 atti gestiti (possibile concentrazione di potere)
-- **ELISABETTA NISI**: Coinvolta in molte anomalie di smurfing
-- **Top beneficiari**: "DIVERSI/NON APPLICABILE" con 100 atti
-
-## File Principali Generati
-
-- `CRTICALITY_TIMELINE.md`: Cronologia delle criticità e miglioramenti
-- `PROCEDURAL_BEHAVIOR_OVERVIEW.md`: Visione olistica del comportamento procedurale
-- `CORE_INTEGRATION.md`: Documentazione del sistema di coordinamento centrale
-- `data/avella/albo_download/report/`: Cartella contenente tutti i report dettagliati
-- `data/avella/albo_download/atti_parsed.csv`: Dati estratti dagli atti
-- `data/avella/albo_download/documenti_corpus.jsonl`: Corpus di documenti per RAG
-- `data/avella/albo_download/report/coordinated_analysis_results.json`: Risultati coordinati tra tutti i moduli
+- **Scraping**: Estrazione automatica dei documenti dagli albi pretori
+- **Parsing**: Analisi e estrazione delle informazioni dai documenti
+- **Classificazione**: Classificazione automatica dei documenti in categorie specifiche
+- **Risk Assessment**: Valutazione del rischio associato ai documenti
+- **Knowledge Graph**: Costruzione di un grafo semantico delle entità
+- **RAG (Retrieval Augmented Generation)**: Sistema di ricerca e generazione di risposte basato su documenti
+- **Dashboard**: Interfaccia di controllo per la supervisione delle analisi
+- **Enterprise Orchestration**: Sistema di coordinamento avanzato tra i vari moduli
 
 ## Comandi Principali
 
-- `python run.py pipeline --ente avella --skip-scrape`: Esegue l'intero pipeline di analisi
-- `python run.py analyze --ente avella`: Esegue solo l'analisi dei documenti
-- `python run.py audit --ente avella`: Esegue solo il controllo di audit
-- `python run.py build-kg --ente avella`: Costruisce il grafo della conoscenza
-- `python run.py orchestrate --ente avella`: Esegue la coordinazione tra tutti i moduli avanzati (Risk Assessment, KPI, ML, Audit)
+### Comandi Base
+- `scrape`: Estrazione dati dall'albo pretorio
+- `analyze`: Analisi e parsing dei documenti
+- `pipeline`: Esecuzione della pipeline completa
+- `validate-csv`: Validazione dei file CSV prodotti
+- `control-room`: Dashboard di controllo (alias: `ui`, `dashboard`)
+- `audit`: Motore di audit
+- `post-process-classification`: Post-processing della classificazione
+- `apply-corrections`: Applicazione delle correzioni manuali
 
-## Nuovi Comandi di Coordinamento
+### Comandi Enterprise
+- `orchestrate`: Esecuzione della pipeline completa di coordinamento tra tutti i moduli avanzati (Risk Assessment, KPI, ML, Audit)
+- `data-coord`: Interfaccia per il coordinatore dati centralizzato
+- `enterprise`: Esecuzione di workflow enterprise con parametri configurabili
+- `config-mgmt`: Gestione della configurazione enterprise
 
-- `python run.py orchestrate --ente <nome>`: Esegue la pipeline completa di coordinamento tra tutti i moduli avanzati
-- `python run.py data-coord --ente <nome>`: Interagisce con il coordinatore dati centrale
+### Comandi ML e Analytics
+- `risk-assessment`: Esecuzione dell'analisi del rischio
+- `management-kpi`: Calcolo dei KPI di gestione
+- `actuarial-analysis`: Analisi attuariale e provisioning
 
-## Criticità Identificate
+### Script Legacy
+- `build-kg`: Costruzione del knowledge graph
+- `analyze-topology`: Analisi topologica
+- `detect-anomalies`: Rilevamento anomalie
+- `export-linkeddata`: Esportazione dati collegati
+- `train`: Training del modello ML
+- `validate-output`: Validazione output
+- `clean-texts`: Pulizia testi
+- `sync-texts`: Sincronizzazione testi
+- `generate-groundtruth`: Generazione ground truth
+- `visualize-graph`: Visualizzazione grafo
+- `explore`: Esplorazione albo
+- `reconcile`: Riconciliazione semantica
+- `validate-fase0`: Validazione fase 0
+- `validate-ground`: Validazione ground truth
+- `verify-output`: Verifica output
+- `update-preview`: Aggiornamento anteprima
+- `finance-validate`: Validazione finanziaria
+- `random-forest`: Modello Random Forest
 
-1. **Concentrazione di potere**: Uno solo RUP gestisce 100 atti
-2. **Mancata tracciabilità**: Solo 39.1% di documenti con CIG
-3. **Tempi procedurali lunghi**: 203 giorni medi per approvazione
-4. **Mancata identificazione controparti**: Elevata percentuale di "NON IDENTIFICATO"
-5. **Concentrazione economica eccessiva**: HHI di 6835.71
+## Utilizzo
 
-## Azioni Consigliate
+### Esecuzione della pipeline completa
+```bash
+python run.py pipeline --ente=comune_di_esempio
+```
 
-1. **Implementare sistemi di controllo**: Blocco automatico per documenti senza CIG/CUP
-2. **Ridurre concentrazione di potere**: Distribuire carichi di lavoro tra più RUP
-3. **Migliorare identificazione controparti**: Processo di verifica obbligatoria
-4. **Automatizzare controlli antifrode**: Sistemi di monitoraggio continuo
-5. **Ottimizzare tempi procedurali**: Ridurre i 203 giorni medi di approvazione
+### Esecuzione con parametri enterprise
+```bash
+# Esecuzione workflow enterprise completo
+python run.py enterprise --ente=comune_di_esempio --workflow=full
+
+# Esecuzione solo del risk assessment
+python run.py enterprise --ente=comune_di_esempio --workflow=risk_only
+
+# Esecuzione con configurazione personalizzata
+python run.py enterprise --ente=comune_di_esempio --workflow=full --config-file=/path/to/config.json
+```
+
+### Gestione configurazione enterprise
+```bash
+# Visualizzazione configurazione
+python run.py config-mgmt --ente=comune_di_esempio --action=show
+
+# Salvataggio configurazione
+python run.py config-mgmt --ente=comune_di_esempio --action=save
+
+# Caricamento configurazione da file
+python run.py config-mgmt --ente=comune_di_esempio --action=load --config-path=/path/to/config.json
+
+# Validazione configurazione
+python run.py config-mgmt --ente=comune_di_esempio --action=validate
+
+# Raccomandazioni automatiche
+python run.py config-mgmt --ente=comune_di_esempio --action=recommend
+```
+
+### Esecuzione della pipeline con workflow enterprise
+```bash
+# Pipeline completa con workflow enterprise
+python run.py pipeline --ente=comune_di_esempio --enterprise-workflow=full
+
+# Pipeline con workflow specifico
+python run.py pipeline --ente=comune_di_esempio --enterprise-workflow=risk_only
+
+# Pipeline con configurazione enterprise personalizzata
+python run.py pipeline --ente=comune_di_esempio --enterprise-workflow=full --enterprise-config=/path/to/config.json
+```
+
+### Dashboard RAG
+```bash
+python run.py rag
+```
+
+### Dashboard Control Room
+```bash
+python run.py control-room
+```
+
+## Requisiti
+
+- Python 3.8+
+- Dipendenze specificate in [requirements.txt](file:///c:/Users\39329\albo-pretorio-audit-delivery/requirements.txt)
+- Tesseract OCR per l'estrazione del testo dai PDF scansionati
+- Chiave API Google Gemini (opzionale, per funzionalità avanzate di RAG)
+
+## Struttura del Progetto
+
+```
+src/
+├── delibere_comunali/
+│   ├── core/              # Componenti centrali (orchestrator, data coordinator)
+│   ├── parsing/           # Moduli di parsing ed estrazione
+│   ├── scraping/          # Moduli di scraping
+│   ├── ml/                # Moduli di machine learning
+│   ├── risk_assessment/   # Moduli di valutazione del rischio
+│   ├── management_kpi/    # Moduli di calcolo KPI
+│   ├── knowledge_graph/   # Moduli di costruzione del knowledge graph
+│   ├── rag/               # Moduli RAG
+│   ├── utils/             # Utilità varie
+│   └── ...
+scripts/                  # Script autonomi per funzionalità specifiche
+data/                     # Dati di input/output
+output/                   # Output dei vari moduli
+lib/                      # Librerie esterne
+```
+
+## Documentazione
+
+- [Architettura del Sistema](file:///c:/Users\39329\albo-pretorio-audit-delivery/ARCHITECTURE.md)
+- [Guida alla Parameterizzazione Enterprise](file:///c:/Users\39329\albo-pretorio-audit-delivery/ENTERPRISE_PARAMETERIZATION_GUIDE.md)
+- [Mappa I/O del Sistema](file:///c:/Users\39329\albo-pretorio-audit-delivery/IO_MAP.md)
+- [Guida alla Coordinazione](file:///c:/Users\39329\albo-pretorio-audit-delivery/COORDINATION_GUIDE.md)
+- [Sommario dei Cambiamenti](file:///c:/Users\39329\albo-pretorio-audit-delivery/CHANGES_SUMMARY.md)
+- [Visione e Missione](file:///c:/Users\39329\albo-pretorio-audit-delivery/VISION_MISSION.md)

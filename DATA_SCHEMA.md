@@ -1,32 +1,179 @@
-# 📄 Schema Dati - `allegati_parsed.csv`
+# Schema dei Dati
 
-Questo documento descrive la struttura e il significato delle colonne principali del file `allegati_parsed.csv`, che rappresenta il database centrale del sistema di analisi.
+## Introduzione
 
-## Colonne Principali
+Questo documento descrive gli schemi dei dati utilizzati dal sistema "Albo Pretorio Audit Delivery", inclusi i formati di input/output e le strutture dati interne.
 
-| Nome Colonna                  | Tipo Dati | Descrizione |
-|-------------------------------|-----------|-------------|
-| `doc_type`                    | `string`  | Tipologia giuridica dell'atto (es. Determinazione). |
-| `category`                    | `string`  | Classificazione tematica dell'atto. |
-| `oggetto`                     | `string`  | L'oggetto testuale dell'atto. |
-| `importo_max`                 | `float`   | Importo massimo rilevato in euro. |
-| `cig`                         | `string`  | Codice Identificativo Gara. |
-| `cup`                         | `string`  | Codice Unico di Progetto. |
-| `beneficiario`                | `string`  | Ente, azienda o persona destinataria dei fondi. |
-| `responsabile`                | `string`  | RUP o dirigente firmatario. |
-| `accounting_relevant`         | `boolean` | Indica se l'atto ha rilevanza contabile. |
-| `anomalie`                    | `string`  | Anomalie rilevate nel documento. |
-| `legal_urn`                   | `string`  | Identificativo standard dell'atto. |
-| `is_signed`                   | `boolean` | Presenza di firma digitale. |
-| `is_accessible`               | `boolean` | PDF testuale (non immagine). |
-| `atto_group`                  | `string`  | Raggruppamento dell'atto. |
-| `capitolo`                    | `string`  | Capitolo di bilancio. |
-| `codice_appalti`              | `string`  | Riferimenti normativi codice appalti. |
-| `compliance_score`            | `float`   | Punteggio di aderenza procedurale. |
-| `data_atto`                   | `string`  | Data di emissione. |
-| `has_visto_contabile`         | `boolean` | Presenza del visto di regolarità. |
-| `impegno_anno`                | `float`   | Anno di impegno di spesa. |
-| `impegno_num`                 | `float`   | Numero impegno di spesa. |
-| `numero_atto`                 | `string`  | Numero progressivo documento. |
-| `tipo_procedura`              | `string`  | Es. Affidamento diretto. |
-| `veridicità_score`            | `float`   | Score di confidenza dell'estrazione. |
+## Format di Input
+
+### File CSV
+#### albo_metadati.csv
+- `pdf_name`: Nome del file PDF
+- `data_atto`: Data del documento
+- `numero_atto`: Numero del documento
+- `oggetto`: Oggetto del documento
+- `doc_type`: Tipo di documento
+- `categoria`: Categoria del documento
+- `responsabile`: Responsabile del procedimento
+- `beneficiario`: Eventuale beneficiario
+- `importo`: Eventuale importo
+- `cig`: Codice identificativo gara (CIG)
+- `cup`: Codice unico progetto (CUP)
+
+#### allegati_parsed.csv
+- `pdf_name`: Nome del file PDF
+- `file_path`: Percorso del file
+- `content`: Contenuto estratto
+- `metadata`: Metadati estratti
+- `parsed_date`: Data di parsing
+- `status`: Stato del parsing
+
+### File JSONL
+#### documenti_corpus.jsonl
+- `id`: Identificatore univoco del documento
+- `content`: Contenuto testuale del documento
+- `metadata`: Metadati del documento
+- `entities`: Entità estratte dal documento
+
+## Format di Output
+
+### File CSV
+#### atti_parsed.csv
+- `pdf_name`: Nome del file PDF
+- `data_atto`: Data del documento
+- `numero_atto`: Numero del documento
+- `oggetto`: Oggetto del documento
+- `doc_type`: Tipo di documento
+- `category`: Categoria classificata
+- `confidence`: Confidenza della classificazione
+- `responsabile`: Responsabile del procedimento
+- `beneficiario`: Eventuale beneficiario
+- `importo_max`: Importo massimo trovato
+- `cig`: Codice identificativo gara (CIG)
+- `cup`: Codice unico progetto (CUP)
+- `iban`: Eventuale IBAN
+- `piva_beneficiario`: Partita IVA del beneficiario
+
+#### atti_audited.csv
+- `pdf_name`: Nome del file PDF
+- `original_category`: Categoria originale
+- `corrected_category`: Categoria corretta (se applicabile)
+- `audit_notes`: Note dell'audit
+- `auditor`: Nome dell'auditor
+- `audit_date`: Data dell'audit
+- `status`: Stato del processo di audit
+
+#### risk_assessment.csv
+- `pdf_name`: Nome del file PDF
+- `risk_score`: Punteggio di rischio
+- `risk_level`: Livello di rischio (basso, medio, alto)
+- `risk_factors`: Fattori di rischio identificati
+- `mitigation_actions`: Azioni di mitigazione suggerite
+- `review_required`: Richiede revisione manuale (booleano)
+
+#### top_importi.csv
+- `pdf_name`: Nome del file PDF
+- `importo`: Importo trovato
+- `descrizione`: Descrizione del contesto dell'importo
+- `data_documento`: Data del documento
+- `tipo_documento`: Tipo del documento
+
+### File JSON
+#### procedures.json
+- `procedure_id`: Identificatore univoco della procedura
+- `steps`: Passi della procedura
+- `dependencies`: Dipendenze tra passi
+- `responsible`: Responsabili coinvolti
+- `timeline`: Scadenze previste
+
+#### anomalies.json
+- `anomaly_id`: Identificatore univoco dell'anomalia
+- `type`: Tipo di anomalia
+- `description`: Descrizione dell'anomalia
+- `severity`: Severità (bassa, media, alta)
+- `related_documents`: Documenti collegati
+- `suggested_action`: Azione suggerita
+
+#### quality_metrics.json
+- `total_documents`: Numero totale di documenti
+- `parsed_documents`: Numero di documenti parsati
+- `classified_documents`: Numero di documenti classificati
+- `accuracy_metrics`: Metriche di accuratezza
+- `error_rate`: Tasso di errore
+- `confidence_distribution`: Distribuzione della confidenza
+
+#### coordinated_analysis_results.json
+- `timestamp`: Timestamp dell'esecuzione
+- `risk_results`: Risultati del risk assessment
+- `kpi_results`: Risultati del calcolo KPI
+- `ml_results`: Risultati dell'analisi ML
+- `audit_results`: Risultati dell'audit
+- `cache_stats`: Statistiche sulla cache
+
+### File JSON-LD
+#### albo_linked_data.jsonld
+- `@context`: Contesto RDF
+- `@graph`: Grafo delle entità
+- `entities`: Entità identificate
+- `relationships`: Relazioni tra entità
+- `properties`: Proprietà delle entità
+
+## Format di Configurazione Enterprise
+
+### File JSON di Configurazione
+#### enterprise_config.json
+- `timestamp`: Timestamp della configurazione
+- `ente`: Nome dell'ente
+- `base_path`: Percorso base
+- `enterprise_params`: Parametri enterprise
+  - `enable_coordination`: Abilita coordinamento
+  - `enable_parallel_processing`: Abilita elaborazione parallela
+  - `max_workers`: Numero massimo di worker
+  - `enable_caching`: Abilita caching
+  - `skip_risk_assessment`: Salta risk assessment
+  - `skip_kpi_calculation`: Salta calcolo KPI
+  - `skip_ml_analysis`: Salta analisi ML
+  - `skip_audit`: Salta audit
+  - `batch_size`: Dimensione del batch
+  - `chunk_size`: Dimensione del chunk
+  - `similarity_threshold`: Soglia di similarità
+  - `dry_run`: Modalità simulazione
+  - `verbose`: Modalità verbosa
+  - `log_level`: Livello di log
+
+## Strutture Dati Interne
+
+### DataEntry (nel DataCoordinator)
+- `data_type`: Tipo di dato (Enumerazione DataType)
+- `data`: Contenuto del dato
+- `timestamp`: Timestamp dell'inserimento
+- `source_module`: Modulo di origine
+- `version`: Versione del dato
+- `metadata`: Metadati aggiuntivi
+
+### EnterpriseParams (nel ConfigManager)
+- `ente`: Nome dell'ente
+- `base_path`: Percorso base
+- `output_path`: Percorso di output
+- `enable_coordination`: Abilita coordinamento
+- `enable_parallel_processing`: Abilita elaborazione parallela
+- `max_workers`: Numero massimo di worker
+- `enable_caching`: Abilita caching
+- `skip_risk_assessment`: Salta risk assessment
+- `skip_kpi_calculation`: Salta calcolo KPI
+- `skip_ml_analysis`: Salta analisi ML
+- `skip_audit`: Salta audit
+- `batch_size`: Dimensione del batch
+- `chunk_size`: Dimensione del chunk
+- `similarity_threshold`: Soglia di similarità
+- `dry_run`: Modalità simulazione
+- `verbose`: Modalità verbosa
+- `log_level`: Livello di log
+
+## Sicurezza e Governance
+
+Tutti gli schemi dati rispettano i principi di governance pubblica:
+- Nessun dato sensibile è incluso negli schemi
+- Tutti i dati trattati sono documenti ufficiali pubblici
+- Le strutture dati consentono tracciamento e verifica
+- I metadati supportano la trasparenza amministrativa

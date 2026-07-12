@@ -1,207 +1,204 @@
-# Architettura del Sistema di Audit dell'Albo Pretorio
+# Architettura del Sistema
 
 ## Panoramica
 
-Il sistema è organizzato in una architettura modulare a strati che consente l'elaborazione automatizzata degli atti pubblici presenti negli albi pretori comunali. L'architettura è stata recentemente estesa con un modulo di coordinamento centrale (CentralOrchestrator) che coordina i diversi moduli avanzati.
+Il sistema è suddiviso in diversi moduli indipendenti ma interconnessi, progettati per consentire l'analisi, classificazione e audit dei documenti presenti negli albi pretori comunali italiani.
 
 ## Diagramma Architetturale
 
 ```mermaid
 graph TB
-    subgraph "Ingresso Dati"
-        A1[Fonte Web Albo Pretorio] 
-        A2[File PDF Locali]
-        A3[Dataset Storici]
+    subgraph "Input Layer"
+        A[Albo Pretorio Web] --> B[PDF Documents]
+        C[Config Files] --> D[Environment Variables]
     end
     
-    subgraph "Scraping e Parsing"
-        B1[new_albo_scraper.py]
-        B2[analyze_albo.py]
-        B3[enhanced_extractor.py]
-        B4[analyzer.py]
+    subgraph "Core Processing Layer"
+        B --> E[Scraper Module]
+        E --> F[Parsing Module]
+        F --> G[Feature Extraction]
+        G --> H[Classification Module]
+        
+        D --> I[Config Manager]
+        I --> J[Enterprise Orchestrator]
     end
     
-    subgraph "Moduli Avanzati"
-        C1[Risk Assessment<br/>risk_calculator.py]
-        C2[Analisi Attuariale<br/>provisioning.py]
-        C3[KPI Manageriali<br/>kpi_calculator.py]
-        C4[Controllo Anomalie<br/>audit_engine.py]
+    subgraph "Advanced Analysis Layer"
+        H --> K[Risk Assessment]
+        H --> L[KPI Calculation]
+        H --> M[ML Diagnostics]
+        H --> N[Audit Engine]
     end
     
-    subgraph "Machine Learning"
-        D1[randomForest.py]
-        D2[train_model.py]
-        D3[enhance_ml_model.py]
-        D4[model_diagnostics.py]
+    subgraph "Data Coordination Layer"
+        O[Data Coordinator] --> P[Shared Data Store]
+        P --> Q[Caching Layer]
     end
     
-    subgraph "Coordinamento Centrale"
-        E1[CentralOrchestrator<br/>orchestrator.py]
-        E2[DataCoordinator<br/>data_coordinator.py]
+    subgraph "Output Layer"
+        K --> R[Risk Reports]
+        L --> S[KPI Dashboards]
+        M --> T[ML Metrics]
+        N --> U[Audit Logs]
+        R --> V[Structured Outputs]
+        S --> V
+        T --> V
+        U --> V
     end
     
-    subgraph "Elaborazione e Post-elaborazione"
-        F1[post_process_classification.py]
-        F2[resolve_ambiguities.py]
-        F3[enhance_metadata.py]
-        F4[enhance_doc_type.py]
+    subgraph "Knowledge Graph Layer"
+        W[Entity Extraction] --> X[Knowledge Graph Builder]
+        X --> Y[Graph Storage]
+        Y --> Z[Graph Queries]
     end
     
-    subgraph "Interfaccia Utente"
-        G1[app_control_room.py]
-        G2[Streamlit UI]
-        G3[RAG Chat Interface]
+    subgraph "RAG Layer"
+        AA[FAISS Index] --> BB[RAG Application]
+        BB --> CC[Query Interface]
     end
     
-    subgraph "Output e Reporting"
-        H1[risk_assessment.csv]
-        H2[provisioning_attuariale.xlsx]
-        H3[kpi_dashboard.xlsx]
-        H4[allegati_parsed.csv]
-        H5[atti_audited.csv]
-        H6[coordinated_analysis_results.json]
+    subgraph "UI Layer"
+        DD[Control Room UI] --> EE[RAG Chat Interface]
+        FF[Dashboard] --> GG[Reporting UI]
     end
     
-    subgraph "Feedback Loop"
-        I1[feedback_operatore.csv]
-        I2[apply_feedback_corrections.py]
-        I3[Ground Truth Update]
-    end
-
-    A1 --> B1
-    A2 --> B2
-    A3 --> D2
+    J --> E
+    J --> F
+    J --> H
+    J --> K
+    J --> L
+    J --> M
+    J --> N
+    J --> O
+    J --> W
+    J --> AA
     
-    B1 --> B2
-    B2 --> B3
-    B3 --> B4
-    
-    B4 --> C1
-    B4 --> C2
-    B4 --> C3
-    B4 --> C4
-    B4 --> D1
-    B4 --> D2
-    B4 --> D3
-    B4 --> D4
-    
-    B4 --> F1
-    F1 --> F2
-    F2 --> F3
-    F3 --> F4
-    
-    C1 --> E1
-    C2 --> E1
-    C3 --> E1
-    C4 --> E1
-    D1 --> E1
-    D2 --> E1
-    D3 --> E1
-    D4 --> E1
-    F4 --> E1
-    
-    E1 --> E2
-    E2 --> C1
-    E2 --> C2
-    E2 --> C3
-    E2 --> C4
-    
-    E1 --> H1
-    E1 --> H2
-    E1 --> H3
-    F4 --> H4
-    C4 --> H5
-    E1 --> H6
-    
-    H4 --> G1
-    H5 --> G1
-    G1 --> G2
-    G2 --> G3
-    
-    G2 --> I1
-    I1 --> I2
-    I2 --> D2
-    I2 --> F1
-    
-    style E1 fill:#ffdd00
-    style E2 fill:#ffdd00
-    style H6 fill:#ffeeaa
+    P --> W
+    P --> X
+    P --> AA
+    P --> BB
+    P --> DD
+    P --> FF
+```
 ```
 
-## Descrizione dei Componenti
+## Struttura del Progetto
 
-### 1. Coordinamento Centrale (Nuovo)
+```
+src/
+├── delibere_comunali/
+│   ├── core/              # Componenti centrali (orchestrator, data coordinator)
+│   ├── parsing/           # Moduli di parsing ed estrazione
+│   ├── scraping/          # Moduli di scraping
+│   ├── ml/                # Moduli di machine learning
+│   ├── risk_assessment/   # Moduli di valutazione del rischio
+│   ├── management_kpi/    # Moduli di calcolo KPI
+│   ├── knowledge_graph/   # Moduli di costruzione del knowledge graph
+│   ├── rag/               # Moduli RAG
+│   ├── utils/             # Utilità varie
+│   └── ...
+scripts/                  # Script autonomi per funzionalità specifiche
+data/                     # Dati di input/output
+output/                   # Output dei vari moduli
+lib/                      # Librerie esterne
+```
 
-Il modulo di **Coordinamento Centrale** è stato aggiunto per risolvere il problema dell'isolamento tra i diversi moduli avanzati. Include:
+## Moduli Principali
 
-- **CentralOrchestrator**: Coordinatore che esegue i diversi moduli avanzati in sequenza ma con feedback reciproco, permettendo loro di scambiarsi informazioni e influenzarsi a vicenda.
-- **DataCoordinator**: Sistema centralizzato per la gestione dei dati condivisi tra i moduli, con persistenza su disco e tracciamento delle modifiche.
+### Core
+- **orchestrator.py**: Coordina i vari moduli avanzati (Risk Assessment, KPI, ML, Audit) per consentire uno scambio di informazioni strutturato e un ciclo di feedback continuo
+- **data_coordinator.py**: Gestore centralizzato per la gestione dei dati condivisi tra i moduli
+- **config_manager.py**: Gestore centralizzato per tutti i parametri del sistema enterprise
+- **enterprise_orchestration.py**: Orchestrator enterprise con parametri configurabili
 
-### 2. Scraping e Parsing
+### Parsing
+- **analyze_albo.py**: Analisi e parsing dei documenti dell'albo pretorio
+- **extractor.py**: Estrazione delle informazioni dai documenti
+- **enhanced_extractor.py**: Estrazione avanzata delle informazioni
 
-Include i moduli responsabili dell'estrazione dei dati dagli albi pretori:
+### Scraping
+- **scraper.py**: Estrazione dei documenti dall'albo pretorio
+- **new_albo_scraper.py**: Nuova implementazione dello scraper
+- **adapter.py**: Adattatori per diversi formati di albo pretorio
+- **adapters/halley_adapter.py**: Adattatore specifico per il formato Halley
 
-- **new_albo_scraper.py**: Estrae i documenti dagli albi pretori online
-- **analyze_albo.py**: Analizza e struttura i documenti estratti
-- **enhanced_extractor.py**: Estrattore avanzato di informazioni dai documenti
-- **analyzer.py**: Componente di analisi testuale
+### ML (Machine Learning)
+- **trainer.py**: Training del modello ML
+- **model_diagnostics.py**: Diagnostica del modello ML
+- **ground_truth.py**: Gestione del ground truth
 
-### 3. Moduli Avanzati
+### Risk Assessment
+- **risk_calculator.py**: Calcolo del rischio associato ai documenti
 
-Componenti specializzati per analisi specifiche:
+### Management KPI
+- **kpi_calculator.py**: Calcolo dei KPI di gestione
 
-- **Risk Assessment**: Valutazione del rischio associato ai procedimenti
-- **Analisi Attuariale**: Calcolo di provvigioni e rischi finanziari
-- **KPI Manageriali**: Indicatori di performance per la gestione
-- **Controllo Anomalie**: Rilevamento di comportamenti irregolari
+### Knowledge Graph
+- **builder.py**: Costruzione del knowledge graph
+- **exporters.py**: Esportazione del knowledge graph
+- **models.py**: Modelli del knowledge graph
 
-### 4. Machine Learning
+### RAG (Retrieval Augmented Generation)
+- **rag_app.py**: Applicazione RAG
+- **rag_chat.py**: Chat RAG
+- **llm_factory.py**: Factory per la creazione di modelli LLM
+- **online_comprehension_strategy.py**: Strategia di comprensione online
 
-Moduli dedicati all'apprendimento automatico:
-
-- **randomForest.py**: Classificatore basato su Random Forest
-- **train_model.py**: Addestramento dei modelli
-- **enhance_ml_model.py**: Ottimizzazione dei modelli
-- **model_diagnostics.py**: Diagnostiche avanzate dei modelli
-
-### 5. Elaborazione e Post-elaborazione
-
-Moduli per l'affinamento dei risultati:
-
-- **post_process_classification.py**: Affinamento della classificazione
-- **resolve_ambiguities.py**: Risoluzione delle ambiguità
-- **enhance_metadata.py**: Arricchimento dei metadati
-- **enhance_doc_type.py**: Classificazione avanzata dei tipi documentali
-
-### 6. Interfaccia Utente
-
-Componenti per l'interazione con l'utente:
-
-- **app_control_room.py**: Dashboard Streamlit
-- **Streamlit UI**: Interfaccia utente
-- **RAG Chat Interface**: Interfaccia per interrogazioni basate su RAG
+### Utils
+- **config.py**: Configurazione del sistema
+- **logger.py**: Logging
+- **metrics.py**: Metriche
+- **validation_utils.py**: Utilità di validazione
+- **exceptions.py**: Eccezioni personalizzate
+- **cache.py**: Gestione della cache
+- **schema_validator.py**: Validatore di schemi
 
 ## Flusso di Esecuzione
 
-Il sistema può essere eseguito in due modalità:
+### Pipeline Standard
+1. **Scraping**: Estrazione dei documenti dall'albo pretorio
+2. **Parsing**: Analisi e estrazione delle informazioni dai documenti
+3. **ML**: Training e classificazione dei documenti
+4. **Knowledge Graph**: Costruzione del knowledge graph
+5. **Risk Assessment**: Valutazione del rischio
+6. **Output**: Generazione degli output
 
-1. **Modalità Tradizionale**: Esecuzione sequenziale dei singoli moduli
-2. **Modalità Coordinata**: Esecuzione tramite CentralOrchestrator che coordina tutti i moduli avanzati
+### Pipeline Enterprise
+1. **Configurazione**: Inizializzazione della configurazione enterprise tramite [config_manager.py](src/delibere_comunali/core/config_manager.py)
+2. **Scraping**: Estrazione dei documenti (opzionale)
+3. **Parsing**: Analisi e estrazione informazioni
+4. **Coordinamento**: Esecuzione del coordinamento tra moduli tramite [orchestrator.py](src/delibere_comunali/core/orchestrator.py)
+5. **Enterprise Workflow**: Esecuzione del workflow enterprise tramite [enterprise_orchestration.py](src/delibere_comunali/core/enterprise_orchestration.py)
+6. **Output**: Generazione degli output enterprise
 
-Il nuovo modulo di coordinamento permette:
-- Scambio di informazioni strutturato tra i moduli
-- Feedback reciproco tra i risultati ottenuti
-- Ciclo continuo di miglioramento basato sui risultati
-- Persistenza coordinata dei risultati in formato strutturato
+## Componenti Enterprise
 
-## Dipendenze
+### ConfigManager
+Il [ConfigManager](src/delibere_comunali/core/config_manager.py#L58-L279) è il gestore centralizzato per tutti i parametri del sistema enterprise. Fornisce:
+- Unificazione di tutti i sistemi di configurazione esistenti
+- Interfaccia coerente per la gestione dei parametri
+- Supporto per caricamento/salvataggio da/a file JSON
+- Validazione della configurazione
+- Raccomandazioni automatiche basate sulle risorse di sistema
 
-Il sistema è strutturato per minimizzare le dipendenze circolari e favorire la modularità. Il coordinatore centrale funge da intermediario tra i diversi componenti, evitando dipendenze dirette tra moduli specializzati.
+### EnterpriseOrchestrator
+L'[EnterpriseOrchestrator](src/delibere_comunali/core/enterprise_orchestration.py#L26-L192) è l'orchestrator enterprise con parametri configurabili. Supporta:
+- Diversi tipi di workflow (full, risk_only, kpi_only, ecc.)
+- Esecuzioni personalizzate con parametri specifici
+- Integrazione con il sistema di coordinamento esistente
+- Modalità dry-run per test sicuri
 
-## Sicurezza e Isolamento
+### Data Coordinator
+Il [DataCoordinator](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/data_coordinator.py#L72-L82) gestisce i dati condivisi tra i moduli e fornisce:
+- Sistema centralizzato per la gestione dei dati condivisi
+- Registro delle dipendenze tra moduli
+- Log delle modifiche ai dati
+- Serializzazione sicura dei dati
 
-Ogni modulo opera in modo isolato e sicuro. Il coordinatore centrale gestisce in modo sicuro lo scambio di dati tra i moduli, rispettando le norme di privacy e sicurezza.
+## Sicurezza e Accesso
 
-## Performance e Scalabilità
+Tutti i parametri sensibili (come chiavi API) sono gestiti attraverso variabili d'ambiente e il sistema di configurazione Pydantic. Il sistema non memorizza mai chiavi sensibili nei file di configurazione.
 
-L'architettura è progettata per essere scalabile. Il coordinatore centrale include meccanismi di caching e ottimizzazione per gestire grandi volumi di dati in modo efficiente.
+## Monitoraggio e Logging
+
+Il sistema registra tutte le operazioni in log dettagliati e salva i risultati in formato strutturato per un'analisi successiva.

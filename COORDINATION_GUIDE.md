@@ -1,124 +1,163 @@
-# Guida al Sistema di Coordinamento Centrale
+# Guida alla Coordinazione
 
 ## Introduzione
 
-Il sistema di coordinamento centrale è una novità importante nell'architettura del sistema di audit dell'albo pretorio. Consente ai diversi moduli avanzati (Risk Assessment, KPI Manageriali, Analisi ML, Audit) di comunicare tra loro, scambiarsi informazioni e influenzarsi reciprocamente.
+Questa guida descrive come coordinare i diversi moduli del sistema "Albo Pretorio Audit Delivery" per ottenere risultati ottimali attraverso un'analisi integrata.
 
-## Comandi Disponibili
+## Architettura del Sistema di Coordinazione
 
-### 1. orchestrate
+### Componenti Principali
 
-Il comando `orchestrate` esegue l'intera pipeline di coordinamento tra tutti i moduli avanzati:
+#### CentralOrchestrator
+Il [CentralOrchestrator](src/delibere_comunali/core/orchestrator.py#L151-L158) è il coordinatore centrale che gestisce l'interazione tra i diversi moduli avanzati:
+
+- **Risk Assessment**: Analisi del rischio associato ai documenti
+- **Management KPI**: Calcolo dei KPI di gestione
+- **ML Diagnostics**: Diagnostica dei modelli ML
+- **Audit Engine**: Motore di audit
+
+#### DataCoordinator
+Il [DataCoordinator](src/delibere_comunali/core/data_coordinator.py#L72-L82) gestisce i dati condivisi tra i moduli, permettendo una comunicazione strutturata:
+
+- Memorizzazione centralizzata dei dati
+- Registro delle dipendenze tra moduli
+- Log delle modifiche ai dati
+- Serializzazione sicura
+
+#### ConfigManager
+Il [ConfigManager](src/delibere_comunali/core/config_manager.py#L58-L279) gestisce tutti i parametri del sistema enterprise:
+
+- Unificazione dei sistemi di configurazione
+- Validazione della configurazione
+- Raccomandazioni automatiche
+- Caricamento/salvataggio da file
+
+#### EnterpriseOrchestrator
+L'[EnterpriseOrchestrator](src/delibere_comunali/core/enterprise_orchestration.py#L26-L192) esegue workflow enterprise con parametri configurabili:
+
+- Supporto per diversi tipi di workflow
+- Integrazione con il sistema di coordinamento esistente
+- Modalità dry-run per test sicuri
+
+## Modalità di Coordinazione
+
+### 1. Coordinamento Completo (`orchestrate`)
+
+Esegue tutti i moduli con coordinamento avanzato:
 
 ```bash
-# Esecuzione completa di coordinamento
-python run.py orchestrate --ente <nome_ente>
-
-# Esecuzione con opzioni specifiche
-python run.py orchestrate --ente avella --skip-risk  # Salta risk assessment
-python run.py orchestrate --ente avella --skip-kpi   # Salta calcolo KPI
-python run.py orchestrate --ente avella --dry-run    # Simulazione senza salvare
+python run.py orchestrate --ente=comune_di_esempio
 ```
 
-#### Funzionalità:
-- Esegue il risk assessment e salva i risultati
-- Calcola i KPI manageriali e li integra con i risultati del risk assessment
-- Esegue l'analisi ML e adatta i modelli in base ai risultati precedenti
-- Esegue l'audit utilizzando tutti i risultati precedenti
-- Salva i risultati coordinati in formato strutturato
+Opzioni:
+- `--load-data`: Percorso specifico per i dati parsati
+- `--skip-risk`: Salta l'esecuzione del risk assessment
+- `--skip-kpi`: Salta l'esecuzione del calcolo KPI
+- `--skip-ml`: Salta l'esecuzione dell'analisi ML
+- `--skip-audit`: Salta l'esecuzione dell'audit
+- `--sequential`: Forza esecuzione sequenziale (disabilita parallelizzazione)
+- `--no-cache`: Disabilita il caching
+- `--workers`: Numero massimo di thread worker per parallelizzazione
+- `--clear-cache`: Svuota la cache prima di eseguire
 
-### 2. data-coord
+### 2. Coordinamento Dati (`data-coord`)
 
-Il comando `data-coord` permette di interagire con il coordinatore dati centralizzato:
+Interfaccia per il coordinatore dati centralizzato:
 
 ```bash
-# Ottenere un sommario dei dati
-python run.py data-coord --ente avella --action summary
-
-# Listare tutte le chiavi dei dati disponibili
-python run.py data-coord --ente avella --action list
-
-# Ottenere un dato specifico
-python run.py data-coord --ente avella --action get --key "atti_parsed"
-
-# Salvare un dato specifico
-python run.py data-coord --ente avella --action save --key "test_data" --data '{"value": 42}' --module "test"
-
-# Caricare dati da persistenza
-python run.py data-coord --ente avella --action load
-
-# Cancellare tutti i dati
-python run.py data-coord --ente avella --action clear
+python run.py data-coord --ente=comune_di_esempio --action=summary
 ```
 
-#### Funzionalità:
-- Gestisce la persistenza dei dati condivisi tra i moduli
-- Permette di ispezionare i dati attualmente memorizzati
-- Consente di salvare e recuperare dati specifici
-- Supporta l'analisi e il debug del sistema di coordinamento
+Azioni disponibili:
+- `list`: Lista tutte le chiavi disponibili
+- `get`: Ottiene un dato specifico
+- `save`: Salva un dato specifico
+- `load`: Carica dati da persistenza
+- `clear`: Cancella tutti i dati
+- `summary`: Mostra sommario dei dati
 
-## Flusso di Esecuzione Coordinata
+### 3. Workflow Enterprise (`enterprise`)
 
-Quando si esegue `python run.py orchestrate --ente <nome>`, il sistema esegue il seguente flusso:
+Esegue workflow enterprise con parametri configurabili:
 
-1. **Inizializzazione**: Caricamento dei dati condivisi da `atti_parsed.csv`
-2. **Risk Assessment**: Esecuzione del modulo di valutazione del rischio
-3. **Feedback KPI**: I risultati del risk assessment influenzano i parametri KPI
-4. **Calcolo KPI**: Esecuzione del modulo di calcolo dei KPI manageriali
-5. **Feedback Rischi**: I risultati KPI influenzano le soglie del risk assessment
-6. **Analisi ML**: Esecuzione del modulo di analisi machine learning
-7. **Adattamento Modelli**: I risultati ML influenzano i modelli e i pesi
-8. **Audit**: Esecuzione del modulo di audit utilizzando tutti i risultati precedenti
-9. **Salvataggio**: I risultati coordinati vengono salvati in `coordinated_analysis_results.json`
-
-## File di Output
-
-Il sistema di coordinamento genera i seguenti file di output:
-
-- `data/{ente}/albo_download/report/coordinated_analysis_results.json`: Risultati coordinati di tutti i moduli
-- `data/{ente}/albo_download/report/risk_assessment_coordinated.csv`: Versione coordinata dei risultati del risk assessment
-- `data/{ente}/albo_download/report/kpi_manageriali_coordinated.csv`: Versione coordinata dei risultati KPI
-- File di log dettagliati nel processo di coordinamento
-
-## Benefici del Sistema di Coordinamento
-
-1. **Integrazione**: I moduli avanzati ora comunicano tra loro anziché operare in isolamento
-2. **Feedback Continuo**: I risultati di un modulo possono influenzare i parametri di un altro
-3. **Coerenza**: Tutti i moduli accedono agli stessi dati attraverso il coordinatore
-4. **Estensibilità**: Nuovi moduli possono essere facilmente integrati nel sistema
-5. **Monitoraggio**: È possibile tracciare come i dati fluiscono tra i diversi moduli
-
-## Esempi di Utilizzo
-
-### Scenario Standard
 ```bash
-# Esegui l'intero processo di coordinamento per l'ente Avella
-python run.py orchestrate --ente avella
+python run.py enterprise --ente=comune_di_esempio --workflow=full
 ```
 
-### Debug del Sistema di Coordinamento
+Tipi di workflow:
+- `full`: Esegue tutti i moduli
+- `risk_only`: Esegue solo il risk assessment
+- `kpi_only`: Esegue solo il calcolo KPI
+- `ml_only`: Esegue solo l'analisi ML
+- `audit_only`: Esegue solo l'audit
+- `minimal`: Esegue un'analisi minimale per test rapidi
+
+Opzioni:
+- `--base-path`: Percorso base per i dati
+- `--load-data`: Percorso specifico per i dati parsati
+- `--skip-risk`: Salta l'esecuzione del risk assessment
+- `--skip-kpi`: Salta l'esecuzione del calcolo KPI
+- `--skip-ml`: Salta l'esecuzione dell'analisi ML
+- `--skip-audit`: Salta l'esecuzione dell'audit
+- `--config-file`: File di configurazione da caricare
+- `--dry-run`: Esegue una simulazione senza salvare risultati
+- `--save-results`: Salva i risultati in formato strutturato
+- `--verbose`: Modalità verbosa
+
+### 4. Gestione Configurazione (`config-mgmt`)
+
+Gestisce la configurazione enterprise:
+
 ```bash
-# Controlla quali dati sono disponibili nel coordinatore
-python run.py data-coord --ente avella --action summary
-
-# Ottieni specifici risultati del risk assessment
-python run.py data-coord --ente avella --action get --key "risk_scores"
+python run.py config-mgmt --ente=comune_di_esempio --action=show
 ```
 
-### Esecuzione Parziale
-```bash
-# Esegui coordinamento senza risk assessment (se già eseguito)
-python run.py orchestrate --ente avella --skip-risk
+Azioni disponibili:
+- `show`: Visualizza la configurazione attiva
+- `save`: Salva la configurazione in un file
+- `load`: Carica la configurazione da un file
+- `validate`: Validazione della configurazione
+- `recommend`: Ottiene raccomandazioni sui parametri
 
-# Esegui coordinamento senza KPI (se già eseguito)
-python run.py orchestrate --ente avella --skip-kpi
-```
+Opzioni:
+- `--config-path`: Percorso specifico per il file di configurazione
+- `--update-param`: Aggiorna un parametro specifico (usa ripetutamente)
 
-## Architettura del Sistema
+## Feedback Loops
 
-Il sistema di coordinamento è implementato attraverso due componenti principali:
+Il sistema implementa diversi feedback loops per migliorare continuamente i risultati:
 
-1. **[CentralOrchestrator](file:///c%3A/Users/39329/albo-pretorio-audit-delivery/src/delibere_comunali/core/orchestrator.py#L29-L436)**: Coordinatore principale che gestisce l'esecuzione sequenziale dei moduli con feedback reciproco
-2. **[DataCoordinator](file:///c%3A/Users/39329/albo-pretorio-audit-delivery/src/delibere_comunali/core/data_coordinator.py#L51-L449)**: Sistema centralizzato per la gestione dei dati condivisi tra i moduli
+### 1. Risk-KPI Feedback Loop
+I risultati del risk assessment influenzano i parametri dei KPI e viceversa:
+- Se il rischio medio è alto, alcuni KPI vengono adattati per riflettere questa condizione
+- Se i KPI indicano bassa efficienza, vengono aumentate le attenzioni verso certi tipi di rischi
 
-Questa architettura permette di mantenere i moduli esistenti invariati mentre introduce la capacità di coordinamento tra di essi.
+### 2. ML-Model Adaptation
+I risultati dell'analisi ML influenzano l'adattamento dei modelli:
+- Se vengono trovate forti correlazioni tra risk scores e altre metriche, i pesi nei moduli vengono aggiustati
+- I modelli vengono aggiornati dinamicamente in base ai risultati delle analisi
+
+### 3. Dynamic Thresholds
+Le soglie di valutazione sono aggiornate dinamicamente:
+- Le soglie del risk assessment sono adattate in base ai risultati KPI
+- I parametri di classificazione sono aggiustati in base ai risultati ML
+
+## Parallelizzazione e Performance
+
+### Esecuzione Parallela
+- I moduli indipendenti possono essere eseguiti in parallelo
+- Il numero di worker è configurabile (default: 4)
+- La parallelizzazione può essere disabilitata con `--sequential`
+
+### Caching
+- I risultati dei moduli sono memorizzati in cache per evitare calcoli ridondanti
+- La cache può essere disabilitata con `--no-cache`
+- La cache può essere svuotata con `--clear-cache`
+
+## Sicurezza e Governance
+
+Tutte le operazioni di coordinamento rispettano i principi di governance pubblica:
+- Solo documenti ufficiali pubblici vengono analizzati
+- Nessun trattamento di dati sensibili
+- Tutte le operazioni sono tracciate e verificabili
+- I risultati sono conservati in modo sicuro e conforme

@@ -1,104 +1,59 @@
-# Visione e Missione del Sistema di Audit dell'Albo Pretorio
+# Visione e Missione
 
 ## Visione
 
-Creare un sistema intelligente e flessibile di audit e monitoraggio per l'albo pretorio comunale che combini tecnologie AI avanzate con competenze professionali specifiche (risk management, attuariale, manageriale) per garantire:
+Creare un sistema intelligente e scalabile per il monitoraggio, l'analisi e l'audit dei documenti presenti negli albi pretori comunali italiani, promuovendo trasparenza, efficienza e responsabilità nella gestione pubblica.
 
-- **Trasparenza e controllo** sui processi amministrativi pubblici
-- **Prevenzione delle frodi** attraverso l'identificazione di anomalie e concentrazioni
-- **Efficienza nella gestione** delle risorse pubbliche
-- **Discrezionalità dei dati** per proteggere informazioni sensibili
+## Missione
 
-## Mission
-
-Sviluppare una piattaforma integrata che:
-
-1. **Acquisisca e analizzi** documenti dell'albo pretorio in modo automatizzato
-2. **Classifichi** i documenti secondo categorie normative specifiche
-3. **Identifichi** potenziali anomalie e rischi attraverso modelli predittivi
-4. **Fornisca** strumenti di governance e controllo di gestione
-5. **Mantenga** un equilibrio tra trasparenza e protezione dei dati sensibili
+Sviluppare strumenti avanzati di analisi automatica dei documenti amministrativi per:
+- Identificare potenziali irregolarità e criticità
+- Migliorare la trasparenza amministrativa
+- Supportare gli organi di controllo (come la Corte dei Conti) nell'attività di vigilanza
+- Ottimizzare i processi di gestione documentale
+- Promuovere la digitalizzazione e l'innovazione nella PA
 
 ## Obiettivi Strategici
 
-### 1. Discrezionalità dei Dati
-- Implementare sistemi di masking per informazioni sensibili
-- Consentire l'analisi statistica senza esposizione di dati personali
-- Bilanciare accessibilità e protezione GDPR
+### #strategic-goal-enterprise - Scalabilità Enterprise
+Implementare un sistema enterprise con gestione centralizzata dei parametri e coordinamento avanzato tra moduli, consentendo l'uso in grandi organizzazioni pubbliche con esigenze complesse di governance e controllo.
 
-### 2. Integrazione di Competenze Specialistiche
-- **Risk Management**: Valutazione del rischio per ogni atto amministrativo
-- **Analisi Attuariale**: Stima degli impegni finanziari futuri
-- **Controllo di Gestione**: Indicatori KPI per la governance
+### #strategic-goal-integration - Integrazione Avanzata
+Creare un sistema integrato dove i diversi moduli (risk assessment, KPI, ML, audit) collaborano attraverso feedback loops continui, migliorando reciprocamente le proprie prestazioni e precisione.
 
-### 3. Scalabilità e Manutenibilità
-- Architettura modulare per facilitare l'aggiornamento
-- Documentazione completa per la manutenzione futura
-- Processi automatizzati con possibilità di intervento umano
+### #strategic-goal-usability - Usabilità e Controllo
+Fornire interfacce e comandi CLI intuitivi che consentano agli operatori pubblici di controllare in modo granulare i processi di analisi, con particolare attenzione alla tracciabilità e auditabilità delle operazioni.
 
-## Funzionalità Chiave degli Script
+### #strategic-goal-quality - Qualità dei Dati
+Assicurare elevati standard di qualità dei dati attraverso sistemi di validazione automatica, rilevamento delle anomalie e processi di correzione assistita.
 
-### Classificazione ML Avanzata (`randomForest.py`)
-- Ottimizzazione degli iperparametri con GridSearchCV
-- Implementazione di regole avanzate per risolvere ambiguità
-- Applicazione di soglie di confidenza differenziate
-- Active Learning attraverso feedback umano
-- Raffinamento iterativo del modello
+### #strategic-goal-compliance - Conformità Normativa
+Garantire che tutti i processi rispettino i requisiti di trasparenza e protezione dei dati previsti dalla normativa pubblica italiana.
 
-### Rilevamento Anomalie (`detect_anomalies.py`)
-- Ricerca di frazionamenti fraudolenti degli appalti
-- Identificazione di beneficiari multipli con stesso RUP
-- Controllo del rispetto del principio di rotazione
-- Analisi delle concentrazioni anomale di affidamenti
+## Approccio
 
-### Esplorazione Dati (`explore_albo.py`)
-- Generazione automatica di report qualitativi
-- Analisi statistica delle distribuzioni
-- Identificazione di outlier e pattern anomali
-- Produzione di report strutturati (CSV, Excel, Markdown)
+Il nostro approccio si basa su:
 
-### Post-processing Avanzato (`post_process_classification.py`)
-- Risoluzione sistematica delle ambiguità
-- Miglioramento continuo del modello ML
-- Rielaborazione dei documenti con bassa confidenza
-- Integrazione automatica nella pipeline principale
+1. **Open Source**: Tutti gli strumenti sono open source per garantire trasparenza e ispezione pubblica
+2. **AI Assistita**: Utilizzo di tecniche di intelligenza artificiale per l'analisi e classificazione automatica
+3. **Umano-Centrico**: I sistemi sono progettati per supportare, non sostituire, l'operatore umano
+4. **Scalabile**: Architettura modulare che consente l'espansione e l'adattamento a diverse esigenze
+5. **Sicuro**: Tutti i dati sensibili sono trattati secondo le normative vigenti
 
-## Benefici per gli Stakeholder
+## Valori
 
-### Per la Pubblica Amministrazione:
-- Riduzione dei tempi di audit e controllo
-- Maggiore trasparenza e tracciabilità dei procedimenti
-- Migliore gestione del rischio reputazionale
-- Conformità automatica agli standard normativi
+- **Trasparenza**: Tutti i processi sono tracciabili e verificabili
+- **Responsabilità**: Gli strumenti supportano la responsabilità amministrativa
+- **Efficienza**: Ottimizzazione dei processi attraverso l'automazione intelligente
+- **Innovazione**: Sperimentazione continua di nuove tecnologie e metodologie
+- **Accessibilità**: Strumenti utilizzabili da tutti gli operatori pubblici
 
-### Per i Cittadini:
-- Maggiore accessibilità ai dati pubblici
-- Capacità di monitorare l'operato della propria amministrazione
-- Promozione della partecipazione democratica
-- Accesso a informazioni strutturate e ricercabili
+## Governance dei Dati
 
-### Per gli Operatori Economici:
-- Parità di trattamento e trasparenza nei bandi
-- Monitoraggio delle gare e procedure
-- Identificazione di eventuali favoritismi
-- Maggiore fiducia nel sistema
+Come specificato nella "[项目全生命周期文档治理规范](file:///c:/Users\39329\albo-pretorio-audit-delivery/ENTERPRISE_PARAMETERIZATION_GUIDE.md#L4-L12)", tutti i processi rispettano principi rigorosi di governance:
 
-## Valori Fondamentali
-
-- **Trasparenza Responsabile**: Accessibilità dei dati con protezione delle informazioni sensibili
-- **Evidenza Scientifica**: Decisioni basate su analisi statistiche e modelli predittivi
-- **Controllo Democratico**: Strumenti per il controllo da parte di cittadini ed enti di vigilanza
-- **Innovazione Etica**: Uso responsabile dell'AI per il bene comune
-
-## Evoluzione Futura
-
-Il sistema deve evolversi per:
-- Incorporare nuove fonti di dati
-- Aumentare la capacità predittiva
-- Migliorare la discrezionalità dei dati
-- Espandere l'integrazione di competenze professionali
-- Potenziare la governance e il controllo di gestione
-
-## Obiettivo Strategico
-
-Diventare il punto di riferimento nazionale per l'automazione dell'audit degli atti pubblici, contribuendo alla digitalizzazione e modernizzazione della Pubblica Amministrazione Italiana attraverso tecnologie AI responsabili ed efficaci.
+- Solo documenti ufficiali pubblici vengono analizzati
+- Nessun trattamento di dati personali sensibili
+- Tutte le operazioni sono tracciate e auditabili
+- I sistemi di controllo e validazione sono integrati in ogni fase
+- La qualità dei dati è monitorata continuamente
