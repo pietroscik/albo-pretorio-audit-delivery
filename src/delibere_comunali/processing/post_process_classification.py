@@ -10,8 +10,10 @@ FIX 4: Implementazione del sistema di scoring con confidenza per la classificazi
 import pandas as pd
 import numpy as np
 import joblib
+import json
 import logging
 from pathlib import Path
+from typing import Tuple, Dict
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier

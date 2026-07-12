@@ -98,6 +98,14 @@ def main() -> None:
     # Aggiungi il parametro per saltare il filtraggio dei file scaricati
     p.add_argument("--skip-filter-files", action="store_true",
                    help="salta il filtraggio dei file scaricati dallo scraper")
+    # Aggiungi parametri per l'orchestrazione enterprise
+    p.add_argument("--enterprise-workflow", type=str, 
+                   choices=['full', 'risk_only', 'kpi_only', 'ml_only', 'audit_only', 'minimal'],
+                   help="Tipo di workflow enterprise da eseguire")
+    p.add_argument("--enterprise-config", type=str,
+                   help="Percorso al file di configurazione enterprise")
+    p.add_argument("--enterprise-params", type=str,
+                   help="Parametri aggiuntivi per il workflow enterprise (formato JSON)")
     args = p.parse_args()
 
     ente = args.ente
@@ -194,6 +202,33 @@ def main() -> None:
                 print("✅ Coordinamento tra moduli completato con successo")
         except Exception as e:
             print(f"⚠️  Errore nell'esecuzione dell'orchestrator: {e}")
+
+    # Esecuzione workflow enterprise (se richiesto)
+    if args.enterprise_workflow:
+        print("\n" + "=" * 72)
+        print(f"STEP: Esecuzione workflow enterprise - {args.enterprise_workflow}")
+        print("=" * 72)
+        
+        enterprise_args = ["--ente", ente, "--workflow", args.enterprise_workflow]
+        enterprise_args.extend(["--base-path", resolved_base])
+        
+        if args.enterprise_config:
+            enterprise_args.extend(["--config-file", args.enterprise_config])
+        
+        if args.skip_audit:
+            enterprise_args.append("--skip-audit")
+        if args.skip_post_process:
+            enterprise_args.append("--skip-kpi")
+        
+        try:
+            enterprise_cmd = [sys.executable, "-m", "delibere_comunali.core.enterprise_orchestration"] + enterprise_args
+            result = subprocess.run(enterprise_cmd, cwd=PROJECT_ROOT)
+            if result.returncode != 0:
+                print(f"⚠️  Workflow enterprise fallito, continuiamo comunque...")
+            else:
+                print("✅ Workflow enterprise completato con successo")
+        except Exception as e:
+            print(f"⚠️  Errore nell'esecuzione del workflow enterprise: {e}")
 
     print("\n" + "=" * 72)
     print("PIPELINE COMPLETATO")

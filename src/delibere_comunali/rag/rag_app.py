@@ -13,6 +13,11 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 try:
     from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+    # Verifica che le classi siano state effettivamente caricate e non siano None
+    if GoogleGenerativeAIEmbeddings is None or not callable(getattr(GoogleGenerativeAIEmbeddings, '__init__', None)):
+        GoogleGenerativeAIEmbeddings = None
+    if ChatGoogleGenerativeAI is None or not callable(getattr(ChatGoogleGenerativeAI, '__init__', None)):
+        ChatGoogleGenerativeAI = None
 except ImportError:
     ChatGoogleGenerativeAI = None
     GoogleGenerativeAIEmbeddings = None
@@ -207,13 +212,23 @@ def _instantiate_embeddings_candidates(candidates):
                 continue
             try:
                 local_model = model_name.split("local:", 1)[1]
-                ready.append((model_name, HuggingFaceEmbeddings(model_name=local_model)))
+                embedding_instance = HuggingFaceEmbeddings(model_name=local_model)
+                # Verifichiamo che l'istanza non sia None
+                if embedding_instance is None:
+                    errors.append((model_name, "Istanza del modello embedding è None"))
+                    continue
+                ready.append((model_name, embedding_instance))
             except Exception as exc:
                 errors.append((model_name, str(exc)))
         else:
             try:
                 # max_retries=0 velocizza il failover sul modello di embedding successivo in caso di quota esaurita
-                ready.append((model_name, GoogleGenerativeAIEmbeddings(model=model_name, max_retries=0)))
+                embedding_instance = GoogleGenerativeAIEmbeddings(model=model_name, max_retries=0)
+                # Verifichiamo che l'istanza non sia None
+                if embedding_instance is None:
+                    errors.append((model_name, "Istanza del modello embedding è None"))
+                    continue
+                ready.append((model_name, embedding_instance))
             except Exception as exc:
                 errors.append((model_name, str(exc)))
     return ready, errors

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
 Modulo per la comprensione dei procedimenti pubblici e delle sequenze procedurali.
 Questo modulo implementa la conoscenza delle sequenze tipiche dei procedimenti 
 della Pubblica Amministrazione italiana con regole dinamiche, pesi e tolleranze temporali.
@@ -612,8 +613,7 @@ class ProceduralUnderstandingEngine:
         return results
     
     def _analyze_sequence_in_group(self, group_data: pd.DataFrame, group_name: str) -> Dict:
-        """
-        Analizza una sequenza procedurale all'interno di un gruppo specifico.
+        """ Analizza una sequenza procedurale all'interno di un gruppo specifico.
         
         FIX 3: Versione aggiornata con scoring e tolleranze.
         """

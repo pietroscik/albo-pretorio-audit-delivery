@@ -5,6 +5,8 @@ Funziona su Windows (py) e Linux (python3).
 Comandi principali di coordinamento:
 - orchestrate: Esegue la pipeline completa di coordinamento tra tutti i moduli avanzati
 - data-coord: Interfaccia per il coordinatore dati centralizzato
+- enterprise: Esegue orchestrazioni enterprise con parametri configurabili
+- config-mgmt: Gestisce la configurazione enterprise
 
 Per maggiori informazioni sui comandi di coordinamento, vedere COORDINATION_GUIDE.md
 """
@@ -69,6 +71,8 @@ COMMAND_MAP = {
     # --- Moduli di coordinamento centrale ---
     "orchestrate":      ("-m", "delibere_comunali.core.orchestrator"),  # Coordinamento centrale tra tutti i moduli avanzati (Risk Assessment, KPI, ML, Audit)
     "data-coord":       ("-m", "delibere_comunali.core.data_coordinator"),  # Coordinatore dati centralizzato per la gestione dei dati condivisi tra i moduli
+    "enterprise":       ("-m", "delibere_comunali.core.enterprise_orchestration"),  # Orchestratore enterprise con parametri configurabili
+    "config-mgmt":      ("-m", "delibere_comunali.core.config_manager"),  # Gestore configurazione enterprise
 
     # --- Alias comodi ---
     "post-process":     ("-m", "delibere_comunali.processing.post_process_classification"),
@@ -109,6 +113,8 @@ def main():
         print("\nCore orchestration commands:")
         print("  orchestrate    Execute full coordination pipeline between all advanced modules (Risk Assessment, KPI, ML, Audit)")
         print("  data-coord     Interact with centralized data coordinator for shared data management")
+        print("  enterprise     Execute enterprise orchestration with configurable parameters")
+        print("  config-mgmt    Manage enterprise configuration settings")
         print("\nAdvanced analysis commands:")
         print("  risk-assessment     Execute risk assessment analysis")
         print("  actuarial-analysis  Execute actuarial analysis and provisioning")
@@ -135,7 +141,10 @@ def main():
 
     if cmd in STREAMLIT_COMMANDS:
         # Per i comandi streamlit, lanciamo direttamente lo script con streamlit
-        subprocess.run([sys.executable, "-m", "streamlit", "run"] + cmd_config[1:] + args, env=env, cwd=PROJECT_ROOT)
+        rag_script_path = "src/delibere_comunali/rag/rag_app.py"
+        # Ensure args are passed after '--' to Streamlit run command
+        cmd = [sys.executable, "-m", "streamlit", "run", rag_script_path, "--"] + list(args)
+        subprocess.run(cmd, env=env, cwd=PROJECT_ROOT)
     else:
         # Per gli altri comandi, usiamo il metodo standard
         if cmd_config[0] == "-m":
