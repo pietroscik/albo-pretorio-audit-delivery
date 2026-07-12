@@ -1,0 +1,76 @@
+{
+  "backup_dir": "/backup/albo_pretorio",
+  "data_dir": "albo_download",
+  "temp_dir": "/tmp/albo_pretorio_backup",
+  
+  "retention_days": 30,
+  "max_backup_size_gb": 10,
+  "compression_level": 6,
+  
+  "exclude_patterns": [
+    "*.log",
+    "*.tmp",
+    ".git",
+    ".git/*",
+    "__pycache__",
+    "__pycache__/*",
+    "*.pyc",
+    "*.swp",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.bak",
+    "*.old"
+  ],
+  
+  "include_patterns": [
+    "*.pdf",
+    "*.xml",
+    "*.csv",
+    "*.json",
+    "*.joblib",
+    "*.pkl",
+    "*.db",
+    "*.sqlite",
+    "*.md"
+  ],
+  
+  "database": {
+    "enabled": false,
+    "type": "sqlite",
+    "path": "data/albo_pretorio.db"
+  },
+  
+  "notification": {
+    "enabled": true,
+    "email": {
+      "enabled": true,
+      "recipients": ["admin@ente.it"],
+      "subject": "[Albo Pretorio] Backup {status}",
+      "success_message": "Backup completato con successo: {path}",
+      "failure_message": "Backup fallito: {error}"
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "",
+      "success_payload": {"text": "✅ Backup completato: {path}"},
+      "failure_payload": {"text": "❌ Backup fallito: {error}"}
+    }
+  },
+  
+  "schedule": {
+    "full_backup": {
+      "enabled": true,
+      "cron": "0 2 * * 0",  # Ogni domenica alle 2:00
+      "retention": 30
+    },
+    "incremental_backup": {
+      "enabled": true,
+      "cron": "0 2 * * 1-6",  # Dal lunedì al sabato alle 2:00
+      "retention": 7
+    },
+    "cleanup": {
+      "enabled": true,
+      "cron": "0 3 * * *"  # Ogni giorno alle 3:00
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "default_ente": "Comune di Roma",
+  "jwt_secret": "cambiami_in_produzione_con_una_chiave_segreta_lunga_e_complessa",
+  "session_timeout": 3600,
+  "max_failed_attempts": 5,
+  "lockout_time": 3600,
+  
+  "spid": {
+    "entity_id": "https://albo-pretorio.ente.it/spid/metadata",
+    "assertion_consumer_service_url": "https://albo-pretorio.ente.it/spid/acs",
+    "metadata_url": "https://albo-pretorio.ente.it/spid/metadata.xml",
+    "cert_path": "/etc/ssl/certs/spid_cert.pem",
+    "key_path": "/etc/ssl/private/spid_key.pem",
+    "spid_provider_url": "https://spid.test.it",
+    "default_spid_level": 2,
+    "contact_email": "admin@ente.it",
+    "contact_phone": "+39 XXX XXXXXXX",
+    "organization_name": "Ente Pubblico",
+    "organization_url": "https://ente.it"
+  },
+  
+  "cie": {
+    "default_ente": "Comune di Roma",
+    "cie_provider_url": "https://cie.test.it"
+  },
+  
+  "cns": {
+    "default_ente": "Comune di Roma",
+    "cns_provider_url": "https://cns.test.it"
+  },
+  
+  "local_auth": {
+    "enabled": false,
+    "users_db_path": "data/users.json"
+  },
+  
+  "roles": {
+    "Amministratore": [
+      "gestione_utenti",
+      "configurazione_sistema",
+      "gestione_documenti",
+      "pubblicazione_documenti",
+      "analisi",
+      "report",
+      "backup",
+      "log",
+      "gestione_enti"
+    ],
+    "Responsabile Trasparenza": [
+      "gestione_documenti",
+      "pubblicazione_documenti",
+      "analisi",
+      "report"
+    ],
+    "Operatore Albo Pretorio": [
+      "gestione_documenti",
+      "analisi"
+    ],
+    "Ospite": [
+      "lettura_documenti",
+      "report"
+    ]
+  },
+  
+  "permissions": {
+    "gestione_utenti": "Gestione utenti e ruoli",
+    "configurazione_sistema": "Configurazione parametri di sistema",
+    "gestione_documenti": "Caricamento, modifica e cancellazione documenti",
+    "pubblicazione_documenti": "Pubblicazione documenti nell'Albo Pretorio",
+    "analisi": "Esecuzione analisi procedurali e classificazione",
+    "report": "Generazione e visualizzazione report",
+    "backup": "Esecuzione e gestione backup",
+    "log": "Visualizzazione log di sistema",
+    "gestione_enti": "Gestione enti multi-tenant"
+  }
+}
