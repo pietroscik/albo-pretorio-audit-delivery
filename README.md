@@ -2,6 +2,48 @@
 
 Sistema enterprise per l'analisi, classificazione e audit dei documenti presenti negli albi pretori comunali italiani.
 
+## Sicurezza e Conformità
+
+Questo sistema è stato progettato per rispettare le normative italiane e europee in materia di trasparenza e protezione dei dati:
+
+- **D.Lgs. 33/2013** (Decreto Trasparenza) - Tutela dell'accesso ai documenti pubblici
+- **GDPR (Regolamento UE 2016/679)** - Protezione dei dati personali
+- **CAD (Codice Amministrazione Digitale)** - Norme sull'uso delle tecnologie digitali nella PA
+- **Linee Guida AgID** - Requisiti per i sistemi informativi della PA
+
+### Politiche di Sicurezza
+- Nessun dato sensibile viene memorizzato permanentemente
+- Le chiavi API sono gestite tramite variabili d'ambiente
+- I dati degli albi pretori sono trattati in modo anonimo e aggregato
+- Tutti i processi rispettano il principio di minimizzazione dei dati
+
+## Deployment
+
+Per informazioni dettagliate sul deployment in ambiente di produzione, vedere [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md).
+
+### Prerequisiti
+- Python 3.8+
+- Tesseract OCR per l'estrazione del testo dai PDF scansionati
+- Chiave API Google Gemini (opzionale, per funzionalità avanzate di RAG)
+
+### Installazione rapida
+```bash
+# Clona il repository
+git clone https://github.com/pietroscik/albo-pretorio-audit-delivery.git
+cd albo-pretorio-audit-delivery
+
+# Crea un ambiente virtuale
+python -m venv venv
+source venv/bin/activate  # Su Windows: venv\Scripts\activate
+
+# Installa le dipendenze
+pip install -r requirements.txt
+
+# Configura le variabili d'ambiente
+cp .env.example .env
+# Modifica .env con le tue chiavi API
+```
+
 ## Funzionalità
 
 - **Scraping**: Estrazione automatica dei documenti dagli albi pretori
@@ -151,3 +193,9 @@ lib/                      # Librerie esterne
 - [Guida alla Coordinazione](file:///c:/Users\39329\albo-pretorio-audit-delivery/COORDINATION_GUIDE.md)
 - [Sommario dei Cambiamenti](file:///c:/Users\39329\albo-pretorio-audit-delivery/CHANGES_SUMMARY.md)
 - [Visione e Missione](file:///c:/Users\39329\albo-pretorio-audit-delivery/VISION_MISSION.md)
+- [Politica sulla Privacy](file:///c:/Users\39329\albo-pretorio-audit-delivery/PRIVACY_POLICY.md)
+- [Politica sulla Sicurezza](file:///c:/Users\39329\albo-pretorio-audit-delivery/SECURITY.md)
+- [Licenza](file:///c:/Users\39329\albo-pretorio-audit-delivery/LICENSE.md)
+- [Guida al Deployment](file:///c:/Users\39329\albo-pretorio-audit-delivery/DEPLOY_GUIDE.md)
+- [Governance del Progetto](file:///c:/Users\39329\albo-pretorio-audit-delivery/GOVERNANCE.md)
+- [Linee Guida per i Contributi](file:///c:/Users\39329\albo-pretorio-audit-delivery/CONTRIBUTING.md)

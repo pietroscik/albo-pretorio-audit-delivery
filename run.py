@@ -14,9 +14,21 @@ Per maggiori informazioni sui comandi di coordinamento, vedere COORDINATION_GUID
 import os
 import sys
 import subprocess
+import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+def _sanitize_input(input_str):
+    """Sanitize input to prevent command injection"""
+    if not isinstance(input_str, str):
+        return input_str
+    
+    # Remove potentially dangerous characters/sequences
+    sanitized = re.sub(r'[;&|$`]', '', input_str)
+    # Ensure it doesn't contain path traversal
+    sanitized = re.sub(r'\.\./', '', sanitized)
+    return sanitized
 
 def _resolve_existing_path(candidates: list[str]) -> Path | None:
     for rel in candidates:
@@ -26,9 +38,12 @@ def _resolve_existing_path(candidates: list[str]) -> Path | None:
     return None
 
 def _run_tool(script_candidates: list[str], module_candidates: list[str], args: list[str]) -> None:
+    # Sanitize arguments to prevent command injection
+    sanitized_args = [_sanitize_input(arg) for arg in args]
+    
     script = _resolve_existing_path(script_candidates)
     if script:
-        cmd = [sys.executable, str(script), *args]
+        cmd = [sys.executable, str(script), *sanitized_args]
     else:
         # Cerca il modulo tra i candidati
         mod = None
@@ -48,7 +63,7 @@ def _run_tool(script_candidates: list[str], module_candidates: list[str], args: 
         if not mod:
             raise FileNotFoundError(f"Nessun entrypoint trovato. Cercati script: {script_candidates}, moduli: {module_candidates}")
         
-        cmd = [sys.executable, "-m", mod] + args
+        cmd = [sys.executable, "-m", mod] + sanitized_args
     subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
 
 COMMAND_MAP = {
@@ -125,6 +140,11 @@ def main():
     cmd = sys.argv[1]
     args = sys.argv[2:]
 
+    # Sanitize command to prevent command injection
+    if not re.match(r'^[a-zA-Z0-9_-]+$', cmd):
+        print(f"❌ Comando non valido: {cmd}")
+        sys.exit(1)
+
     if cmd not in COMMAND_MAP:
         print(f"❌ Comando sconosciuto: {cmd}")
         print("Comandi disponibili:", ", ".join(sorted(COMMAND_MAP.keys())))
@@ -143,7 +163,9 @@ def main():
         # Per i comandi streamlit, lanciamo direttamente lo script con streamlit
         rag_script_path = "src/delibere_comunali/rag/rag_app.py"
         # Ensure args are passed after '--' to Streamlit run command
-        cmd = [sys.executable, "-m", "streamlit", "run", rag_script_path, "--"] + list(args)
+        # Sanitize arguments for streamlit
+        sanitized_streamlit_args = [_sanitize_input(arg) for arg in args]
+        cmd = [sys.executable, "-m", "streamlit", "run", rag_script_path, "--"] + sanitized_streamlit_args
         subprocess.run(cmd, env=env, cwd=PROJECT_ROOT)
     else:
         # Per gli altri comandi, usiamo il metodo standard

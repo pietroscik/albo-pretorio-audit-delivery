@@ -6,7 +6,7 @@ Il sistema è suddiviso in diversi moduli indipendenti ma interconnessi, progett
 
 ## Diagramma Architetturale
 
-```mermaid
+``mermaid
 graph TB
     subgraph "Input Layer"
         A[Albo Pretorio Web] --> B[PDF Documents]
@@ -80,6 +80,41 @@ graph TB
     P --> DD
     P --> FF
 ```
+
+## Flusso Dati Principale
+
+```mermaid
+sequenceDiagram
+    participant User as Utente Amministrativo
+    participant ControlRoom as Control Room
+    participant Orchestrator as Central Orchestrator
+    participant Scraper as Scraper Module
+    participant Parser as Parsing Module
+    participant Classifier as Classification Module
+    participant Risk as Risk Assessment
+    participant KPI as KPI Calculator
+    participant Graph as Knowledge Graph
+    participant RAG as RAG System
+    participant DB as Database
+    
+    User->>ControlRoom: Richiesta analisi per ente X
+    ControlRoom->>Orchestrator: Inizio pipeline coordinata
+    Orchestrator->>Scraper: Estrazione documenti
+    Scraper->>DB: Salva documenti grezzi
+    Orchestrator->>Parser: Analisi documenti
+    Parser->>DB: Salva dati estratti
+    Orchestrator->>Classifier: Classificazione documenti
+    Classifier->>DB: Salva classificazioni
+    Orchestrator->>Risk: Calcolo rischi
+    Risk->>DB: Salva score di rischio
+    Orchestrator->>KPI: Calcolo indicatori
+    KPI->>DB: Salva KPI
+    Orchestrator->>Graph: Costruzione grafo
+    Graph->>DB: Salva entità/relazioni
+    Orchestrator->>RAG: Indicizzazione
+    RAG->>DB: Salva indici FAISS
+    DB->>ControlRoom: Risultati disponibili
+    ControlRoom->>User: Visualizzazione risultati
 ```
 
 ## Struttura del Progetto

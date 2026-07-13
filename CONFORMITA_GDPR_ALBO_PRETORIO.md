@@ -113,7 +113,7 @@ Il sistema garantisce l'**integrità** dei documenti attraverso:
 | **Timestamp** | Registrazione della data/ora di ogni operazione | D.Lgs. 33/2013 | ✅ Implementato |
 | **Versioning** | Tracciamento delle versioni dei documenti | Best Practice | ✅ Implementato |
 
-### **2. Tracciabilità (Audit Trail)**
+### **2. Tracciabilità (Audit Trail) e Log del Sistema**
 Tutte le operazioni sono **tracciate** per garantire:
 
 - **Chi** ha eseguito l'operazione (utente/sistema)
@@ -122,7 +122,32 @@ Tutte le operazioni sono **tracciate** per garantire:
 - **Quali** dati sono stati trattati (documenti coinvolti)
 - **Perché** è stato fatto (normativa di riferimento)
 
-**Esempio di log:**
+#### **Tipi di log**
+Il sistema mantiene diversi tipi di log per garantire la tracciabilità:
+
+| Tipo Log | Descrizione | Implementazione |
+|----------|-------------|----------------|
+| **Access log** | Registrazione degli accessi al sistema | ✅ Implementato |
+| **Operation log** | Registrazione delle operazioni eseguite | ✅ Implementato |
+| **Analysis log** | Registrazione delle analisi effettuate | ✅ Implementato |
+| **Security log** | Registrazione di eventi di sicurezza | ✅ Implementato |
+
+#### **Contenuto dei log**
+I log contengono:
+- Timestamp preciso
+- Identificativo dell'utente operatore
+- Tipo di operazione eseguita
+- Risorse coinvolte
+- Risultato dell'operazione
+- Normativa di riferimento
+- Base giuridica GDPR applicabile
+
+#### **Conservazione dei log**
+- I log sono conservati per **1 anno**
+- Sono criptati e protetti da accessi non autorizzati
+- Possono essere esportati per ispezioni di controllo
+
+**Esempio di log strutturato:**
 ```json
 {
   "timestamp": "2026-07-10T12:00:00Z",
@@ -135,7 +160,32 @@ Tutte le operazioni sono **tracciate** per garantire:
 }
 ```
 
-### **3. Rispetto dei Termini di Pubblicazione**
+### **3. Politica di Cancellazione dei Dati**
+Il sistema implementa una politica di cancellazione automatica dei dati:
+
+| Categoria | Periodo di conservazione | Politica |
+|----------|--------------------------|---------|
+| **Dati temporanei** | 30 giorni | Cancellati automaticamente |
+| **Log di sistema** | 1 anno | Cancellati automaticamente |
+| **Report intermedi** | 6 mesi | Cancellati automaticamente se non necessari |
+| **Cache** | Variabile | Svuotata automaticamente secondo politiche definite |
+
+#### **Procedura di cancellazione su richiesta**
+Sebbene il sistema tratti esclusivamente documenti pubblici, è prevista una procedura per la cancellazione su richiesta:
+
+1. **Identificazione della richiesta**: Ricezione formale di richiesta di cancellazione
+2. **Verifica**: Conferma che la richiesta riguardi dati trattati dal sistema
+3. **Cancellazione**: Rimozione dei dati specifici dal sistema
+4. **Conferma**: Notifica alla parte richiedente dell'avvenuta cancellazione
+
+#### **Comando CLI per cancellazione**
+Il sistema offre un comando per facilitare la cancellazione dei dati:
+
+```bash
+python run.py gdpr-delete --ente=<nome_ente> --data-type=<tipo_dato> --date-range=<intervallo_date>
+```
+
+### **4. Rispetto dei Termini di Pubblicazione**
 Il sistema verifica automaticamente il rispetto dei **termini di legge** per la pubblicazione:
 
 | Tipo Documento | Termine di Pubblicazione | Normativa | Implementazione |
