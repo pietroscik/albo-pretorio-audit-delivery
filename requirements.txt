@@ -23,7 +23,7 @@ plotly==5.24.0
 reportlab==4.2.0
 opencv-python==4.10.0.84
 seaborn==0.13.2
-matplotlib==3.9.2
+matplotlib==3.10.9
 
 # Knowledge Graph & Semantic Web
 networkx==3.2.1
