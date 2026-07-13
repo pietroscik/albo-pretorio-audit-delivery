@@ -18,8 +18,19 @@ import warnings
 # Suppressione avvisi specifici di PyTorch
 warnings.filterwarnings("ignore", message=".*torch.classes.*")
 
+# Import del modulo di autenticazione
+from delibere_comunali.web.auth import authenticate_user
+
 # Definizione di PROJECT_ROOT
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+# --- AUTENTICAZIONE ---
+# Verifica se l'utente è autenticato
+authenticated, user_name, user_role = authenticate_user()
+
+if not authenticated:
+    # Se non autenticato, mostra solo la pagina di login
+    st.stop()
 
 def _norm_pdf_key(v):
     if pd.isna(v):
@@ -86,6 +97,18 @@ def get_enti():
 # --- SIDEBAR DI CONTROLLO ---
 st.sidebar.image("https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Repubblica_Italiana_emblem.svg/512px-Repubblica_Italiana_emblem.svg.png", width=80)
 st.sidebar.title("RegTech Intelligence")
+
+# Mostra informazioni utente nella sidebar
+st.sidebar.subheader(f"👤 Benvenuto, {user_name}")
+if user_role:
+    st.sidebar.text(f"Ruolo: {user_role}")
+
+# Aggiungi bottone di logout
+if st.sidebar.button("🔒 Logout"):
+    from delibere_comunali.web.auth import SimpleAuthenticator
+    auth = SimpleAuthenticator()
+    auth.logout()
+    st.experimental_rerun()
 
 enti_disponibili = get_enti()
 ente_selezionato = st.sidebar.selectbox("🏛️ Ente in Analisi", enti_disponibili)

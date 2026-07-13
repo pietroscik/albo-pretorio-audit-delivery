@@ -46,7 +46,8 @@ class ProcedureBuilder:
         if event.cup:
             return f"CUP_{event.cup}"
         seed = f"{event.title or ''}_{event.document_date or ''}_{event.metadata.get('ente', '')}"
-        digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
+        # Usa SHA-256 invece di SHA1 per motivi di sicurezza
+        digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
         return f"HASH_{digest}"
 
     def get_all_procedures(self) -> List[Procedure]:

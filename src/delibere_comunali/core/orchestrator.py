@@ -49,7 +49,9 @@ def get_data_hash(data: pd.DataFrame) -> str:
     
     # Crea una stringa rappresentativa dei dati
     data_str = str(data[available_cols].head(100).to_dict())  # Limita a 100 righe per performance
-    return hashlib.md5(data_str.encode()).hexdigest()
+    
+    # Usa SHA-256 invece di MD5 per motivi di sicurezza
+    return hashlib.sha256(data_str.encode()).hexdigest()
 
 
 class ResultCache:

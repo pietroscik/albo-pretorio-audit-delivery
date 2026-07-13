@@ -16,6 +16,25 @@ Questo sistema è stato progettato per rispettare le normative italiane e europe
 - Le chiavi API sono gestite tramite variabili d'ambiente
 - I dati degli albi pretori sono trattati in modo anonimo e aggregato
 - Tutti i processi rispettano il principio di minimizzazione dei dati
+- Accesso alle dashboard protetto da sistema di autenticazione
+- Comunicazioni sicure con sistemi esterni (LLM, API)
+
+## Sicurezza e Accesso
+
+### Autenticazione
+Le dashboard e le interfacce utente sono protette da un sistema di autenticazione. Per accedere alle funzionalità avanzate:
+
+1. Le credenziali di default sono configurabili tramite variabili d'ambiente
+2. Il sistema supporta l'integrazione con SPID (da configurare in produzione)
+3. I dati di accesso sono crittografati e gestiti in modo sicuro
+
+### Configurazione di Sicurezza
+Per ambienti di produzione, è disponibile un file di configurazione di esempio (`config.example.yaml`) che include:
+
+- Impostazioni per la crittografia SSL/TLS
+- Configurazione del logging sicuro
+- Politiche di retention dei dati
+- Integrazione con sistemi di identità pubblica (SPID)
 
 ## Deployment
 
@@ -25,6 +44,7 @@ Per informazioni dettagliate sul deployment in ambiente di produzione, vedere [D
 - Python 3.8+
 - Tesseract OCR per l'estrazione del testo dai PDF scansionati
 - Chiave API Google Gemini (opzionale, per funzionalità avanzate di RAG)
+- Sistema di autenticazione SPID (consigliato per ambienti di produzione)
 
 ### Installazione rapida
 ```bash
@@ -199,3 +219,4 @@ lib/                      # Librerie esterne
 - [Guida al Deployment](file:///c:/Users\39329\albo-pretorio-audit-delivery/DEPLOY_GUIDE.md)
 - [Governance del Progetto](file:///c:/Users\39329\albo-pretorio-audit-delivery/GOVERNANCE.md)
 - [Linee Guida per i Contributi](file:///c:/Users\39329\albo-pretorio-audit-delivery/CONTRIBUTING.md)
+- [File di Configurazione di Esempio](file:///c:/Users\39329\albo-pretorio-audit-delivery/config.example.yaml)

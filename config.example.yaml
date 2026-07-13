@@ -1,0 +1,67 @@
+# Configurazione di esempio per Albo Pretorio Audit Delivery
+# Copiare in config.yaml e modificare secondo le esigenze
+
+scraping:
+  # Timeout per le richieste HTTP (secondi)
+  timeout: 30
+  # Numero massimo di tentativi per ogni richiesta
+  max_retries: 3
+  # User agent da utilizzare per le richieste
+  user_agent: "AlboPretorioBot/1.0 (ENIA - Ente Nazionale per l'Innovazione Amministrativa)"
+
+database:
+  # Configurazione del database (opzionale, il sistema usa file CSV di default)
+  host: "localhost"
+  port: 5432
+  name: "albo_pretorio"
+  user: "${DB_USER}"  # Da impostare tramite variabili d'ambiente
+  password: "${DB_PASSWORD}"  # Da impostare tramite variabili d'ambiente
+
+security:
+  # Configurazione della sicurezza
+  spid:
+    # Integrazione con SPID (Sistema Pubblico di Identità Digitale)
+    enabled: false  # Attivare solo se si dispone di certificati SPID
+    entity_id: "https://albo-pretorio.esempio-pa.it"
+    acs_url: "https://albo-pretorio.esempio-pa.it/auth/callback"
+    cert_path: "/etc/ssl/certs/spid.pem"
+    key_path: "/etc/ssl/private/spid.key"
+  # Configurazione della registrazione utenti
+  user_registration:
+    enabled: false  # Disabilitare la registrazione automatica in ambiente PA
+    admin_approval_required: true
+
+logging:
+  # Configurazione del logging
+  level: "INFO"
+  file: "/var/log/albo_pretorio/app.log"
+  # Rotazione dei log
+  rotation:
+    size: "100 MB"
+    count: 5
+
+privacy:
+  # Politiche di privacy e GDPR
+  data_retention_days: 1825  # 5 anni per documenti pubblici (D.Lgs. 33/2013)
+  log_retention_days: 365    # 1 anno per i log
+  right_to_erasure_enabled: true  # Abilita cancellazione dati su richiesta
+
+performance:
+  # Configurazione delle prestazioni
+  max_workers: 4
+  batch_size: 10
+  cache_enabled: true
+  cache_retention_hours: 24
+
+llm:
+  # Configurazione dei modelli linguistici
+  api_timeout: 60
+  max_retries: 3
+  temperature: 0.1  # Valore basso per risultati consistenti
+
+ssl:
+  # Configurazione SSL/TLS (importante per ambiente produzione)
+  enabled: true
+  cert_path: "/etc/ssl/certs/albo-pretorio.crt"
+  key_path: "/etc/ssl/private/albo-pretorio.key"
+  force_https: true
