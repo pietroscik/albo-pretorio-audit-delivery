@@ -630,10 +630,10 @@ use_local_retriever_with_gemini = st.sidebar.toggle(
 st.sidebar.caption("Priorita' LLM: " + " -> ".join(llm_models[:4]))
 st.sidebar.caption("Priorita' Embedding: " + " -> ".join(embedding_models[:3]))
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🎯 Focus Dominio")
-    only_accounting = st.sidebar.checkbox("Filtra solo Contabilità e Appalti", value=True, help="L'IA restringerà la ricerca ai soli atti con rilevanza finanziaria, ignorando le altre delibere.")
-    only_personnel = st.sidebar.checkbox("Filtra solo Competenze Personale", value=False)
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Focus Dominio")
+only_accounting = st.sidebar.checkbox("Filtra solo Contabilità e Appalti", value=True, help="L'IA restringerà la ricerca ai soli atti con rilevanza finanziaria, ignorando le altre delibere.")
+only_personnel = st.sidebar.checkbox("Filtra solo Competenze Personale", value=False)
 
 rag_chain = None
 active_embedding_model = None
