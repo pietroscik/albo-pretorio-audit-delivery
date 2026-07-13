@@ -445,6 +445,50 @@ class DataCoordinator:
             summary['timestamps']['latest'] = max(timestamps).isoformat()
         
         return summary
+    
+    def list_keys(self) -> List[str]:
+        """
+        Restituisce la lista di tutte le chiavi disponibili
+        """
+        return list(self.data_store.keys())
+    
+    def save_data(self, key: str, data: Any, source_module: str, 
+                  data_type: DataType = None, metadata: Dict[str, Any] = None) -> str:
+        """
+        Metodo alias per put_data
+        """
+        return self.put_data(key, data, source_module, data_type, metadata)
+    
+    def load_from_disk(self) -> bool:
+        """
+        Metodo alias per load_from_persistent_storage
+        """
+        return self.load_from_persistent_storage()
+    
+    def clear_all_data(self) -> bool:
+        """
+        Cancella tutti i dati dal coordinatore
+        """
+        self.data_store.clear()
+        self.change_log.clear()
+        
+        change_info = {
+            'timestamp': datetime.now().isoformat(),
+            'operation': 'CLEAR_ALL',
+            'key': 'ALL',
+            'data_type': 'ALL',
+            'source_module': 'system'
+        }
+        self.change_log.append(change_info)
+        
+        logger.info("Tutti i dati sono stati cancellati dal coordinatore")
+        return True
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        Metodo alias per get_data_summary
+        """
+        return self.get_data_summary()
 
 
 def get_global_data_coordinator() -> DataCoordinator:
