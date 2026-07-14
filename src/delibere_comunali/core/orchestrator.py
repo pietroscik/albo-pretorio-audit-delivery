@@ -85,6 +85,7 @@ class ResultCache:
                 try:
                     with open(cache_path, 'rb') as f:
                         self._cache[key] = pickle.load(f)
+                # Sicurezza: i file di cache sono generati localmente dal sistema, non da fonti esterne
                     self._cache_order.append(key)
                 except Exception as e:
                     logger.warning(f"Errore nel caricamento della cache per {key}: {e}")
@@ -137,6 +138,7 @@ class ResultCache:
             cache_path = self._get_cache_path(key)
             with open(cache_path, 'wb') as f:
                 pickle.dump(value, f)
+            # Sicurezza: i file di cache sono generati localmente dal sistema, non da fonti esterne
         except Exception as e:
             logger.warning(f"Errore nel salvataggio della cache per {key}: {e}")
     

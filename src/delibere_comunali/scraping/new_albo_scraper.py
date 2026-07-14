@@ -219,7 +219,8 @@ def metadata_key(it: "AlboItem") -> str:
     if it.allegati:
         return it.allegati[0]
     raw = "|".join([it.titolo or "", it.numero or "", it.data_pubblicazione or "", it.oggetto or ""])
-    return hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
+    # Usa SHA-256 invece di SHA1 per motivi di sicurezza
+    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
 
 def encode_query(query: dict) -> str:
     return up.urlencode(query, doseq=True, safe="[]")
@@ -588,7 +589,8 @@ class AlboScraper:
             row.get("data_pubblicazione") or "",
             row.get("oggetto") or "",
         ])
-        return hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()
+        # Usa SHA-256 invece di SHA1 per motivi di sicurezza
+    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
 
     def bootstrap_csrf(self) -> Optional[str]:
         """Apre la pagina base per ottenere eventuale token CSRF richiesto da OpenWeb."""

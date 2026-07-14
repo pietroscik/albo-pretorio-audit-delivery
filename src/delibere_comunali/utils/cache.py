@@ -62,7 +62,8 @@ class LRUCache(Generic[T]):
         if isinstance(key, str):
             return key
         try:
-            return hashlib.md5(json.dumps(key, sort_keys=True).encode()).hexdigest()
+            # Usa SHA-256 invece di MD5 per motivi di sicurezza
+            return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
         except (TypeError, ValueError):
             return str(hash(key))
     
@@ -223,7 +224,8 @@ class FileCache(Generic[T]):
         if isinstance(key, str):
             safe_key = "".join(c if c.isalnum() or c in '-_' else '_' for c in key)
             return safe_key[:64]
-        return hashlib.md5(str(key).encode()).hexdigest()
+        # Usa SHA-256 invece di MD5 per motivi di sicurezza
+        return hashlib.sha256(str(key).encode()).hexdigest()
     
     def get(self, key: Any, default: Optional[T] = None) -> Optional[T]:
         """Get a value from the file cache."""

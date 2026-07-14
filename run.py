@@ -1,194 +1,263 @@
-#!/usr/bin/env python3
-"""Entry point universale per albo-pretorio-audit-delivery.
-Funziona su Windows (py) e Linux (python3).
-
-Comandi principali di coordinamento:
-- orchestrate: Esegue la pipeline completa di coordinamento tra tutti i moduli avanzati
-- data-coord: Interfaccia per il coordinatore dati centralizzato
-- enterprise: Esegue orchestrazioni enterprise con parametri configurabili
-- config-mgmt: Gestisce la configurazione enterprise
-
-Per maggiori informazioni sui comandi di coordinamento, vedere COORDINATION_GUIDE.md
-"""
-
-import os
-import sys
 import subprocess
-import re
+import sys
+from pathlib import Path
+import click
+import os
+from delibere_comunali.core.config_manager import ConfigManager
+from delibere_comunali.core.enterprise_orchestration import EnterpriseOrchestrator
+
+@click.group()
+def cli():
+    """Strumento CLI per l'analisi e l'audit degli albi pretori comunali."""
+    pass
+
+@cli.command()
+@click.option('--ente', required=True, help='Nome dell\'ente locale da analizzare (es. milano, roma)')
+@click.option('--workflow', default='full', help='Tipo di workflow da eseguire: full, analyze-only, scrape-only')
+@click.option('--config', default='config.yaml', help='Percorso al file di configurazione')
+def enterprise(ente: str, workflow: str, config: str):
+    """
+    Esegue il workflow enterprise per un ente specifico.
+    """
+    config_path = Path(config)
+    if not config_path.exists():
+        print(f"❌ Configurazione non trovata: {config_path}")
+        return
+    
+    config_manager = ConfigManager(config_path)
+    orchestrator = EnterpriseOrchestrator(config_manager)
+    
+    try:
+        if workflow == 'full':
+            orchestrator.execute_full_workflow(ente)
+        elif workflow == 'analyze-only':
+            orchestrator.execute_analysis_only(ente)
+        elif workflow == 'scrape-only':
+            orchestrator.execute_scraping_only(ente)
+        else:
+            print(f"❌ Workflow non riconosciuto: {workflow}")
+            return
+            
+        print(f"✅ Workflow completato per l'ente: {ente}")
+    except Exception as e:
+        print(f"❌ Errore nell'esecuzione del workflow: {e}")
+
+@cli.command()
+@click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
+@click.option('--ente', default=None, help='Identificativo ente (opzionale)')
+@click.option('--use-llm', is_flag=True, help='Abilita arricchimento LLM (opzionale)')
+@click.option('--llm-provider', default=None, help='Provider LLM (openai, gemini, mistral...)')
+@click.option('--llm-model', default=None, help='Modello LLM da usare')
+def audit(base: str, ente: str, use_llm: bool, llm_provider: str, llm_model: str):
+    """
+    Esegue l'audit antifrode sugli atti comunali.
+    """
+    # Costruisci il comando Python per eseguire il modulo di audit
+    cmd = [
+        sys.executable,
+        "-c",
+        f"""
+import sys
+sys.path.insert(0, '.')
+from delibere_comunali.processing.audit_engine import main
+import argparse
+
+# Simula argomenti da linea di comando
+class Args:
+    pass
+
+args = Args()
+args.base = "{base}"
+args.ente = "{ente}" if "{ente}" != "None" else None
+args.use_llm = {use_llm}
+args.llm_provider = "{llm_provider}" if "{llm_provider}" != "None" else None
+args.llm_model = "{llm_model}" if "{llm_model}" != "None" else None
+args.skip_supervision = False  # Di default applica la supervisione
+
+# Imposta args se il modulo ha un parser
+import sys
+from io import StringIO
+
+# Esegui la funzione main
+main()
+"""
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+    
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print("ERROR:", result.stderr)
+    
+    return result.returncode
+
+@cli.command()
+@click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
+@click.option('--ente', default=None, help='Identificativo ente (opzionale)')
+def build_kg(base: str, ente: str):
+    """
+    Costruisce il knowledge graph relazionale.
+    """
+    cmd = [
+        sys.executable,
+        "-c",
+        f"""
+import sys
+sys.path.insert(0, '.')
+from delibere_comunali.kg.knowledge_graph_builder import main
+import argparse
+
+class Args:
+    pass
+
+args = Args()
+args.base = "{base}"
+args.ente = "{ente}" if "{ente}" != "None" else None
+
+# Esegui la funzione main
+main()
+"""
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+    
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print("ERROR:", result.stderr)
+    
+    return result.returncode
+
+@cli.command()
+@click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
+@click.option('--ente', default=None, help='Identificativo ente (opzionale)')
+def analyze_topology(base: str, ente: str):
+    """
+    Analizza la topologia del knowledge graph.
+    """
+    cmd = [
+        sys.executable,
+        "-c",
+        f"""
+import sys
+sys.path.insert(0, '.')
+from delibere_comunali.topology.topology_analyzer import main
+import argparse
+
+class Args:
+    pass
+
+args = Args()
+args.base = "{base}"
+args.ente = "{ente}" if "{ente}" != "None" else None
+
+# Esegui la funzione main
+main()
+"""
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+    
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print("ERROR:", result.stderr)
+    
+    return result.returncode
+
+@cli.command()
+@click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
+@click.option('--ente', default=None, help='Identificativo ente (opzionale)')
+@click.option('--limit', default=0.1, help='Percentuale di casi da selezionare per il riaddestramento supervisionato (default: 0.1 per il 10%)')
+def supervised_training(base: str, ente: str, limit: float):
+    """
+    Esegue il riaddestramento supervisionato utilizzando il 10% dei casi più critici.
+    """
+    cmd = [
+        sys.executable,
+        "-c",
+        f"""
+import sys
+sys.path.insert(0, '.')
+import pandas as pd
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+# Carica i dati di audit esistenti
+base_path = Path('{base}')
+if '{ente}' != 'None':
+    base_path = Path(f'data/{{'{ente}'}}/albo_download')
 
-def _sanitize_input(input_str):
-    """Sanitize input to prevent command injection"""
-    if not isinstance(input_str, str):
-        return input_str
+atti_audited_path = base_path / 'atti_audited.csv'
+if not atti_audited_path.exists():
+    print(f"❌ File atti_audited.csv non trovato in: {{atti_audited_path}}")
+    sys.exit(1)
+
+print("🔄 Caricamento dati di audit...")
+df = pd.read_csv(atti_audited_path)
+
+print(f"📊 Dataset originale: {{len(df)}} documenti")
+
+# Ordina per punteggio di rischio decrescente e importo decrescente come criterio secondario
+df_sorted = df.sort_values(['risk_score', 'importo_clean'], ascending=[False, False])
+
+# Calcola il numero di documenti da selezionare (10% o valore specificato)
+n_to_select = max(1, int(len(df) * {limit}))
+top_cases = df_sorted.head(n_to_select)
+
+print(f"🎯 Selezionati {{len(top_cases)}} casi per il riaddestramento supervisionato ({{ {limit} * 100 :.1f}}% del dataset)")
+print(f"📈 Range del punteggio di rischio: {{top_cases['risk_score'].min()}} a {{top_cases['risk_score'].max()}}")
+print(f"💰 Range dell'importo: {{top_cases['importo_clean'].min()}} a {{top_cases['importo_clean'].max()}}")
+
+# Salva il dataset supervisionato
+supervised_path = base_path / 'training_supervised_10percent.csv'
+top_cases.to_csv(supervised_path, index=False)
+print(f"💾 Dataset supervisionato salvato in: {{supervised_path}}")
+
+# Ora applichiamo le correzioni supervisionate dal feedback_operatore.csv se esiste
+feedback_path = base_path / 'report' / 'feedback_operatore.csv'
+if feedback_path.exists():
+    print("🔄 Applicazione delle correzioni supervisionate dal feedback...")
+    feedback_df = pd.read_csv(feedback_path)
     
-    # Remove potentially dangerous characters/sequences
-    sanitized = re.sub(r'[;&|$`]', '', input_str)
-    # Ensure it doesn't contain path traversal
-    sanitized = re.sub(r'\.\./', '', sanitized)
-    return sanitized
-
-def _resolve_existing_path(candidates: list[str]) -> Path | None:
-    for rel in candidates:
-        p = PROJECT_ROOT / rel
-        if p.exists():
-            return p
-    return None
-
-def _run_tool(script_candidates: list[str], module_candidates: list[str], args: list[str]) -> None:
-    # Sanitize arguments to prevent command injection
-    sanitized_args = [_sanitize_input(arg) for arg in args]
-    
-    script = _resolve_existing_path(script_candidates)
-    if script:
-        cmd = [sys.executable, str(script), *sanitized_args]
-    else:
-        # Cerca il modulo tra i candidati
-        mod = None
-        for m in module_candidates:
-            # Controlla se il modulo esiste cercando il file corrispondente
-            module_parts = m.split('.')
-            module_path = PROJECT_ROOT / "src"
-            for part in module_parts:
-                module_path = module_path / part
-            # Controlla se esiste come file .py o come directory con __init__.py
-            module_file = module_path.with_suffix('.py')
-            module_dir = module_path / "__init__.py"
-            if module_file.exists() or module_dir.exists():
-                mod = m
-                break
+    # Applica le correzioni ai dati
+    for idx, feedback_row in feedback_df.iterrows():
+        pdf_name = feedback_row['pdf_name']
+        falso_positivo = str(feedback_row['falso_positivo']).strip().upper() == 'SI'
         
-        if not mod:
-            raise FileNotFoundError(f"Nessun entrypoint trovato. Cercati script: {script_candidates}, moduli: {module_candidates}")
-        
-        cmd = [sys.executable, "-m", mod] + sanitized_args
-    subprocess.run(cmd, check=True, cwd=PROJECT_ROOT)
+        mask_documento = df['pdf_name'] == pdf_name
+        if mask_documento.any():
+            if falso_positivo:
+                df.loc[mask_documento, 'risk_score'] = 0.0
+                df.loc[mask_documento, 'anomalie_rilevate'] = "Falso Positivo (Validato Umanamente)"
+                
+                # Aggiorna eventuali campi corretti dal feedback
+                for campo in ['doc_type', 'responsabile', 'beneficiario', 'importo_max', 'cig', 'cup', 'data_atto', 'numero_atto', 'oggetto', 'category']:
+                    if campo in feedback_df.columns and not pd.isna(feedback_row[campo]):
+                        df.loc[mask_documento, campo] = feedback_row[campo]
 
-COMMAND_MAP = {
-    # --- Moduli principali ---
-    "scrape":           ("-m", "delibere_comunali.scraping.new_albo_scraper"),
-    "analyze":          ("-m", "delibere_comunali.parsing.analyze_albo"),
-    "pipeline":         ("-m", "delibere_comunali.cli.run_pipeline"),
-    "rag":              ("-m", "delibere_comunali.rag.rag_app"),
-    "validate-csv": (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
-    "control-room":     ("-m", "delibere_comunali.cli.app_control_room"),
-    "audit":            ("-m", "delibere_comunali.processing.audit_engine"),
-    "post-process-classification": ("-m", "delibere_comunali.processing.post_process_classification"),
-    "apply-corrections": (str(PROJECT_ROOT / "scripts" / "apply_feedback_corrections.py"),),
+    print("✅ Correzioni supervisionate applicate")
+
+    # Riordina il dataset completo con i nuovi punteggi
+    df_updated = df.sort_values(['risk_score', 'importo_clean'], ascending=[False, False])
     
-    # --- Nuovi moduli integrati ---
-    "risk-assessment":  ("-m", "delibere_comunali.risk_assessment.risk_calculator"),
-    "actuarial-analysis": ("-m", "delibere_comunali.actuarial_analysis.provisioning"),
-    "management-kpi":   ("-m", "delibere_comunali.management_kpi.kpi_calculator"),
+    # Salva il dataset aggiornato
+    updated_path = base_path / 'atti_audited_supervised.csv'
+    df_updated.to_csv(updated_path, index=False)
+    print(f"💾 Dataset aggiornato con supervisione umana salvato in: {{updated_path}}")
 
-    # --- Moduli di coordinamento centrale ---
-    "orchestrate":      ("-m", "delibere_comunali.core.orchestrator"),  # Coordinamento centrale tra tutti i moduli avanzati (Risk Assessment, KPI, ML, Audit)
-    "data-coord":       ("-m", "delibere_comunali.core.data_coordinator"),  # Coordinatore dati centralizzato per la gestione dei dati condivisi tra i moduli
-    "enterprise":       ("-m", "delibere_comunali.core.enterprise_orchestration"),  # Orchestratore enterprise con parametri configurabili
-    "config-mgmt":      ("-m", "delibere_comunali.core.config_manager"),  # Gestore configurazione enterprise
+print("✅ Processo di riaddestramento supervisionato completato")
+"""
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+    
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print("ERROR:", result.stderr)
+    
+    return result.returncode
 
-    # --- Alias comodi ---
-    "post-process":     ("-m", "delibere_comunali.processing.post_process_classification"),
-    "ui":               ("-m", "delibere_comunali.cli.app_control_room"),
-    "dashboard":        ("-m", "delibere_comunali.cli.app_control_room"),
-    "run-pipeline":     ("-m", "delibere_comunali.cli.run_pipeline"),
-    "scraper":          ("-m", "delibere_comunali.scraping.new_albo_scraper"),
-
-    # --- Script legacy in scripts/ ---
-    "build-kg":         (str(PROJECT_ROOT / "scripts" / "build_knowledge_graph.py"),),
-    "analyze-topology": (str(PROJECT_ROOT / "scripts" / "analyze_topology.py"),),
-    "detect-anomalies": (str(PROJECT_ROOT / "scripts" / "detect_anomalies.py"),),
-    "export-linkeddata":(str(PROJECT_ROOT / "scripts" / "export_linked_data.py"),),
-    "train":            (str(PROJECT_ROOT / "scripts" / "train_model.py"),),
-    "validate-output":  (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
-    "clean-texts":      (str(PROJECT_ROOT / "scripts" / "clean_texts.py"),),
-    "sync-texts":       (str(PROJECT_ROOT / "scripts" / "sync_texts.py"),),
-    "generate-groundtruth": (str(PROJECT_ROOT / "scripts" / "generate_ground_truth.py"),),
-    "visualize-graph":  (str(PROJECT_ROOT / "scripts" / "visualizza_grafo.py"),),
-    "explore":          (str(PROJECT_ROOT / "scripts" / "explore_albo.py"),),
-    "reconcile":        (str(PROJECT_ROOT / "scripts" / "reconcile_semantic.py"),),
-    "validate-fase0":   (str(PROJECT_ROOT / "scripts" / "validate_fase0.py"),),
-    "validate-ground":  (str(PROJECT_ROOT / "scripts" / "validate_ground_truth.py"),),
-    "verify-output":    (str(PROJECT_ROOT / "scripts" / "verify_output.py"),),
-    "update-preview":   (str(PROJECT_ROOT / "scripts" / "update_preview.py"),),
-    "finance-validate": (str(PROJECT_ROOT / "scripts" / "finance_validator.py"),),
-    "random-forest":    (str(PROJECT_ROOT / "scripts" / "randomForest.py"),),
-}
-
-STREAMLIT_COMMANDS = {"control-room", "ui", "dashboard", "rag"}
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python run.py <command> [args...]")
-        print("\nAvailable commands:")
-        for cmd in sorted(COMMAND_MAP.keys()):
-            print(f"  {cmd}")
-        print("\nCore orchestration commands:")
-        print("  orchestrate    Execute full coordination pipeline between all advanced modules (Risk Assessment, KPI, ML, Audit)")
-        print("  data-coord     Interact with centralized data coordinator for shared data management")
-        print("  enterprise     Execute enterprise orchestration with configurable parameters")
-        print("  config-mgmt    Manage enterprise configuration settings")
-        print("\nAdvanced analysis commands:")
-        print("  risk-assessment     Execute risk assessment analysis")
-        print("  actuarial-analysis  Execute actuarial analysis and provisioning")
-        print("  management-kpi      Execute management KPI calculation")
-        print("\nFor more information on orchestration commands, see COORDINATION_GUIDE.md")
-        sys.exit(0)
-
-    cmd = sys.argv[1]
-    args = sys.argv[2:]
-
-    # Sanitize command to prevent command injection
-    if not re.match(r'^[a-zA-Z0-9_-]+$', cmd):
-        print(f"❌ Comando non valido: {cmd}")
-        sys.exit(1)
-
-    if cmd not in COMMAND_MAP:
-        print(f"❌ Comando sconosciuto: {cmd}")
-        print("Comandi disponibili:", ", ".join(sorted(COMMAND_MAP.keys())))
-        sys.exit(1)
-
-    cmd_config = COMMAND_MAP[cmd]
-
-    # Imposta PYTHONPATH in modo che `src/` sia sempre nel path (necessario per Streamlit e script legacy)
-    env = os.environ.copy()
-    src_path = str(PROJECT_ROOT / "src")
-    existing_pythonpath = env.get("PYTHONPATH", "")
-    if src_path not in existing_pythonpath.split(os.pathsep):
-        env["PYTHONPATH"] = src_path + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
-
-    if cmd in STREAMLIT_COMMANDS:
-        # Per i comandi streamlit, lanciamo direttamente lo script con streamlit
-        rag_script_path = "src/delibere_comunali/rag/rag_app.py"
-        # Ensure args are passed after '--' to Streamlit run command
-        # Sanitize arguments for streamlit
-        sanitized_streamlit_args = [_sanitize_input(arg) for arg in args]
-        cmd = [sys.executable, "-m", "streamlit", "run", rag_script_path, "--"] + sanitized_streamlit_args
-        subprocess.run(cmd, env=env, cwd=PROJECT_ROOT)
-    else:
-        # Per gli altri comandi, usiamo il metodo standard
-        if cmd_config[0] == "-m":
-            # Se il primo elemento è "-m", allora è un modulo
-            _run_tool([], (cmd_config[1],), args)
-        elif len(cmd_config) == 1 and not cmd_config[0].endswith('.py'):
-            # Se il comando è un percorso ma non ha estensione .py, potrebbe essere un modulo
-            # Controlla se esiste come modulo
-            module_path = PROJECT_ROOT / "src"
-            module_parts = cmd_config[0].split('.')
-            for part in module_parts:
-                module_path = module_path / part
-            module_file = module_path.with_suffix('.py')
-            module_dir = module_path / "__init__.py"
-            
-            if module_file.exists() or module_dir.exists():
-                _run_tool([], cmd_config, args)
-            else:
-                _run_tool(cmd_config, [], args)
-        else:
-            # Altrimenti è uno script
-            _run_tool(cmd_config, [], args)
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    cli()
