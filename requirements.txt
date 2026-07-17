@@ -8,7 +8,7 @@ pytesseract==0.3.13
 python-dateutil==2.8.2
 python-dotenv==1.0.1
 requests==2.32.3
-XlsxWriter==3.2.0
+XlsxWriter==3.2.9
 rapidfuzz==3.9.3
 asn1crypto==1.5.1
 numpy==1.26.4
