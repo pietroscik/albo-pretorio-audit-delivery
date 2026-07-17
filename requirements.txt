@@ -62,4 +62,6 @@ langchain-mistralai==0.1.12
 mistralai==1.2.0
 langchain-text-splitters==0.3.0
 langchain-huggingface==0.1.0
-sentence-transformers==3.0.1
+sentence-transformers==3.0.1word2number==1.1
+prometheus_client
+redis
