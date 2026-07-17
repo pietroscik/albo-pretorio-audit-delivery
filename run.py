@@ -5,11 +5,14 @@ import click
 import os
 from delibere_comunali.core.config_manager import ConfigManager
 from delibere_comunali.core.enterprise_orchestration import EnterpriseOrchestrator
+from delibere_comunali.utils.privacy_guard import get_privacy_guard
+
 
 @click.group()
 def cli():
-    """Strumento CLI per l'analisi e l'audit degli albi pretori comunali."""
+    """Strumento CLI per l'analisi e l'audit degli albo pretori comunali."""
     pass
+
 
 @cli.command()
 @click.option('--ente', required=True, help='Nome dell\'ente locale da analizzare (es. milano, roma)')
@@ -41,6 +44,7 @@ def enterprise(ente: str, workflow: str, config: str):
         print(f"✅ Workflow completato per l'ente: {ente}")
     except Exception as e:
         print(f"❌ Errore nell'esecuzione del workflow: {e}")
+
 
 @cli.command()
 @click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
@@ -92,6 +96,7 @@ main()
     
     return result.returncode
 
+
 @cli.command()
 @click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
 @click.option('--ente', default=None, help='Identificativo ente (opzionale)')
@@ -99,15 +104,17 @@ def build_kg(base: str, ente: str):
     """
     Costruisce il knowledge graph relazionale.
     """
+    # Costruisci il comando Python per eseguire il modulo di knowledge graph
     cmd = [
         sys.executable,
         "-c",
         f"""
 import sys
 sys.path.insert(0, '.')
-from delibere_comunali.kg.knowledge_graph_builder import main
+from delibere_comunali.knowledge_graph.builder import main
 import argparse
 
+# Simula argomenti da linea di comando
 class Args:
     pass
 
@@ -128,6 +135,42 @@ main()
         print("ERROR:", result.stderr)
     
     return result.returncode
+
+
+@cli.command()
+@click.option('--input', required=True, help='File CSV di input con documenti parsati.')
+@click.option('--output', required=True, help='File CSV di output con classificazioni migliorate.')
+def post_process_classification(input: str, output: str):
+    """
+    Applica post-elaborazione alle classificazioni dei documenti con OCR.
+    """
+    # Esegue il modulo di post-process classification
+    cmd = [
+        sys.executable,
+        "-c",
+        f"""
+import sys
+sys.path.insert(0, '.')
+from delibere_comunali.parsing.post_process_classification import apply_post_processing_classification
+from pathlib import Path
+
+success = apply_post_processing_classification(Path('{input}'), Path('{output}'))
+if success:
+    print('✅ Post-processing classification completato con successo.')
+else:
+    print('❌ Errore nel post-processing classification.')
+"""
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+    
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print("ERROR:", result.stderr)
+    
+    return result.returncode
+
 
 @cli.command()
 @click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
@@ -136,15 +179,17 @@ def analyze_topology(base: str, ente: str):
     """
     Analizza la topologia del knowledge graph.
     """
+    # Costruisci il comando Python per eseguire l'analisi topologica
     cmd = [
         sys.executable,
         "-c",
         f"""
 import sys
 sys.path.insert(0, '.')
-from delibere_comunali.topology.topology_analyzer import main
+from delibere_comunali.analysis.topology_analyzer import main
 import argparse
 
+# Simula argomenti da linea di comando
 class Args:
     pass
 
@@ -166,87 +211,34 @@ main()
     
     return result.returncode
 
+
 @cli.command()
 @click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
 @click.option('--ente', default=None, help='Identificativo ente (opzionale)')
-@click.option('--limit', default=0.1, help='Percentuale di casi da selezionare per il riaddestramento supervisionato (default: 0.1 per il 10%)')
-def supervised_training(base: str, ente: str, limit: float):
+def supervised_training(base: str, ente: str):
     """
-    Esegue il riaddestramento supervisionato utilizzando il 10% dei casi più critici.
+    Esegue il riaddestramento supervisionato con feedback umano.
     """
+    # Costruisci il comando Python per eseguire il riaddestramento supervisionato
     cmd = [
         sys.executable,
         "-c",
         f"""
 import sys
 sys.path.insert(0, '.')
-import pandas as pd
-from pathlib import Path
+from delibere_comunali.ml.trainer import main
+import argparse
 
-# Carica i dati di audit esistenti
-base_path = Path('{base}')
-if '{ente}' != 'None':
-    base_path = Path(f'data/{{'{ente}'}}/albo_download')
+# Simula argomenti da linea di comando
+class Args:
+    pass
 
-atti_audited_path = base_path / 'atti_audited.csv'
-if not atti_audited_path.exists():
-    print(f"❌ File atti_audited.csv non trovato in: {{atti_audited_path}}")
-    sys.exit(1)
+args = Args()
+args.base = "{base}"
+args.ente = "{ente}" if "{ente}" != "None" else None
 
-print("🔄 Caricamento dati di audit...")
-df = pd.read_csv(atti_audited_path)
-
-print(f"📊 Dataset originale: {{len(df)}} documenti")
-
-# Ordina per punteggio di rischio decrescente e importo decrescente come criterio secondario
-df_sorted = df.sort_values(['risk_score', 'importo_clean'], ascending=[False, False])
-
-# Calcola il numero di documenti da selezionare (10% o valore specificato)
-n_to_select = max(1, int(len(df) * {limit}))
-top_cases = df_sorted.head(n_to_select)
-
-print(f"🎯 Selezionati {{len(top_cases)}} casi per il riaddestramento supervisionato ({{ {limit} * 100 :.1f}}% del dataset)")
-print(f"📈 Range del punteggio di rischio: {{top_cases['risk_score'].min()}} a {{top_cases['risk_score'].max()}}")
-print(f"💰 Range dell'importo: {{top_cases['importo_clean'].min()}} a {{top_cases['importo_clean'].max()}}")
-
-# Salva il dataset supervisionato
-supervised_path = base_path / 'training_supervised_10percent.csv'
-top_cases.to_csv(supervised_path, index=False)
-print(f"💾 Dataset supervisionato salvato in: {{supervised_path}}")
-
-# Ora applichiamo le correzioni supervisionate dal feedback_operatore.csv se esiste
-feedback_path = base_path / 'report' / 'feedback_operatore.csv'
-if feedback_path.exists():
-    print("🔄 Applicazione delle correzioni supervisionate dal feedback...")
-    feedback_df = pd.read_csv(feedback_path)
-    
-    # Applica le correzioni ai dati
-    for idx, feedback_row in feedback_df.iterrows():
-        pdf_name = feedback_row['pdf_name']
-        falso_positivo = str(feedback_row['falso_positivo']).strip().upper() == 'SI'
-        
-        mask_documento = df['pdf_name'] == pdf_name
-        if mask_documento.any():
-            if falso_positivo:
-                df.loc[mask_documento, 'risk_score'] = 0.0
-                df.loc[mask_documento, 'anomalie_rilevate'] = "Falso Positivo (Validato Umanamente)"
-                
-                # Aggiorna eventuali campi corretti dal feedback
-                for campo in ['doc_type', 'responsabile', 'beneficiario', 'importo_max', 'cig', 'cup', 'data_atto', 'numero_atto', 'oggetto', 'category']:
-                    if campo in feedback_df.columns and not pd.isna(feedback_row[campo]):
-                        df.loc[mask_documento, campo] = feedback_row[campo]
-
-    print("✅ Correzioni supervisionate applicate")
-
-    # Riordina il dataset completo con i nuovi punteggi
-    df_updated = df.sort_values(['risk_score', 'importo_clean'], ascending=[False, False])
-    
-    # Salva il dataset aggiornato
-    updated_path = base_path / 'atti_audited_supervised.csv'
-    df_updated.to_csv(updated_path, index=False)
-    print(f"💾 Dataset aggiornato con supervisione umana salvato in: {{updated_path}}")
-
-print("✅ Processo di riaddestramento supervisionato completato")
+# Esegui la funzione main
+main()
 """
     ]
     
@@ -259,5 +251,84 @@ print("✅ Processo di riaddestramento supervisionato completato")
     
     return result.returncode
 
-if __name__ == '__main__':
+
+@cli.command()
+def metrics_exporter():
+    """
+    Avvia il server per l'esportazione delle metriche e il monitoraggio.
+    """
+    # Esegue il modulo di esportazione metriche
+    cmd = [
+        sys.executable,
+        "-c",
+        """
+import sys
+sys.path.insert(0, '.')
+from delibere_comunali.web.metrics_exporter import main
+
+# Esegui la funzione main
+main()
+"""
+    ]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+    
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print("ERROR:", result.stderr)
+    
+    return result.returncode
+
+
+@cli.command()
+@click.option('--user-identifier', required=True, help='Identificativo utente da cancellare (CF, PIVA, email, etc.)')
+@click.option('--data-path', default='data/', help='Percorso dei dati in cui cercare i dati utente')
+def gdpr_delete(user_identifier: str, data_path: str):
+    """
+    Implementa il diritto all'oblio (GDPR Art. 17) cancellando i dati utente.
+    """
+    try:
+        privacy_guard = get_privacy_guard()
+        success = privacy_guard.right_to_be_forgotten(user_identifier, Path(data_path))
+        
+        if success:
+            print(f"✅ Diritto all'oblio eseguito per l'utente: {user_identifier}")
+        else:
+            print(f"❌ Errore nell'esecuzione del diritto all'oblio per l'utente: {user_identifier}")
+            
+    except Exception as e:
+        print(f"❌ Errore nell'esecuzione del diritto all'oblio: {e}")
+
+
+@cli.command()
+@click.option('--ente', required=True, help='Nome dell\'ente per cui generare il report di conformità')
+def privacy_report(ente: str):
+    """
+    Genera un report di conformità GDPR per un ente specifico.
+    """
+    try:
+        privacy_guard = get_privacy_guard()
+        report = privacy_guard.generate_privacy_report([ente])
+        
+        print(f"📊 Report di conformità GDPR per l'ente: {ente}")
+        print(f"   Punteggio di conformità: {report['gdpr_compliance_score']}/100")
+        print(f"   Campi sensibili rilevati: {len(report['sensitive_fields_detected'])}")
+        print(f"   Raccomandazioni: {len(report['recommendations'])}")
+        
+        # Salva il report
+        report_path = Path(f"data/{ente}/reports/privacy_compliance.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        import json
+        with open(report_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+        
+        print(f"📋 Report salvato in: {report_path}")
+        
+    except Exception as e:
+        print(f"❌ Errore nella generazione del report di conformità: {e}")
+
+
+if __name__ == "__main__":
     cli()

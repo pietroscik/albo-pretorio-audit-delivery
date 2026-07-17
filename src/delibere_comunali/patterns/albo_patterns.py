@@ -21,6 +21,54 @@ ACCOUNTING_PATTERNS: List[Pattern] = [
 ]
 
 # ============================================================================
+# REGEX PATTERN PER ENTITY EXTRACTION (usati da entity_extractor.py)
+# ============================================================================
+
+# Regex per CIG e CUP (Migliorate per intercettare C.I.G., spaziature, ecc.)
+RX_CIG = re.compile(r'\bC\.?I\.?G\.?(?:\s*(?:n\.|numero|codice)?\s*[:\-]?\s*)([A-Z0-9]{10})\b', re.IGNORECASE)
+RX_CUP = re.compile(r'\bC\.?U\.?P\.?(?:\s*(?:n\.|numero|codice)?\s*[:\-]?\s*)([A-Z0-9]{15})\b', re.IGNORECASE)
+
+# Regex per dati specifici dell'atto
+RX_OGGETTO = re.compile(r'OGGETTO:\s*(.+?)(?=\s+(?:Registro\s+Generale\b|L[\'’\s]anno\b|CIG\s*[:\-]|CUP\s*[:\-]|Premess[oa]\b|Vist[oi]\s*(?::|il\b|la\b|i\b|le\b|che\b|l[\'’])|Considerat[oa]\b|Richiamat[oi]\b|Rilevat[oa]\b|Attes[oa]\b|Acquisit[oa]\b|Dato\s+atto\b|Preso\s+atto\b|DELIBERA\b|DETERMINA\b|ORDINA\b|IL\s+RESPONSABILE\b|IL\s+SINDACO\b|LA\s+GIUNTA\b|IL\s+CONSIGLIO\b|PARERE\b)|$)', re.IGNORECASE)
+RX_NUM_ATTO = re.compile(r'N\.\s*(\d+)\s*DEL\s*(\d{2}/\d{2}/\d{4})', re.IGNORECASE)
+RX_REG_GEN = re.compile(r'Registro Generale\s*N\.\s*(\d+)\s*DEL\s*(\d{2}/\d{2}/\d{4})', re.IGNORECASE)
+
+RX_RESPONSABILE = re.compile(r'IL\s+RESPONSABILE\s+DEL\s+SERVIZIO\s*(?:\n)?\s*(?:Finanziario)?\s*(?:dott\.|dott\.ssa|Avv\.|Ing\.|Arch\.)?\s*([A-Z][a-zà-úA-Z\s\.\'’]+(?:\s[A-Z][a-zà-úA-Z\s\.\'’]+)*)', re.IGNORECASE)
+RX_UFFICIO = re.compile(r'(?:Area|Settore|Servizio)\s+([A-Z][a-zà-úA-Z\s]+)', re.IGNORECASE)
+
+# Regex per il beneficiario (più robusta)
+RX_BENEF = [
+    # Pattern più specifici e affidabili vengono provati prima
+    re.compile(r'Denominazione:\s+([A-Z\s\.\'’\-]+)', re.IGNORECASE),
+    re.compile(r'(?:aggiudicatari[oa]|affidatari[oa]|ditta|societ[aà]|impresa)\s+(?:all[a\'’]\s+|è\s+)?([A-Z0-9\s\.\&\-\'\"]+?)(?:\s+con\s+sede|\s+p\.iva|\s+c\.f\.|\s+per\s+l\'importo|,|\n)', re.IGNORECASE),
+]
+
+
+# Regex per dati contabili
+RX_IMPEGNO = re.compile(r'(?:impegno|impegno\s+n\.|N\.\s+Impegno\s+Definitivo)\s*[:\s]*(\d+)', re.IGNORECASE)
+RX_ACCERT = re.compile(r'(?:accertamento|accertamento\s+n\.|N\.\s+Accertamento)\s*[:\s]*(\d+)', re.IGNORECASE)
+RX_CAPITOLO = re.compile(r'(?:capitolo|Capitolo\s+Quinti\s+Livello)\s*[:\s]*([\d\.]+)', re.IGNORECASE)
+RX_PEG     = re.compile(r"\b(PEG|missione|programma)\b[^\n\r]*", re.I)
+RX_IBAN    = re.compile(r'\bIT\s*\d{2}\s*[A-Z]\s*\d{5}\s*\d{5}\s*[0-9A-Z]{12}\b', re.IGNORECASE)
+
+# Regex per catturare l'importo specifico di liquidazione/SAL evitando il totale dell'appalto
+RX_IMPORTO_LIQUIDATO = re.compile(r'(?:liquidare|pagare|erogare|saldo del SAL|certificato di pagamento)[\s\w\n]{1,80}?(?:€|euro)\s*([\d.,]+)', re.IGNORECASE)
+
+# Pattern aggiornati per importi
+IMPORTI_REGEX = [
+    r"€\s*[\d.,]+",
+    r"[\d.,]+\s*(euro|€|EUR)",
+    r"importo\s*(totale|complessivo|di\s+spesa|a\s+base\s+d[’']asta)\s*[:=]?\s*[\d.,]+",
+    r"(impegno|liquidazione|accredito|pagamento)\s+(n\.?\s*\d+\s*)?[\d.,]+",
+    r"CIG\s+[A-Z0-9]+\s*[:\-]?\s*[\d.,]+",
+    r"CUP\s+[A-Z0-9]+\s*[:\-]?\s*[\d.,]+",
+    r"IVA\s+(inclusa|esclusa)\s*[\d.,]+",
+    r"\b\d{1,3}/\d{2}\b",
+    r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s+(euro|€|EUR)\b",
+    r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s*/\d{2}\b",
+]
+
+# ============================================================================
 # PATTERN PER COMPETENZE DEL PERSONALE (50+)
 # Estratti da Delibere, Ordinanze, Determine
 # ============================================================================
@@ -41,7 +89,7 @@ PERSONNEL_PATTERNS: Dict[str, Pattern] = {
         re.IGNORECASE
     ),
     'conferimento_incarico': re.compile(
-        r"conferimento\s+(?:dell'?|di\s+un\s+)?incarico\s+(?:dirigenziale|di\s+responsabile)?",
+        r"conferimento\s+(?:dell'?|di\s+)?incarico\s+(?:dirigenziale|di\s+responsabile)?",
         re.IGNORECASE
     ),
     'funzioni_dirigenziali': re.compile(
@@ -715,6 +763,18 @@ def get_category_specific_patterns(category: str) -> Dict[str, Pattern]:
         'bando': BANDO_PATTERNS,
     }
     return category_map.get(category, {})
+
+# Aggiungi questi export alla fine del file per consentire l'import
+__all__ = [
+    'ACCOUNTING_PATTERNS', 'PERSONNEL_PATTERNS', 'DETERMINAZIONE_PATTERNS', 'DELIBERA_PATTERNS',
+    'ORDINANZA_PATTERNS', 'NUMERARIA_PATTERNS', 'ATTO_PATTERNS', 'AVVISO_PATTERNS', 'BANDO_PATTERNS',
+    'TRANSVERSAL_PATTERNS', 'get_patterns_by_category', 'get_all_patterns', 'compile_all_patterns',
+    'match_patterns_in_text', 'is_document_relevant', 'extract_cig_cup', 'extract_importi',
+    'extract_date', 'extract_nomi_propri', 'get_extended_personnel_patterns', 'get_extended_accounting_patterns',
+    'get_category_specific_patterns', 'RX_CIG', 'RX_CUP', 'RX_OGGETTO', 'RX_NUM_ATTO', 'RX_REG_GEN',
+    'RX_RESPONSABILE', 'RX_UFFICIO', 'RX_BENEF', 'RX_IMPEGNO', 'RX_ACCERT', 'RX_CAPITOLO', 'RX_PEG',
+    'RX_IBAN', 'RX_IMPORTO_LIQUIDATO', 'IMPORTI_REGEX'
+]
 
 if __name__ == '__main__':
     # Test

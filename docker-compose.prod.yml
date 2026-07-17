@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # Servizio principale di analisi e audit in produzione
+  audit-engine:
+    environment:
+      - PYTHON_ENV=production
+      - LOG_LEVEL=WARNING
+      - DATABASE_URL=postgresql://audit_user:${POSTGRES_PASSWORD}@postgres:5432/albo_audit
+      - REDIS_URL=redis://redis:6379/0
+      - ENABLE_OCR=true
+      - MAX_WORKERS=4
+      - MEMORY_LIMIT=4G
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Dashboard Streamlit in produzione
+  web-dashboard:
+    environment:
+      - PYTHON_ENV=production
+      - LOG_LEVEL=INFO
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Servizio RAG in produzione
+  rag-service:
+    environment:
+      - PYTHON_ENV=production
+      - LOG_LEVEL=INFO
+      - RAG_MAX_WORKERS=2
+      - RAG_MEMORY_LIMIT=2G
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Database in produzione
+  postgres:
+    environment:
+      POSTGRES_DB: albo_audit
+      POSTGRES_USER: audit_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis in produzione
+  redis:
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly yes
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Worker OCR in produzione
+  ocr-worker:
+    environment:
+      - PYTHON_ENV=production
+      - LOG_LEVEL=WARNING
+      - WORKER_TYPE=ocr
+      - OCR_MAX_WORKERS=2
+      - OCR_MEMORY_LIMIT=2G
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

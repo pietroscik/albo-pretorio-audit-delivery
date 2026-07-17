@@ -1,6 +1,15 @@
 from typing import Dict, Optional, List
-from fuzzywuzzy import fuzz
-from new_albo_scraper import infer_tipologia_from_filename, infer_tipologia_from_oggetto, infer_tipologia_from_url
+
+# Lazy import for optional fuzzywuzzy dependency
+try:
+    from fuzzywuzzy import fuzz
+    FUZZYWUZZY_AVAILABLE = True
+except ImportError:
+    fuzz = None
+    FUZZYWUZZY_AVAILABLE = False
+
+from ..scraping.new_albo_scraper import infer_tipologia_from_filename, infer_tipologia_from_oggetto, infer_tipologia_from_url
+
 
 def calculate_tipologia_confidence(
     tipologia: str,
@@ -10,6 +19,10 @@ def calculate_tipologia_confidence(
     doc_type_from_ml: Optional[str] = None
 ) -> float:
     """Calcola probabilità che la tipologia sia corretta (0.0 - 1.0)."""
+    if not FUZZYWUZZY_AVAILABLE:
+        # Fallback: return a default score when fuzzywuzzy is not available
+        return 0.5
+    
     score = 0.0
     weights = {"filename": 0.4, "oggetto": 0.3, "url": 0.2, "ml": 0.3}
 

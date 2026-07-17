@@ -1,35 +1,45 @@
-# 1. Usa un'immagine ufficiale di Python leggera come base (sistema operativo)
-FROM python:3.11-slim
+# Use a slim Python base image for smaller footprint
+FROM python:3.10-slim
 
-# 2. Imposta la directory di lavoro all'interno del container
-WORKDIR /app
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
 
-# Variabili d'ambiente per ottimizzare Python nel container
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# 3. Installa le dipendenze di sistema necessarie (Tesseract OCR per l'italiano e librerie grafiche per OpenCV)
-RUN apt-get update && apt-get install -y \
+# Install system dependencies for OpenCV and Tesseract
+# Group apt-get commands in a single RUN instruction for optimization
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgl1-mesa-glx \
     tesseract-ocr \
     tesseract-ocr-ita \
-    libgl1 \
-    libglib2.0-0 \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Copia il file dei requisiti e installa le dipendenze Python
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# 5. Copia tutto il resto del codice dell'applicazione nel container
+# Copy the rest of the application code
 COPY . .
 
-# 6. Esponi la porta 8501 per rendere visibile l'interfaccia Streamlit all'esterno
+# Create a non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Expose port for web applications (if needed)
 EXPOSE 8501
 
-# 7. Comando da eseguire quando il container si avvia
-<<<<<<< HEAD
-CMD ["python", "run.py", "control-room"]
-=======
-CMD ["python", "run.py", "control-room", "--server.port=8501", "--server.address=0.0.0.0"]
->>>>>>> 3bb430e2300852ba2068d864fb6d592df865a2e8
+# Default command for the container
+CMD ["python", "-m", "src.delibere_comunali.cli.run_pipeline"]

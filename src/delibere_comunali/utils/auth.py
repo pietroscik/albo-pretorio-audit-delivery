@@ -26,16 +26,20 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, Any
 from pathlib import Path
 from functools import wraps
-from flask import session, redirect, request, current_app
-import jwt
 
-# Configura il logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Lazy import for optional Flask dependency
+try:
+    from flask import session, redirect, request, current_app
+    import jwt
+    FLASK_AVAILABLE = True
+except ImportError:
+    session = redirect = request = current_app = None
+    jwt = None
+    FLASK_AVAILABLE = False
 
 
-class AuthError(Exception):
-    """Eccezione per errori di autenticazione"""
+class AuthenticationError(Exception):
+    """Eccezione personalizzata per errori di autenticazione."""
     pass
 
 

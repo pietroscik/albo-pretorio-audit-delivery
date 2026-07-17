@@ -6,6 +6,11 @@ import sys
 import logging
 import re
 
+# Aggiungi il percorso alla root del progetto per importare i moduli da src
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from src.delibere_comunali.utils.config import get_tenant_dir
+
 logger = logging.getLogger("analyze_topology")
 logging.basicConfig(level=logging.INFO)
 
@@ -38,11 +43,11 @@ def _normalizza_rup(nome_rup: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Analisi Topologica del Knowledge Graph degli Appalti.")
-    parser.add_argument("--base", default="albo_download", help="Cartella base dei dati.")
+    parser.add_argument("--ente", required=True, help="Nome dell'ente da analizzare (es. avella).")
     parser.add_argument("--top-k", type=int, default=15, help="Numero di risultati da mostrare nelle top classifiche.")
     args = parser.parse_args()
 
-    base = Path(args.base)
+    base = get_tenant_dir(args.ente)
     gexf_path = base / "report" / "knowledge_graph.gexf"
     report_path = base / "report" / "topological_insights.txt"
 

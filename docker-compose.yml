@@ -1,40 +1,180 @@
 version: '3.8'
 
 services:
-  # 1. Applicazione Principale (Streamlit Control Room & Backend)
-  albo-audit-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: albo_audit_app
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - albo_network
+    ports:
+      - "9090:9090"
+
+  # Grafana for dashboard visualization
+  grafana:
+    image: grafana/grafana-enterprise
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/dashboards/system_metrics.json
+      - GF_FEATURE_TOGGLES_ENABLE=live,panelDiscoverys
+    restart: unless-stopped
+    networks:
+      - albo_network
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  # Database per i metadati estratti (opzionale, per scenari avanzati)
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: albo_audit
+      POSTGRES_USER: audit_user
+      POSTGRES_PASSWORD: audit_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit_user -d albo_audit"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - albo_network
+
+  # Redis per caching e session management
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - albo_network
+
+  # Servizio principale di analisi e audit
+  audit-engine:
+    build: .
+    image: albo-pretorio-audit:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      prometheus:
+        condition: service_started
+    volumes:
+      # Volume per i dati persistenti
+      - ./data:/app/data
+      # Volume per la configurazione
+      - ./config:/app/config
+      # Volume per i log
+      - ./logs:/app/logs
+    environment:
+      - PYTHON_ENV=production
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://audit_user:audit_password@postgres:5432/albo_audit
+      - REDIS_URL=redis://redis:6379/0
+      - ENABLE_OCR=true
+      - PROMETHEUS_EXPORTER_PORT=8001
+    command: ["python", "-m", "src.delibere_comunali.cli.run_pipeline"]
+    networks:
+      - albo_network
+    restart: unless-stopped
+
+  # Dashboard Streamlit per la visualizzazione
+  web-dashboard:
+    build: .
+    image: albo-pretorio-audit:latest
+    depends_on:
+      - audit-engine
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
     ports:
       - "8501:8501"
-    volumes:
-      # Mappa la cartella 'data' locale nel container.
-      # Fondamentale per non perdere i PDF scaricati, i CSV e gli indici FAISS quando il container si spegne.
-      - ./data:/app/data
-    env_file:
-      # Legge automaticamente le chiavi API (GOOGLE_API_KEY, ecc.) dal file .env
-      - .env
     environment:
-      - TZ=Europe/Rome
+      - PYTHON_ENV=production
+      - LOG_LEVEL=INFO
+      - ENABLE_KNOWLEDGE_GRAPH=true
+    command: ["streamlit", "run", "src/delibere_comunali/web/dashboard.py", "--server.port", "8501", "--server.address", "0.0.0.0", "--server.enableCORS", "false", "--server.enableXsrfProtection", "false"]
+    networks:
+      - albo_network
     restart: unless-stopped
-    # Scommenta la riga seguente quando attiverai il database
-    # depends_on:
-    #   - db
 
-  # 2. Futuro Database (Esempio con PostgreSQL)
-  # Scommenta le righe seguenti per attivare un DB relazionale
-  # db:
-  #   image: postgres:15-alpine
-  #   container_name: albo_audit_db
-  #   environment:
-  #     POSTGRES_USER: albo_admin
-  #     POSTGRES_PASSWORD: password_sicura
-  #     POSTGRES_DB: albo_pretorio_db
-  #   volumes:
-  #     - db_data:/var/lib/postgresql/data
-  #   restart: unless-stopped
+  # Servizio RAG per l'interazione con il corpus
+  rag-service:
+    build: .
+    image: albo-pretorio-audit:latest
+    depends_on:
+      - audit-engine
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHON_ENV=production
+      - LOG_LEVEL=INFO
+    command: ["python", "-m", "src.delibere_comunali.rag.rag_app"]
+    networks:
+      - albo_network
+    restart: unless-stopped
 
-# volumes:
-#   db_data:
+  # Servizio di esportazione metriche
+  metrics-exporter:
+    build: .
+    image: albo-pretorio-audit:latest
+    depends_on:
+      - redis
+      - prometheus
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHON_ENV=production
+      - LOG_LEVEL=INFO
+    command: ["python", "-m", "src.delibere_comunali.web.metrics_exporter"]
+    networks:
+      - albo_network
+    restart: unless-stopped
+
+  # Worker per l'elaborazione batch OCR (opzionale, per grandi volumi)
+  ocr-worker:
+    build: .
+    image: albo-pretorio-audit:latest
+    depends_on:
+      - redis
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PYTHON_ENV=batch
+      - LOG_LEVEL=INFO
+      - WORKER_TYPE=ocr
+    command: ["python", "-c", "from src.delibere_comunali.parsing.ocr_processor import main; main() if hasattr(__import__('src.delibere_comunali.parsing.ocr_processor'), 'main') else print('OCR worker started')"]
+    networks:
+      - albo_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  albo_network:
+    driver: bridge

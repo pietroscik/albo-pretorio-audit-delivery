@@ -19,15 +19,15 @@ class AuditEngine:
         """
         feedback_path = self.feedback_base_path / "report" / "feedback_operatore.csv"
         if not feedback_path.exists():
-            print(f"⚠️ File feedback_operatore.csv non trovato: {feedback_path}")
+            print(f"[WARN] File feedback_operatore.csv non trovato: {feedback_path}")
             return
 
-        print(f"🔄 Applicazione feedback supervisionato da: {feedback_path}")
+        print(f"[SYNC] Applicazione feedback supervisionato da: {feedback_path}")
         try:
             # Legge il file di feedback con gestione delle strutture miste
             feedback_df = self._safe_read_csv_with_mixed_structure(feedback_path)
             if feedback_df.empty:
-                print("⚠️ Nessun feedback da applicare")
+                print("[WARN] Nessun feedback da applicare")
                 return
 
             corrections_applied = 0
@@ -100,11 +100,11 @@ class AuditEngine:
                         self.df.loc[mask, 'rup_norm'] = self.df.loc[mask, 'responsabile'].apply(self._normalizza_rup)
                     
                     corrections_applied += 1
-                    print(f"✅ Aggiornati dati per {pdf_name} (trovato in {mask.sum()} record)")
+                    print(f"[OK] Aggiornati dati per {pdf_name} (trovato in {mask.sum()} record)")
 
-            print(f"✅ Applicate {corrections_applied} correzioni supervisionate")
+            print(f"[OK] Applicate {corrections_applied} correzioni supervisionate")
         except Exception as e:
-            print(f"⚠️ Errore nell'applicazione del feedback supervisionato: {e}")
+            print(f"[WARN] Errore nell'applicazione del feedback supervisionato: {e}")
 
     def _safe_read_csv_with_mixed_structure(self, file_path):
         """
@@ -152,7 +152,7 @@ class AuditEngine:
                         'structure_type': 'new'
                     })
                 else:
-                    print(f"⚠️ Riga {row_num} con {len(row)} campi ignorata: {row[:5]}...")
+                    print(f"[WARN] Riga {row_num} con {len(row)} campi ignorata: {row[:5]}...")
         
         # Converti in DataFrame
         df_6 = pd.DataFrame(rows_6_fields) if rows_6_fields else pd.DataFrame(columns=['structure_type'])
@@ -317,10 +317,10 @@ def main():
     output_path = base / "atti_audited.csv"
 
     if not atti_path.exists():
-        print(f"❌ File {atti_path} non trovato.")
+        print(f"[ERROR] File {atti_path} non trovato.")
         return
 
-    print("🚀 Avvio Motore Audit Dinamico...")
+    print("[RUN] Avvio Motore Audit Dinamico...")
     if args.use_llm:
         print(f"   LLM: {args.llm_provider or 'default'} / {args.llm_model or 'default'}")
 
@@ -333,8 +333,8 @@ def main():
     df_audited.to_csv(output_path, index=False)
 
     anomalie = df_audited[df_audited['risk_score'] > 0]
-    print(f"✅ Audit completato. Identificati {len(anomalie)} atti con anomalie su {len(df)}.")
-    print(f"💾 Dataset di audit salvato in: {output_path}")
+    print(f"[DONE] Audit completato. Identificati {len(anomalie)} atti con anomalie su {len(df)}.")
+    print(f"[SAVE] Dataset di audit salvato in: {output_path}")
 
 if __name__ == "__main__":
     main()

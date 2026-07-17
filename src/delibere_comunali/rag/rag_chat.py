@@ -8,6 +8,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from typing import Optional
 
+# Define the application base directory
+APP_BASE_DIR = Path(__file__).parent.parent.parent.parent  # Go to project root
+
 # Langchain imports
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate

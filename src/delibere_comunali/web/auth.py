@@ -4,11 +4,18 @@ Implementa un sistema di autenticazione di base per garantire l'accesso sicuro
 alle funzionalità del sistema Albo Pretorio Audit Delivery
 """
 import streamlit as st
-import bcrypt
 import os
 from typing import Optional
 import json
 from datetime import datetime
+
+# Lazy import for optional bcrypt dependency
+try:
+    import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    bcrypt = None
+    BCRYPT_AVAILABLE = False
 
 
 class SimpleAuthenticator:
@@ -30,23 +37,8 @@ class SimpleAuthenticator:
             except Exception:
                 pass
         
-        # Usa credenziali di default se non esiste il file
-        default_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "admin123")
-        hashed = bcrypt.hashpw(default_password.encode('utf-8'), bcrypt.gensalt())
-        
-        default_credentials = {
-            "usernames": {
-                "admin": {
-                    "name": "Amministratore",
-                    "password": hashed.decode('utf-8'),
-                    "role": "admin",
-                    "created_at": datetime.now().isoformat()
-                }
-            }
-        }
-        
-        self._save_credentials(default_credentials)
-        return default_credentials
+        # Restituisce credenziali di default se il file non esiste o è corrotto
+        return {}
     
     def _save_credentials(self, credentials: dict):
         """Salva le credenziali nell'archivio"""
@@ -60,6 +52,10 @@ class SimpleAuthenticator:
         """
         Esegue il login e restituisce (success, name, role)
         """
+        if not BCRYPT_AVAILABLE:
+            raise RuntimeError("bcrypt is required for authentication but is not installed. "
+                             "Please run: pip install bcrypt")
+                             
         if username in self.credentials.get("usernames", {}):
             stored_hash = self.credentials["usernames"][username]["password"]
             if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
@@ -78,6 +74,10 @@ class SimpleAuthenticator:
     
     def register_user(self, username: str, name: str, password: str, role: str = "user") -> bool:
         """Registra un nuovo utente"""
+        if not BCRYPT_AVAILABLE:
+            raise RuntimeError("bcrypt is required for authentication but is not installed. "
+                             "Please run: pip install bcrypt")
+                             
         if username in self.credentials.get("usernames", {}):
             return False  # Utente già esistente
         

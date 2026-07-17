@@ -590,7 +590,7 @@ class AlboScraper:
             row.get("oggetto") or "",
         ])
         # Usa SHA-256 invece di SHA1 per motivi di sicurezza
-    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
+        return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
 
     def bootstrap_csrf(self) -> Optional[str]:
         """Apre la pagina base per ottenere eventuale token CSRF richiesto da OpenWeb."""
