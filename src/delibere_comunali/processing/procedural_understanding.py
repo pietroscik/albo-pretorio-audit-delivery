@@ -582,12 +582,27 @@ class ProceduralUnderstandingEngine:
             return results
         
         # Raggruppiamo per gruppo di procedimento
+        # Modifica: evitiamo di usare 'oggetto' come chiave di raggruppamento quando contiene
+        # valori diversi per documenti che potrebbero far parte della stessa sequenza
+        group_by = None
         if 'atto_group' in df_copy.columns:
             group_by = 'atto_group'
-        elif 'oggetto' in df_copy.columns:
-            group_by = 'oggetto'
+        elif 'cig' in df_copy.columns:
+            group_by = 'cig'
         elif 'beneficiario' in df_copy.columns:
             group_by = 'beneficiario'
+        elif 'project_id' in df_copy.columns:
+            group_by = 'project_id'
+        elif 'procedimento' in df_copy.columns:
+            group_by = 'procedimento'
+        elif 'oggetto' in df_copy.columns:
+            # Solo se tutti i valori di 'oggetto' sono uguali, altrimenti non usiamo 'oggetto'
+            # per evitare di dividere sequenze correlate in base a descrizioni diverse
+            unique_objects = df_copy['oggetto'].nunique()
+            # Se tutti i valori sono uguali, possiamo usare 'oggetto' come chiave
+            if unique_objects == 1:
+                group_by = 'oggetto'
+            # Altrimenti, non usiamo 'oggetto' per evitare di dividere sequenze correlate
         else:
             group_by = None
         

@@ -15,6 +15,7 @@ class EventType(Enum):
     PAGAMENTO = "Pagamento"
     NOMINA = "Nomina"
     SELEZIONE = "Selezione"
+    APPROVAZIONE = "Approvazione"
     ALTRO = "Altro"
 
 class DocumentType(Enum):

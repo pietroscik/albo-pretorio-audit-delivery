@@ -74,6 +74,10 @@ dependencies = [
     "pyvis",
     "matplotlib",
     "plotly",
+    # Added missing dependencies
+    "prometheus-client>=0.20.0",
+    "redis>=5.0.0",
+    "sentence-transformers>=3.0.0",
 ]
 
 [project.optional-dependencies]

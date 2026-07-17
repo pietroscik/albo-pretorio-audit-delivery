@@ -48,11 +48,12 @@ class PrivacyGuard:
         
     def _get_encryption_key(self) -> bytes:
         """Get encryption key from config or generate a new one."""
-        key_path = Path(self.config.paths.data_dir) / ".encryption_key"
+        key_path = Path(self.config.data_dir) / ".encryption_key"
         if key_path.exists():
             return key_path.read_bytes()
         else:
             key = Fernet.generate_key()
+            key_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
             key_path.write_bytes(key)
             return key
     
@@ -216,7 +217,7 @@ class PrivacyGuard:
         
         # Add detected sensitive fields
         for entity in entities:
-            entity_path = Path(self.config.paths.data_dir) / entity
+            entity_path = Path(self.config.data_dir) / entity
             if entity_path.exists():
                 # Check for sensitive data in files
                 sensitive_found = self._scan_for_sensitive_data(entity_path)
