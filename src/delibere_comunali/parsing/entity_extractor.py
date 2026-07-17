@@ -1,12 +1,22 @@
+import json
 import re
 import time
-import json
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from ..patterns.albo_patterns import (
-    RX_CIG, RX_CUP, RX_OGGETTO, RX_NUM_ATTO, RX_REG_GEN, RX_BENEF,
-    RX_IMPEGNO, RX_ACCERT, RX_CAPITOLO, RX_PEG, RX_IBAN, RX_IMPORTO_LIQUIDATO,
-    IMPORTI_REGEX
+    IMPORTI_REGEX,
+    RX_ACCERT,
+    RX_BENEF,
+    RX_CAPITOLO,
+    RX_CIG,
+    RX_CUP,
+    RX_IBAN,
+    RX_IMPEGNO,
+    RX_IMPORTO_LIQUIDATO,
+    RX_NUM_ATTO,
+    RX_OGGETTO,
+    RX_PEG,
+    RX_REG_GEN,
 )
 from ..rag.llm_factory import get_llm_client
 from ..utils.logger import get_logger
@@ -17,6 +27,7 @@ try:
     from word2number import w2n
 except ImportError:
     w2n = None
+
 
 def lettere_to_numero(testo: str) -> Optional[float]:
     """Converte testo in lettere in numero usando word2number."""
@@ -43,31 +54,74 @@ def lettere_to_numero(testo: str) -> Optional[float]:
         pass
     return None
 
+
 def normalize_amount(txt: Optional[str]) -> Optional[float]:
-    """Converte stringhe tipo '12.345,67' in float 12345.67."""
+    """Converte stringhe tipo '€ 1.234,56' o '12.345,67 euro' in float 12345.67.
+
+    Gestisce formati:
+    - € 1.234,56 (formato europeo con separatore migliaia)
+    - 12.345,67 euro
+    - importo di spesa: 500,00
+    - 1.000 (migliaia con punto)
+    - 500.00 (decimale con punto)
+    """
     if not txt:
         return None
-    s = txt.strip().replace(" ", "").replace("'", "")
+
+    # Rimuovi simboli monetari e spazi
+    s = txt.strip()
+    s = re.sub(r"[€\$£]", "", s)  # Rimuovi simboli monetari
+    s = re.sub(r"[a-zA-Z]+", "", s)  # Rimuovi testo (euro, EUR, ecc.)
+    s = re.sub(r"[:=]", "", s)  # Rimuovi separatori
+    s = s.replace(" ", "")  # Rimuovi spazi
+
+    if not s:
+        return None
+
+    # Gestione separatori
     if "." in s and "," in s:
+        # Formato europeo: 1.234,56 (punto = migliaia, virgola = decimale)
         s = s.replace(".", "").replace(",", ".")
     elif "," in s:
+        # Formato con solo virgola: 1234,56
         s = s.replace(",", ".")
+    elif "." in s:
+        # Formato con solo punto: potrebbe essere 1234.56 (decimale) o 1.000 (migliaia)
+        # Controlla se il punto è un separatore delle migliaia (es. 1.000.000 o 1.000)
+        # Se ci sono più punti OPPURE il punto è seguito da esattamente 3 cifre e poi la fine
+        if s.count(".") > 1:
+            # Più punti -> separatore delle migliaia
+            s = s.replace(".", "")
+        elif len(s.split(".")[-1]) == 3 and s.replace(".", "").isdigit():
+            # Ultima parte ha 3 cifre e tutto è numerico -> separatore delle migliaia (es. 1.000)
+            s = s.replace(".", "")
+        # altrimenti è già un decimale
+
     try:
         return float(s)
     except (ValueError, TypeError):
         return None
 
+        return None
+
+
 def normalizza_beneficiario(nome: str) -> str:
     if not isinstance(nome, str) or not nome.strip():
         return "NON IDENTIFICATO"
-        
+
     nome = nome.upper().strip()
-    
+
     # 1. Filtro falsi positivi burocratici aggiornato
     falsi_positivi = [
-        "MAGGIORMENTE QUALIFICAT", "CHE HA PRESENTATO", "IN REGOLA", 
-        "DIVERSI BENEFICIARI", "DIVERSE DITTE", "OPERATORE ECONOMICO",
-        "APPALTATRICE", "AGGIUDICATARI", "DIVERSI"
+        "MAGGIORMENTE QUALIFICAT",
+        "CHE HA PRESENTATO",
+        "IN REGOLA",
+        "DIVERSI BENEFICIARI",
+        "DIVERSE DITTE",
+        "OPERATORE ECONOMICO",
+        "APPALTATRICE",
+        "AGGIUDICATARI",
+        "DIVERSI",
     ]
     for fp in falsi_positivi:
         if fp in nome:
@@ -75,55 +129,99 @@ def normalizza_beneficiario(nome: str) -> str:
 
     # 2. Rimozione di titoli e forme giuridiche per accorpare i nomi
     stopwords = [
-        r'\bPROFESSIONISTA\b', r'\bDITTA\b', r'\bIMPRESA\b', r'\bSOCIET[AÀ]\b', 
-        r'\bS\.?R\.?L\.?S?\b', r'\bS\.?P\.?A\.?\b', r'\bS\.?N\.?C\.?\b', r'\bS\.?A\.?S\.?\b',
-        r'\bAVV\.?\b', r'\bING\.?\b', r'\bARCH\.?\b', r'\bDOTT\.?(SSA)?\b', r'\bGEOM\.?\b'
+        r"\bPROFESSIONISTA\b",
+        r"\bDITTA\b",
+        r"\bIMPRESA\b",
+        r"\bSOCIET[AÀ]\b",
+        r"\bS\.?R\.?L\.?S?\b",
+        r"\bS\.?P\.?A\.?\b",
+        r"\bS\.?N\.?C\.?\b",
+        r"\bS\.?A\.?S\.?\b",
+        r"\bAVV\.?\b",
+        r"\bING\.?\b",
+        r"\bARCH\.?\b",
+        r"\bDOTT\.?(SSA)?\b",
+        r"\bGEOM\.?\b",
     ]
     for sw in stopwords:
-        nome = re.sub(sw, '', nome, flags=re.IGNORECASE)
-    
+        nome = re.sub(sw, "", nome, flags=re.IGNORECASE)
+
     # 3. Pulizia finale da spazi multipli e punteggiatura
-    nome = re.sub(r'[^\w\s]', ' ', nome) # Rimuove punteggiatura
-    nome = re.sub(r'\s+', ' ', nome).strip()
-    
+    nome = re.sub(r"[^\w\s]", " ", nome)  # Rimuove punteggiatura
+    nome = re.sub(r"\s+", " ", nome).strip()
+
     # Correzione specifica per refusi OCR ricorrenti nei tuoi dati
     if "IORO EMANUELA" in nome or "IORIO EMANUELA" in nome:
         return "IORIO EMANUELA"
-        
+
     return nome if nome else "NON IDENTIFICATO"
+
 
 def normalizza_rup(testo_rup: str) -> str:
     """Normalizza il nome del Responsabile del Procedimento (RUP)."""
     if not isinstance(testo_rup, str) or not testo_rup.strip():
         return "NON IDENTIFICATO"
-    
+
     testo_rup = testo_rup.upper().strip()
 
     # Filtro barriera per escludere frasi burocratiche comuni
     esclusioni = [
-        "VISTO", "VISTA", "VISTI", "PREMESSO", "ACCERTATA", "SULLA BASE",
-        "DECRETO", "FUNZIONI", "AI SENSI", "LA GIUNTA", "DI ADOTTARE", "IL CONSIGLIO",
-        "HA ADOTTATO", "DELIBERAZIONE", "DETERMINAZIONE", "COMPETENZA", "MUNICIPIO",
-        "URBANISTICO", "REGOLAMENTO", "PROMOZIONE", "FINANZIARIA", "NAZIONALE",
-        "RIPRESA", "CENSIMENTO", "DIPENDENTE", "CONCESSO", "CHE CON", "PRO TEMPORE"
+        "VISTO",
+        "VISTA",
+        "VISTI",
+        "PREMESSO",
+        "ACCERTATA",
+        "SULLA BASE",
+        "DECRETO",
+        "FUNZIONI",
+        "AI SENSI",
+        "LA GIUNTA",
+        "DI ADOTTARE",
+        "IL CONSIGLIO",
+        "HA ADOTTATO",
+        "DELIBERAZIONE",
+        "DETERMINAZIONE",
+        "COMPETENZA",
+        "MUNICIPIO",
+        "URBANISTICO",
+        "REGOLAMENTO",
+        "PROMOZIONE",
+        "FINANZIARIA",
+        "NAZIONALE",
+        "RIPRESA",
+        "CENSIMENTO",
+        "DIPENDENTE",
+        "CONCESSO",
+        "CHE CON",
+        "PRO TEMPORE",
     ]
     if any(escl in testo_rup for escl in esclusioni):
         return "NON IDENTIFICATO"
 
     # Pulizia generica per nomi non mappati
     stopwords = [
-        r'\bDOTT\.SSA\b', r'\bDOTT\.?\b', r'\bDR\.?\b', r'\bSSA\b', 
-        r'\bIL RESPONSABILE\b', r'\bDEL SERVIZIO\b', r'\bF\.TO\b', 
-        r'\bIL SEGRETARIO\b', r'\bIL SINDACO\b', r'\bGEOM\.?\b', 
-        r'\bARCH\.?\b', r'\bING\.?\b', r'\bAVV\.?\b'
+        r"\bDOTT\.SSA\b",
+        r"\bDOTT\.?\b",
+        r"\bDR\.?\b",
+        r"\bSSA\b",
+        r"\bIL RESPONSABILE\b",
+        r"\bDEL SERVIZIO\b",
+        r"\bF\.TO\b",
+        r"\bIL SEGRETARIO\b",
+        r"\bIL SINDACO\b",
+        r"\bGEOM\.?\b",
+        r"\bARCH\.?\b",
+        r"\bING\.?\b",
+        r"\bAVV\.?\b",
     ]
     for sw in stopwords:
-        testo_rup = re.sub(sw, '', testo_rup, flags=re.IGNORECASE)
-        
-    testo_pulito = re.sub(r'[^\w\s]', ' ', testo_rup) # Rimuove punteggiatura
-    testo_pulito = re.sub(r'\s+', ' ', testo_pulito).strip()
+        testo_rup = re.sub(sw, "", testo_rup, flags=re.IGNORECASE)
+
+    testo_pulito = re.sub(r"[^\w\s]", " ", testo_rup)  # Rimuove punteggiatura
+    testo_pulito = re.sub(r"\s+", " ", testo_pulito).strip()
 
     return testo_pulito if testo_pulito else "NON IDENTIFICATO"
+
 
 class EntityExtractor:
     """
@@ -134,7 +232,13 @@ class EntityExtractor:
     def __init__(self, advanced_extractor: Optional[Any] = None):
         self.advanced_extractor = advanced_extractor
 
-    def extract_all(self, text: str, doc_type: str, subcategory: Optional[str] = None, use_llm: bool = False) -> Dict[str, Any]:
+    def extract_all(
+        self,
+        text: str,
+        doc_type: str,
+        subcategory: Optional[str] = None,
+        use_llm: bool = False,
+    ) -> Dict[str, Any]:
         """
         Estrae tutte le entità da un testo, orchestrando diverse fonti.
         """
@@ -148,7 +252,9 @@ class EntityExtractor:
         adv_data = self._extract_with_advanced(text, doc_type)
 
         # 4. Estrazione importi
-        amount_data = self._extract_amounts(text, subcategory, llm_data.get("importi_raw"))
+        amount_data = self._extract_amounts(
+            text, subcategory, llm_data.get("importi_raw")
+        )
 
         # 5. Unione e prioritizzazione dei risultati
         merged = self._merge_results(llm_data, adv_data, regex_data)
@@ -158,22 +264,27 @@ class EntityExtractor:
         if adv_data.get("importo_max_estratto"):
             # L'estrattore avanzato ha priorità, a meno che non sia una liquidazione
             # dove l'importo specifico ha la precedenza assoluta.
-            is_liquidazione = subcategory == "Liquidazione" or "s.a.l." in text.lower() or "sal n." in text.lower()
+            is_liquidazione = (
+                subcategory == "Liquidazione"
+                or "s.a.l." in text.lower()
+                or "sal n." in text.lower()
+            )
             if not is_liquidazione or not merged.get("importo_max"):
                 merged["importo_max"] = adv_data["importo_max_estratto"]
 
         # Normalizzazione finale
-        if 'beneficiario' in merged and merged['beneficiario']:
-            merged['beneficiario'] = normalizza_beneficiario(merged['beneficiario'])
-        if 'responsabile' in merged and merged['responsabile']:
-            merged['responsabile'] = normalizza_rup(merged['responsabile'])
+        if "beneficiario" in merged and merged["beneficiario"]:
+            merged["beneficiario"] = normalizza_beneficiario(merged["beneficiario"])
+        if "responsabile" in merged and merged["responsabile"]:
+            merged["responsabile"] = normalizza_rup(merged["responsabile"])
 
         return merged
 
     def _extract_with_llm(self, text: str) -> Dict[str, Any]:
         """Usa l'LLM (Gemini o Mistral) per l'estrazione dei metadati."""
         time.sleep(4.5)  # Throttle per rispettare i limiti API
-        prompt = """
+        prompt = (
+            """
         Estrai i seguenti metadati dal testo dell'atto amministrativo fornito.
         Rispondi SOLO con un oggetto JSON valido con la seguente struttura:
         {
@@ -185,7 +296,9 @@ class EntityExtractor:
             "oggetto": "..." (oggetto dell'atto, stringa pulita)
         }
         Testo:
-        """ + text[:15000]
+        """
+            + text[:15000]
+        )
 
         result = get_llm_client(prompt)
         if not result:
@@ -194,7 +307,11 @@ class EntityExtractor:
         # Sanitizzazione output
         for key in ["cig", "cup", "beneficiario", "responsabile", "oggetto"]:
             if key in result and isinstance(result[key], list):
-                result[key] = " ".join([str(x) for x in result[key] if x]) if result[key] else None
+                result[key] = (
+                    " ".join([str(x) for x in result[key] if x])
+                    if result[key]
+                    else None
+                )
             if key in result and result[key] == "null":
                 result[key] = None
 
@@ -203,10 +320,12 @@ class EntityExtractor:
     def _extract_with_advanced(self, text: str, doc_type: str) -> Dict[str, Any]:
         if not self.advanced_extractor:
             return {}
-        
-        ocr_confidence = 0.85 if "ocr" in text[:10].lower() else 1.0 # Heuristic
-        if hasattr(self.advanced_extractor, 'extract_entities_full'):
-            return self.advanced_extractor.extract_entities_full(text, doc_type=doc_type, ocr_conf=ocr_confidence)
+
+        ocr_confidence = 0.85 if "ocr" in text[:10].lower() else 1.0  # Heuristic
+        if hasattr(self.advanced_extractor, "extract_entities_full"):
+            return self.advanced_extractor.extract_entities_full(
+                text, doc_type=doc_type, ocr_conf=ocr_confidence
+            )
         return self.advanced_extractor.extract_entities(text, doc_type=doc_type)
 
     def _extract_with_regex(self, text: str) -> Dict[str, Any]:
@@ -216,55 +335,76 @@ class EntityExtractor:
         # Oggetto
         m_oggetto = RX_OGGETTO.search(text)
         if m_oggetto:
-            data['oggetto'] = m_oggetto.group(1).strip()[:1500]
+            data["oggetto"] = m_oggetto.group(1).strip()[:1500]
+        else:
+            # Fallback per OGGETTO se il pattern principale non matcha
+            m_oggetto_fallback = re.compile(
+                r"OGGETTO:\s*(.+?\.)", re.IGNORECASE
+            ).search(text)
+            if m_oggetto_fallback:
+                data["oggetto"] = m_oggetto_fallback.group(1).strip()[:1500]
 
         # Numero e data atto
         m_num_atto = RX_NUM_ATTO.search(text)
         if m_num_atto:
-            data['numero_atto'] = m_num_atto.group(1)
-            data['data_atto'] = m_num_atto.group(2)
+            data["numero_atto"] = m_num_atto.group(1)
+            data["data_atto"] = m_num_atto.group(2)
 
         # Registro Generale
         m_reg_gen = RX_REG_GEN.search(text)
         if m_reg_gen:
-            data['numero_registro'] = m_reg_gen.group(1)
-            data['data_registro'] = m_reg_gen.group(2)
+            data["numero_registro"] = m_reg_gen.group(1)
+            data["data_registro"] = m_reg_gen.group(2)
 
         # CIG e CUP
         m_cig = RX_CIG.search(text)
-        if m_cig: data['cig'] = m_cig.group(1).upper()
+        if m_cig:
+            data["cig"] = m_cig.group(1).upper()
         m_cup = RX_CUP.search(text)
-        if m_cup: data['cup'] = m_cup.group(1).upper()
+        if m_cup:
+            data["cup"] = m_cup.group(1).upper()
 
         # Beneficiario
         for rx in RX_BENEF:
             m_benef = rx.search(text)
             if m_benef:
                 benef_text = m_benef.group(1).strip(" :;-|")
-                benef_text = re.sub(r'\s*-\s*Progressivo Fornitore.*', '', benef_text, flags=re.IGNORECASE)
+                benef_text = re.sub(
+                    r"\s*-\s*Progressivo Fornitore.*",
+                    "",
+                    benef_text,
+                    flags=re.IGNORECASE,
+                )
                 if len(benef_text) < 150:
-                    data['beneficiario'] = benef_text.strip()
+                    data["beneficiario"] = benef_text.strip()
                     break
-        
+
         # IBAN
         m_iban = RX_IBAN.search(text)
         if m_iban:
-            data['iban'] = re.sub(r'\s+', '', m_iban.group(0)).upper()
+            data["iban"] = re.sub(r"\s+", "", m_iban.group(0)).upper()
 
         # Dati contabili
         m_impegno = RX_IMPEGNO.search(text)
-        if m_impegno: data['impegno_num'] = m_impegno.group(1)
+        if m_impegno:
+            data["impegno_num"] = m_impegno.group(1)
         m_accert = RX_ACCERT.search(text)
-        if m_accert: data['accert_num'] = m_accert.group(1)
+        if m_accert:
+            data["accert_num"] = m_accert.group(1)
         m_capitolo = RX_CAPITOLO.search(text)
         if m_capitolo:
             cap_val = m_capitolo.group(1)
             if not (len(cap_val) == 5 and cap_val.isdigit()):
-                data['capitolo'] = cap_val
-        
+                data["capitolo"] = cap_val
+
         return data
 
-    def _extract_amounts(self, text: str, subcategory: Optional[str] = None, llm_amounts: Optional[List[str]] = None) -> Dict[str, Any]:
+    def _extract_amounts(
+        self,
+        text: str,
+        subcategory: Optional[str] = None,
+        llm_amounts: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """Estrae e calcola gli importi da un testo."""
         amts_norm = []
         if llm_amounts:
@@ -276,16 +416,23 @@ class EntityExtractor:
             amts_norm = self._extract_importi_raw(text)
 
         importo_max = None
-        
+
         # Gestione S.A.L. e Liquidazioni: l'importo specifico ha la priorità
-        is_liquidazione = subcategory == "Liquidazione" or "s.a.l." in text.lower() or "sal n." in text.lower()
+        is_liquidazione = (
+            subcategory == "Liquidazione"
+            or "s.a.l." in text.lower()
+            or "sal n." in text.lower()
+        )
         if is_liquidazione:
             m_liq = RX_IMPORTO_LIQUIDATO.search(text)
             if m_liq:
                 importo_specifico_liquidazione = normalize_amount(m_liq.group(1))
-                if importo_specifico_liquidazione and importo_specifico_liquidazione > 0:
+                if (
+                    importo_specifico_liquidazione
+                    and importo_specifico_liquidazione > 0
+                ):
                     importo_max = importo_specifico_liquidazione
-        
+
         if importo_max is None:
             importo_max = max(amts_norm) if amts_norm else None
 
@@ -299,7 +446,7 @@ class EntityExtractor:
     def _extract_importi_raw(self, text: str) -> List[float]:
         """Estrae tutti gli importi (numerici e in lettere) da un testo."""
         importi = set()
-        
+
         for pattern in IMPORTI_REGEX[:8]:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
@@ -308,13 +455,16 @@ class EntityExtractor:
                     val = normalize_amount(importo_clean)
                     if val and 0 < val < 100_000_000:
                         importi.add(val)
-                    
+
         for pattern in IMPORTI_REGEX[8:]:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
-                numero = lettere_to_numero(match[0] if isinstance(match, tuple) else match)
-                if numero: importi.add(numero)
-                
+                numero = lettere_to_numero(
+                    match[0] if isinstance(match, tuple) else match
+                )
+                if numero:
+                    importi.add(numero)
+
         return sorted(importi, reverse=True)
 
     def _merge_results(self, llm: Dict, adv: Dict, regex: Dict) -> Dict[str, Any]:
@@ -324,23 +474,23 @@ class EntityExtractor:
         merged = regex.copy()
 
         # Priorità all'estrattore avanzato su regex
-        merged['cig'] = adv.get('cig_estratto') or merged.get('cig')
-        merged['cup'] = adv.get('cup_estratto') or merged.get('cup')
-        merged['beneficiario'] = adv.get('beneficiario') or merged.get('beneficiario')
-        merged['responsabile'] = adv.get('responsabile') or merged.get('responsabile')
-        merged['impegno_num'] = adv.get('impegno_num') or merged.get('impegno_num')
-        merged['iban'] = adv.get('iban_estratto') or merged.get('iban')
-        
+        merged["cig"] = adv.get("cig_estratto") or merged.get("cig")
+        merged["cup"] = adv.get("cup_estratto") or merged.get("cup")
+        merged["beneficiario"] = adv.get("beneficiario") or merged.get("beneficiario")
+        merged["responsabile"] = adv.get("responsabile") or merged.get("responsabile")
+        merged["impegno_num"] = adv.get("impegno_num") or merged.get("impegno_num")
+        merged["iban"] = adv.get("iban_estratto") or merged.get("iban")
+
         cap_adv = adv.get("capitolo")
         if cap_adv and not (len(str(cap_adv)) == 5 and str(cap_adv).isdigit()):
-            merged['capitolo'] = cap_adv
+            merged["capitolo"] = cap_adv
 
         # Priorità a LLM su tutto
-        merged['oggetto'] = llm.get('oggetto') or merged.get('oggetto')
-        merged['cig'] = llm.get('cig') or merged.get('cig')
-        merged['cup'] = llm.get('cup') or merged.get('cup')
-        merged['beneficiario'] = llm.get('beneficiario') or merged.get('beneficiario')
-        
+        merged["oggetto"] = llm.get("oggetto") or merged.get("oggetto")
+        merged["cig"] = llm.get("cig") or merged.get("cig")
+        merged["cup"] = llm.get("cup") or merged.get("cup")
+        merged["beneficiario"] = llm.get("beneficiario") or merged.get("beneficiario")
+
         # Aggiunge dati solo presenti in adv (che non sono già stati gestiti con priorità)
         for key, value in adv.items():
             if key not in merged or merged[key] is None:
