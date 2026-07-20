@@ -66,8 +66,8 @@ L'algoritmo per investigare il codice e comprendere il processo di classificazio
    - Analizza i file di output generati
 
 2. **Analisi Profonda**
-   - Legge i file di codice principali ([analyze_albo.py](file://c:\Users\39329\albo-pretorio-audit-delivery\src\delibere_comunali\parsing\analyze_albo.py), [randomForest.py](file://c:\Users\39329\albo-pretorio-audit-delivery\scripts\randomForest.py), [train_model.py](file://c:\Users\39329\albo-pretorio-audit-delivery\scripts\train_model.py))
-   - Studia le funzioni di classificazione ([classify_document](file://c:\Users\39329\albo-pretorio-audit-delivery\src\delibere_comunali\parsing\analyzer.py#L667-L753))
+   - Legge i file di codice principali ([analyze_albo.py](src/delibere_comunali/parsing/analyze_albo.py), [randomForest.py](scripts/randomForest.py), [train_model.py](scripts/train_model.py))
+   - Studia le funzioni di classificazione (`classify_document` in `src/delibere_comunali/parsing/analyzer.py`)
    - Valuta le soglie di confidenza attuali
 
 3. **Valutazione Problemi**

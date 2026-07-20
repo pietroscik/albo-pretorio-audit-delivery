@@ -77,13 +77,8 @@ class EnterpriseOrchestrator:
         skip_audit = params.get('skip_audit', False)
         load_data_path = params.get('load_data_path')
         
-        results = self.orchestrator.run_full_coordination_pipeline(
-            load_data_path=load_data_path,
-            skip_risk=skip_risk,
-            skip_kpi=skip_kpi,
-            skip_ml=skip_ml,
-            skip_audit=skip_audit
-        )
+        # Esegue il workflow completo utilizzando il metodo corretto
+        results = self.orchestrator.execute_full_workflow(self.ente)
         
         return results
     

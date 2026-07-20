@@ -50,7 +50,7 @@ Il nostro approccio si basa su:
 
 ## Governance dei Dati
 
-Come specificato nella "[项目全生命周期文档治理规范](file:///c:/Users\39329\albo-pretorio-audit-delivery/ENTERPRISE_PARAMETERIZATION_GUIDE.md#L4-L12)", tutti i processi rispettano principi rigorosi di governance:
+Come specificato nelle "[Specifiche di governance della documentazione](ENTERPRISE_PARAMETERIZATION_GUIDE.md#L4-L12)", tutti i processi rispettano principi rigorosi di governance:
 
 - Solo documenti ufficiali pubblici vengono analizzati
 - Nessun trattamento di dati personali sensibili

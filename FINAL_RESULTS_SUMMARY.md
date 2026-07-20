@@ -6,8 +6,8 @@ Abbiamo implementato con successo un **sistema di coordinamento centrale** che p
 
 ### Componenti Principali
 
-1. **[CentralOrchestrator](file:///c%3A/Users/39329\albo-pretorio-audit-delivery\src\delibere_comunali\core\orchestrator.py#L29-L436)**: Coordinatore centrale che gestisce le interazioni tra i moduli
-2. **[DataCoordinator](file:///c%3A/Users/39329\albo-pretorio-audit-delivery\src\delibere_comunali\core\data_coordinator.py#L51-L449)**: Gestore centralizzato dei dati condivisi
+1. **[CentralOrchestrator](src/delibere_comunali/core/orchestrator.py#L29-L436)**: Coordinatore centrale che gestisce le interazioni tra i moduli
+2. **[DataCoordinator](src/delibere_comunali/core/data_coordinator.py#L51-L449)**: Gestore centralizzato dei dati condivisi
 3. **Nuovi comandi CLI**: `orchestrate` e `data-coord` per l'accesso diretto ai sistemi di coordinamento
 
 ## Risultati Ottenuti
@@ -42,7 +42,7 @@ Dai file di output generati per l'ente Avella:
 
 ### 4. Qualità Complessiva
 
-Dal file [coordinated_analysis_results.json](file:///c%3A/Users/39329\albo-pretorio-audit-delivery\data\avella\albo_download\report\coordinated_analysis_results.json):
+Dal file `data/avella/albo_download/report/coordinated_analysis_results.json`:
 
 - **Efficienza**: Tempo medio di approvazione 209 giorni, volumetria media mensile 8.84 documenti
 - **Efficacia**: 100% dei documenti classificati, qualità compilazione dati 98.83%

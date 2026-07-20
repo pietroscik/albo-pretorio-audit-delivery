@@ -18,12 +18,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # Install pip-tools and sync the environment to match the lock file exactly
+          pip install pip-tools
+          pip-sync requirements.lock
       - name: Run tests
         run: |
           python -m pytest tests/ -v --cov=src/
       - name: Run security checks
         run: |
-          pip install bandit safety
           bandit -r src/ scripts/
           safety check

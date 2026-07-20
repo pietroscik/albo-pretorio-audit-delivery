@@ -60,7 +60,7 @@ Questa distribuzione mostra che circa un quarto dei documenti richiede intervent
 ## Implicazioni per la Qualità del Modello
 
 ### Rispetto alle Specifiche Tecniche
-Secondo la memoria `[machine_learning_model_quality_and_training_deployment_specifications](file://c:\Users\39329\albo-pretorio-audit-delivery\.qodo\memories\memory_db\project_specification\2026-07-06T12-18-36.json)`:
+Secondo la memoria `machine_learning_model_quality_and_training_deployment_specifications`:
 
 1. ✅ **Ottimizzazione degli iperparametri**: Implementata con `GridSearchCV`
 2. ✅ **Metriche complete**: Report con precision, recall, f1-score macro

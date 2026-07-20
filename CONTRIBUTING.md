@@ -31,9 +31,36 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/albo-pretorio-audit-delivery.git`
 3. Create a virtual environment: `python -m venv venv`
 4. Activate the virtual environment: `source venv/bin/activate` (Linux/Mac) or `venv\Scripts\activate` (Windows)
-5. Install dependencies: `pip install -r requirements.txt`
+5. Install all dependencies: `pip install -r requirements.lock`
+
+> **Nota:** Usiamo `requirements.lock` per installare le dipendenze. Questo file garantisce che tutti i collaboratori e le pipeline di CI/CD usino le stesse esatte versioni di ogni pacchetto, assicurando un ambiente di sviluppo riproducibile.
 
 ## Development Guidelines
+
+### Flusso di Sviluppo
+
+Per contribuire al progetto, segui questi passaggi:
+
+1. **Crea un nuovo branch**: Parti dal branch `develop` e crea un branch per la tua modifica.
+   ```bash
+   git checkout develop
+   git pull origin develop
+   git checkout -b feature/nome-della-tua-feature
+   ```
+2. **Apporta le tue modifiche**: Scrivi il codice e la documentazione necessaria.
+3. **Esegui i test**: Assicurati che tutti i test passino.
+   ```bash
+   python -m pytest
+   ```
+4. **Controlla lo stile del codice**: Verifica che il tuo codice sia conforme alle linee guida di stile.
+   ```bash
+   flake8 .
+   ```
+5. **Fai il commit delle tue modifiche**: Usa messaggi di commit chiari e descrittivi.
+   ```bash
+   git commit -m "feat: Aggiunge la nuova funzionalità X"
+   ```
+6. **Apri una Pull Request**: Fai il push del tuo branch sul tuo fork e apri una Pull Request verso il branch `develop` del repository principale.
 
 ### General Principles
 
@@ -85,9 +112,8 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 ## Pull Request Process
 
 1. Ensure any install or build dependencies are removed before the end of the layer when doing a build
-2. Update the README.md with details of changes to the interface, this includes new environment variables, exposed ports, useful file locations and container parameters
-3. Increase the version numbers in any examples files and the README.md to the new version that this Pull Request would represent
-4. You may merge the Pull Request in once you have the sign-off of two other developers, or if you do not have permission to do that, you may request the second reviewer to merge it for you
+2. Update the `README.md` and other relevant documentation with details of changes to the interface.
+3. You may merge the Pull Request in once you have the sign-off of at least one other developer, or if you do not have permission to do that, you may request the reviewer to merge it for you. The project maintainers will handle version bumping.
 5. All contributions must pass security and privacy compliance checks
 
 ### Pull Request Template
@@ -109,6 +135,20 @@ When submitting a pull request, please include:
 - Use type hints where possible
 - Write docstrings for all functions and classes
 - Keep functions focused and concise
+- Run the linter to check your code:
+  ```bash
+  flake8 .
+  ```
+
+### Commit Message Style
+
+- We recommend using Conventional Commits for commit messages. This helps maintain a clear and readable history.
+  - `feat:` for new features.
+  - `fix:` for bug fixes.
+  - `docs:` for documentation changes.
+  - `style:` for code style changes.
+  - `refactor:` for code refactoring.
+  - `test:` for adding or improving tests.
 
 ### Documentation Style Guide
 

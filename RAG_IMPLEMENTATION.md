@@ -8,14 +8,14 @@ Il modulo RAG (Retrieval Augmented Generation) implementa un sistema avanzato di
 
 ### Componenti Principali
 
-1. **[semantic_rag_engine.py](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/rag/semantic_rag_engine.py)**: Motore semantico principale
+1. **[semantic_rag_engine.py](src/delibere_comunali/rag/semantic_rag_engine.py)**: Motore semantico principale
    - Sistema di ricerca basato su FAISS per ricerca veloce in spazio vettoriale
    - Modelli di embedding multilingua per rappresentazione semantica
    - Integrazione con il sistema di privacy per garantire GDPR compliance
    - Filtri per categoria di documento
    - Sistema di generazione risposte contestuali
 
-2. **[rag_app.py](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/rag/rag_app.py)**: Interfaccia utente Streamlit
+2. **[rag_app.py](src/delibere_comunali/rag/rag_app.py)**: Interfaccia utente Streamlit
    - Interfaccia interattiva per interrogazioni in linguaggio naturale
    - Visualizzazione risultati con punteggi di similarità
    - Esportazione risultati in formato CSV

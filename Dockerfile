@@ -24,11 +24,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy requirements first to leverage Docker cache
-COPY requirements.txt .
+# Copy the lock file for reproducible builds, consistent with CI pipelines
+COPY requirements.lock .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip pip-tools && \
+    # Use pip-sync to ensure the environment exactly matches the lock file
+    pip-sync requirements.lock
 
 # Copy the rest of the application code
 COPY . .

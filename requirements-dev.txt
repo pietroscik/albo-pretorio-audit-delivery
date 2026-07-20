@@ -1,0 +1,13 @@
+# Strumenti per la gestione delle dipendenze
+pip-tools
+
+# Development and testing dependencies
+
+# Testing
+pytest
+pytest-cov
+
+# Linting & Security
+flake8
+bandit
+safety

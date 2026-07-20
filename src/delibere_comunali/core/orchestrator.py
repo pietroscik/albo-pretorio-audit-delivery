@@ -353,10 +353,26 @@ class CentralOrchestrator:
     
     def _run_scraping(self, ente: str):
         """Run the scraping phase."""
-        from ..scraping.new_albo_scraper import scrape_albo_comune
+        from ..scraping.new_albo_scraper import AlboScraper, build_parser
+        import sys
+        from unittest.mock import patch
         
         try:
-            scrape_albo_comune(ente)
+            # Create mock arguments for the scraper
+            args = build_parser().parse_args([])
+            args.ente = ente
+            args.out = f"data/{ente}/albo_download"
+            
+            # Set default values for other required arguments
+            args.start_url = f"https://servizi.comune.{ente}.av.it/openweb/albo/albo_pretorio_full.php"
+            args.max_pages = 20  # Default number of pages to scrape
+            args.delay = 1.0
+            args.timeout = 20
+            args.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            
+            # Create the scraper instance and run it
+            scraper = AlboScraper(args)
+            scraper.run()
         except Exception as e:
             logger.error(f"Scraping failed for {ente}: {e}")
             raise

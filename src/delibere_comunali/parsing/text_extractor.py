@@ -13,9 +13,9 @@ try:
 except ImportError:
     pytesseract = None
 
-# Import the new OCR processor and metrics collector
-from .ocr_processor import is_pdf_scanned, extract_text_from_scanned_pdf, preprocess_image_for_ocr
 from ..utils.metrics_collector import get_metrics_collector
+
+logger = get_logger("text_extractor")
 
 logger = get_logger("text_extractor")
 
@@ -149,9 +149,12 @@ class TextExtractor:
         # Prima di provare OCR interno, controlliamo se il PDF è effettivamente scansionato
         # usando la funzione specializzata del nuovo modulo OCR
         try:
+            # Import localmente per evitare import circolare
+            from .ocr_processor import is_pdf_scanned
             if is_pdf_scanned(pdf_path):
                 logger.info(f"PDF identificato come scansionato, utilizzo OCR specializzato per {pdf_path}")
                 # Usa il nuovo OCR processor per una gestione più sofisticata
+                from .ocr_processor import extract_text_from_scanned_pdf
                 ocr_text = extract_text_from_scanned_pdf(pdf_path)
                 if ocr_text.strip():
                     return ocr_text, "ocr_specialized"

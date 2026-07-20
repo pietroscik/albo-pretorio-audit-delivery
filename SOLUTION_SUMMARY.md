@@ -65,7 +65,7 @@ Creato lo script `[scripts/enhance_ml_model.py](file://c:\Users\39329\albo-preto
 
 ### 5. Pipeline di Orchestrazione
 
-Creato lo script `[scripts/fix_classification_pipeline.py](file://c:\Users\39329\albo-pretorio-audit-delivery\scripts\fix_classification_pipeline.py)` che:
+Creato lo script `scripts/fix_classification_pipeline.py` che:
 
 - Coordinato tutti i passaggi necessari per risolvere i problemi
 - Esegue il training del modello

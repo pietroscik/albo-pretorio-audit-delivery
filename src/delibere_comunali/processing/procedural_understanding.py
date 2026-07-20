@@ -319,6 +319,19 @@ class ProceduralUnderstandingEngine:
         
         doc_type_lower = str(doc_type).lower().strip()
         
+        # Controllo specifico per evitare mappature scorrette
+        # Se il tipo contiene "pubblicazione" o "trasparenza", non dovrebbe diventare "Atto di Attestazione"
+        if "pubblicazione" in doc_type_lower or "trasparenza" in doc_type_lower:
+            # Controlla se è effettivamente un tipo correlato a pubblicazione
+            if "attestazione" in doc_type_lower and "pubblicazione" in doc_type_lower:
+                # Questo è probabilmente un documento di attestazione di pubblicazione
+                return "AttestazionePubblicazione"
+            elif "pubblicazione" in doc_type_lower:
+                return "Pubblicazione"
+            else:
+                return "Pubblicazione e Trasparenza"
+        
+        # Cerca corrispondenze con le varianti note
         for standard_type, variants in self.type_variants.items():
             for variant in variants:
                 if variant in doc_type_lower:
@@ -341,8 +354,8 @@ class ProceduralUnderstandingEngine:
                         "Atto Pagamento": "Atto di Pagamento",
                         "Atto Revisione": "Atto di Revisione",
                         "Atto Supervisione": "Atto di Supervisione",
-                        "Atto Verifica Regolarita": "Atto di Verifica Regolarit",
-                        "Atto Verifica Contabilita": "Atto di Verifica Contabilit",
+                        "Atto Verifica Regolarita": "Atto di Verifica Regolarità",
+                        "Atto Verifica Contabilita": "Atto di Verifica Contabilità",
                         "Atto Verifica Finanziaria": "Atto di Verifica Finanziaria",
                         "Atto Verifica Amministrativa": "Atto di Verifica Amministrativa",
                         "Atto Presa Atto": "Atto di Presa d'Atto",
@@ -386,6 +399,47 @@ class ProceduralUnderstandingEngine:
         # Se non trovato, normalizza il tipo originale
         doc_type_normalized = str(doc_type).replace("_", " ").replace("-", " ").strip()
         return doc_type_normalized  # Ritorna il tipo originale formattato se non trovato
+
+    def convert_category_to_document_type(self, category: str) -> str:
+        """
+        Converte una categoria in tipo di documento in modo più accurato,
+        evitando mappature scorrette come 'Pubblicazione e Trasparenza' -> 'Atto di Attestazione'.
+        """
+        if pd.isna(category):
+            return "Altro"
+        
+        category_lower = str(category).lower().strip()
+        
+        # Mappatura specifica da categoria a tipo di documento
+        category_mapping = {
+            "pubblicazione e trasparenza": "AttestazionePubblicazione",
+            "pubblicazioni": "AttestazionePubblicazione",
+            "contabilità": "Atto Contabile",
+            "regolamenti": "Regolamento",
+            "urbanistica": "Atto Urbanistico",
+            "organizzazione": "Atto Organizzativo",
+            "lavori pubblici": "Atto Lavori Pubblici",
+            "personale": "Atto Personale",
+            "contenzioso": "Atto Contenzioso",
+            "servizi demografici": "Atto Anagrafe",
+            "comunicazione istituzionale": "Comunicazione Istituzionale",
+            "cultura e turismo": "Atto Cultura Turismo",
+            "ambiente": "Atto Ambientale",
+            "servizi sociali": "Atto Sociale",
+            "affari generali": "Atto Amministrativo",
+            "delibera di giunta": "Delibera",
+            "commercio": "Atto Commerciale",
+            "delibera di consiglio": "Delibera"
+        }
+        
+        # Cerca corrispondenza esatta o parziale
+        for cat_key, doc_type in category_mapping.items():
+            if cat_key in category_lower:
+                return doc_type
+        
+        # Se non trovata una mappatura specifica, ritorna la categoria stessa
+        # ma in formato standardizzato
+        return category.replace("_", " ").replace("-", " ").title()
 
     def calculate_sequence_completion_score(self, present_types: List[str], expected_sequence: List[str]) -> float:
         """
@@ -576,7 +630,9 @@ class ProceduralUnderstandingEngine:
         if 'doc_type' in df_copy.columns:
             df_copy['normalized_type'] = df_copy['doc_type'].apply(self.normalize_document_type)
         elif 'category' in df_copy.columns:
-            df_copy['normalized_type'] = df_copy['category'].apply(self.normalize_document_type)
+            # Solo se doc_type è 'unknown' o mancante, usiamo category come fallback
+            # Ma facciamo una conversione più accurata per evitare mappature scorrette
+            df_copy['normalized_type'] = df_copy.apply(lambda row: self.convert_category_to_document_type(row['category']), axis=1)
         else:
             logger.warning("Nessuna colonna 'doc_type' o 'category' trovata nei dati")
             return results

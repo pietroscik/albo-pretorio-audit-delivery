@@ -1,3 +1,5 @@
+# Installa il progetto corrente in modalità editabile
+-e .
 # Core dependencies
 requests>=2.28.0
 beautifulsoup4>=4.11.0

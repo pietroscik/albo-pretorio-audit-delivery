@@ -39,7 +39,7 @@ Il sistema seleziona il workflow appropriato basandosi sui seguenti criteri:
 - I risultati intermedi vengono salvati per analisi successive
 
 #### Coordinamento tra Moduli
-Come specificato nel "[模块协同与Pipeline协调规范](file:///c:/Users\39329\albo-pretorio-audit-delivery/ENTERPRISE_PARAMETERIZATION_GUIDE.md#L4-L12)", il coordinamento segue questi principi:
+Come specificato nella "[Guida al Coordinamento tra Moduli e Pipeline](ENTERPRISE_PARAMETERIZATION_GUIDE.md#L4-L12)", il coordinamento segue questi principi:
 1. I moduli comunicano attraverso rappresentazioni standardizzate (es. quality_metrics.json)
 2. Il coordinatore centrale gestisce l'ordine di esecuzione e i flussi di dati
 3. I feedback loops permettono aggiornamenti dinamici (es. ground truth aggiorna risk_assessment)
@@ -63,10 +63,10 @@ Esegue una verifica rapida per test e validazione.
 ## Interazioni tra Componenti
 
 ### Sequenza di Esecuzione
-1. **Inizializzazione**: [ConfigManager](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/config_manager.py) carica la configurazione
-2. **Preparazione**: [DataCoordinator](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/data_coordinator.py) prepara i dati condivisi
-3. **Coordinamento**: [CentralOrchestrator](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/orchestrator.py) orchestra i moduli
-4. **Esecuzione**: [EnterpriseOrchestrator](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/enterprise_orchestration.py) esegue il workflow specificato
+1. **Inizializzazione**: [ConfigManager](src/delibere_comunali/core/config_manager.py) carica la configurazione
+2. **Preparazione**: [DataCoordinator](src/delibere_comunali/core/data_coordinator.py) prepara i dati condivisi
+3. **Coordinamento**: [CentralOrchestrator](src/delibere_comunali/core/orchestrator.py) orchestra i moduli
+4. **Esecuzione**: [EnterpriseOrchestrator](src/delibere_comunali/core/enterprise_orchestration.py) esegue il workflow specificato
 5. **Output**: Risultati salvati in formato strutturato
 
 ### Feedback Loops

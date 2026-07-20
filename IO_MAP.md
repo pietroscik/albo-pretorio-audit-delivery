@@ -9,7 +9,7 @@ Questa documentazione funge da "cartina tornasole" per comprendere i flussi di i
 ## Input Principali
 
 ### Dati Esterni
-- **URL Web**: Endpoint degli albi pretori comunali (configurabili tramite [config.py](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/utils/config.py))
+- **URL Web**: Endpoint degli albi pretori comunali (configurabili tramite [config.py](src/delibere_comunali/utils/config.py))
 - **File PDF**: Documenti scaricati dagli albi pretori (testuali e scansionati)
 - **File HTML**: Documenti in formato HTML (supportati per estrazione metadati)
 - **File .p7m**: Documenti firmati digitalmente (con supporto per decrittografia)
@@ -17,7 +17,7 @@ Questa documentazione funge da "cartina tornasole" per comprendere i flussi di i
 ### Configurazione
 - **File .env**: Variabili d'ambiente (chiavi API, parametri di configurazione)
 - **Parametri CLI**: Argomenti passati tramite linea di comando
-- **File di configurazione JSON**: File di configurazione enterprise generati da [config_manager.py](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/core/config_manager.py)
+- **File di configurazione JSON**: File di configurazione enterprise generati da [config_manager.py](src/delibere_comunali/core/config_manager.py)
 
 ### Dati Storici
 - **Training Data**: Dati storici per il training dei modelli ML
@@ -123,7 +123,7 @@ graph TB
 - `data/{ente}/albo_download/faiss_index/` - Indice FAISS per ricerca semantica
 
 ### Modelli ML
-- `data/{ente}/random_forest_model.joblib` - Modello ML (secondo [模型资产路径管理规范](file:///ENTERPRISE_PARAMETERIZATION_GUIDE.md#L4-L12))
+- `data/{ente}/random_forest_model.joblib` - Modello ML (secondo le Specifiche di gestione percorsi dei modelli)
 
 ### Indici FAISS
 - `data/{ente}/albo_download/faiss_index/` - Indici FAISS per RAG
@@ -200,7 +200,7 @@ graph LR
 ## Test e Validazione
 
 ### Simulazione End-to-End
-- **[e2e_simulation.py](file:///c:/Users/39329\albo-pretorio-audit-delivery\scripts\e2e_simulation.py)**: Script per testare il bilanciamento del carico tra engine standard e OCR workers
+- **e2e_simulation.py**: Script per testare il bilanciamento del carico tra engine standard e OCR workers
 - **Mock PDF Generator**: Generazione automatica di PDF nativi e scansionati per test
 - **Load Balancing Test**: Simulazione del routing intelligente verso OCR workers via Redis
 - **Performance Metrics**: Monitoraggio di tempi di elaborazione, errori e utilizzo risorse
@@ -254,7 +254,7 @@ graph LR
 ## Privacy e Conformità GDPR
 
 ### Misure di Protezione Dati
-- **[privacy_guard.py](file:///c:/Users\39329\albo-pretorio-audit-delivery/src/delibere_comunali/utils/privacy_guard.py)**: Implementazione di misure di protezione dei dati e conformità GDPR
+- **privacy_guard.py**: Implementazione di misure di protezione dei dati e conformità GDPR
 - **Pseudonimizzazione**: Sostituzione di dati sensibili (codice fiscale, partita IVA, email) con identificatori sicuri
 - **Anonimizzazione**: Rimozione di dati personali dai DataFrame mentre si mantiene l'utilità analitica
 - **Crittografia**: Campi sensibili nei documenti crittografati quando memorizzati

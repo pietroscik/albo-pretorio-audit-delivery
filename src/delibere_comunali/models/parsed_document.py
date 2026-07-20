@@ -11,6 +11,7 @@ class ParsedDocument:
     # Informazioni di base
     pdf_name: str = ""
     pdf_path: str = ""
+    legal_urn: Optional[str] = None  # Added this field
     
     # Classificazione
     doc_type: str = "unknown"
@@ -77,51 +78,88 @@ class ParsedDocument:
     text_sha256: Optional[str] = None
     text_path: Optional[str] = None
     text_preview: Optional[str] = None
+    text_chars: Optional[int] = None
+    text_words: Optional[int] = None
+    unique_words: Optional[int] = None
+    euro_mentions: Optional[int] = None
+    cig_mentions: Optional[int] = None
+    cup_mentions: Optional[int] = None
+    date_mentions: Optional[int] = None
+    years_mentioned: Optional[str] = None
+    extraction_method: Optional[str] = None
+    trace_json: Optional[str] = None
+    layout_confidence: Optional[float] = None
+    layout_rilevato: Optional[str] = None  # Added this field
+    classification_confidence_score: Optional[float] = None
+    classification_method: Optional[str] = None
+    filename_meta: Optional[str] = None
+    oggetto_orig: Optional[str] = None
+    tipologia: Optional[str] = None
+    doc_type_meta: Optional[str] = None
+    source_meta: Optional[str] = None
+    pdf_name_meta: Optional[str] = None
+    classification_terms_meta: Optional[str] = None
+    beneficiario_raw: Optional[str] = None
     
     # Compliance
     is_signed: bool = False
     is_accessible: bool = False
     pdf_version: Optional[float] = None
     compliance_score: int = 0
+    doc_type_feat: Optional[float] = None
+    category_feat: Optional[float] = None
+    subcategory_feat: Optional[float] = None
+    classification_confidence_feat: Optional[float] = None
+    source_feat: Optional[str] = None
+    text_sha256_feat: Optional[float] = None
+    text_chars_feat: Optional[float] = None
+    text_words_feat: Optional[float] = None
+    unique_words_feat: Optional[float] = None
+    euro_mentions_feat: Optional[float] = None
+    cig_feat: Optional[str] = None
+    cup_feat: Optional[str] = None
+    cig_mentions_feat: Optional[float] = None
+    cup_mentions_feat: Optional[float] = None
+    date_mentions_feat: Optional[float] = None
+    years_mentioned_feat: Optional[float] = None
+    importo_max_feat: Optional[float] = None
+    importo_sum_feat: Optional[float] = None
+    importi_count_feat: Optional[float] = None
+    accounting_relevant_feat: Optional[bool] = None
+    missing_amount_expected_feat: Optional[bool] = None
+    importo_lettere_feat: Optional[float] = None
+    piva_beneficiario_feat: Optional[str] = None
+    iban_feat: Optional[str] = None
+    codice_appalti_feat: Optional[str] = None
+    tipo_procedura_feat: Optional[str] = None
+    quadro_economico_feat: Optional[str] = None
+    anomalie_feat: Optional[str] = None
+    extraction_method_feat: Optional[str] = None
+    trace_json_feat: Optional[str] = None
+    beneficiario_raw_feat: Optional[str] = None
+    layout_confidence_feat: Optional[float] = None
+    legal_urn_feat: Optional[str] = None
+    is_signed_feat: Optional[bool] = None
+    is_accessible_feat: Optional[bool] = None
+    pdf_version_feat: Optional[float] = None
+    compliance_score_feat: Optional[int] = None
+    veridicità_score_feat: Optional[float] = None
+    solidità_globale_feat: Optional[float] = None
+    is_personnel_competence_relevant_feat: Optional[bool] = None
+    personnel_competences_feat: Optional[str] = None
+    decree_references_feat: Optional[str] = None
+    solidità_globale_prec: Optional[float] = None
     
-    # RUP (Responsabile Unico del Procedimento)
-    rup_nome: Optional[str] = None
-    rup_area: Optional[str] = None
-    rup_ruolo: Optional[str] = None
-    
-    # Legal URN
-    legal_urn: Optional[str] = None
-    
-    # Campo interno per memorizzare il testo completo (non serializzato)
-    _text: str = field(default="", repr=False)
-    
-    # Gruppo atto (per aggregazione)
-    atto_group: Optional[str] = None
-
-    def model_dump(self) -> Dict[str, Any]:
-        """Converte il dataclass in dizionario per serializzazione."""
-        result = {}
-        for field_name in self.__annotations__:
-            if field_name == '_text':
-                continue  # Non serializzare il campo interno
-            value = getattr(self, field_name)
-            result[field_name] = value
-        return result
-
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ParsedDocument':
-        """Crea un'istanza da un dizionario."""
-        # Gestisci i campi speciali come liste
-        if 'importi_raw' in data and isinstance(data['importi_raw'], str):
-            import json
-            try:
-                data['importi_raw'] = json.loads(data['importi_raw'])
-            except:
-                data['importi_raw'] = []
+        """
+        Create a ParsedDocument instance from a dictionary, ignoring unknown fields.
+        """
+        # Get all field names of this dataclass
+        field_names = {field.name for field in cls.__dataclass_fields__.values()}
         
-        # Gestisci il campo _text separatamente
-        text_content = data.pop('_text', '') if '_text' in data else ''
+        # Filter the input data to only include known fields
+        filtered_data = {k: v for k, v in data.items() if k in field_names}
         
-        instance = cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
-        instance._text = text_content
-        return instance
+        # Create instance with filtered data
+        return cls(**filtered_data)

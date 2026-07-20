@@ -14,7 +14,6 @@ import logging
 import time
 
 from ..utils.config import get_config
-from .text_extractor import extract_text_pdf
 from ..utils.optional_deps import import_optional_dependency
 from ..utils.metrics_collector import get_metrics_collector
 
@@ -29,154 +28,114 @@ fitz_available = import_optional_dependency('fitz')  # PyMuPDF
 
 def is_pdf_scanned(pdf_path: Union[str, Path]) -> bool:
     """
-    Determine if a PDF is scanned (image-based) or contains native text.
+    Determines if a PDF contains scanned images rather than native text.
     
     Args:
         pdf_path: Path to the PDF file
         
     Returns:
-        True if the PDF is scanned, False if it contains native text
+        True if the PDF appears to be scanned, False otherwise
     """
-    if not cv2_available or not pytesseract_available or not fitz_available:
-        logger.warning("OCR dependencies not available, assuming PDF contains native text")
-        return False
-    
     try:
-        # Open PDF with PyMuPDF
-        doc = fitz.open(str(pdf_path))
+        # Import locally to avoid circular import
+        from .text_extractor import extract_text_pdf
         
-        # Check first few pages for text content
-        for page_num in range(min(3, len(doc))):  # Check first 3 pages or all pages if less
+        # Extract a small amount of text to check if the PDF has native text
+        text_sample = extract_text_pdf(pdf_path, max_pages=2)
+        
+        doc = fitz.open(str(pdf_path))
+        total_pages = len(doc)
+        
+        # Check if the pages contain more images than text
+        image_count = 0
+        page_count = min(total_pages, 3)  # Check first 3 pages
+        
+        for page_num in range(page_count):
             page = doc[page_num]
-            text = page.get_text()
-            
-            # If we find substantial text content, it's likely not scanned
-            if len(text.strip()) > 50:  # More than 50 characters of text
-                doc.close()
-                return False
+            # Count images on the page
+            img_list = page.get_images()
+            if len(img_list) > 0:
+                image_count += len(img_list)
         
         doc.close()
-        return True
+        
+        # If we have images but little text, it's likely a scanned PDF
+        text_length = len(text_sample.strip()) if text_sample else 0
+        
+        # Heuristic: if there are images and little text, consider it scanned
+        return image_count > 0 and text_length < 100
     except Exception as e:
-        logger.error(f"Error checking if PDF is scanned: {e}")
-        return False
+        logger.warning(f"Could not determine if PDF is scanned: {e}")
+        return True  # Default to assuming it's scanned if we can't determine
 
 
-def preprocess_image_for_ocr(image: np.ndarray) -> np.ndarray:
+def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
     """
-    Preprocess image to improve OCR accuracy.
+    Preprocess an image to improve OCR accuracy.
     
     Args:
-        image: Input image array
+        image: Input PIL Image
         
     Returns:
-        Preprocessed image array
+        Preprocessed PIL Image
     """
-    if not cv2_available:
-        logger.warning("OpenCV not available, skipping image preprocessing")
-        return image
-    
-    # Convert to grayscale if needed
-    if len(image.shape) == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = image
-    
-    # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Threshold the image to get a binary image
-    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Apply morphological operations to enhance text
-    kernel = np.ones((1, 1), np.uint8)
-    processed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    
-    return processed
+    try:
+        # Convert PIL image to OpenCV format
+        opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        
+        # Convert to grayscale
+        gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
+        
+        # Apply threshold to get image with only black and white
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Denoise
+        denoised = cv2.medianBlur(thresh, 3)
+        
+        # Convert back to PIL format
+        processed_image = Image.fromarray(denoised)
+        
+        return processed_image
+    except Exception as e:
+        logger.error(f"Error preprocessing image for OCR: {e}")
+        return image  # Return original image if preprocessing fails
 
 
-def extract_text_from_scanned_pdf(pdf_path: Union[str, Path], page_numbers: Optional[list] = None) -> str:
+def extract_text_from_scanned_pdf(pdf_path: Union[str, Path], dpi: int = 300) -> str:
     """
-    Extract text from a scanned PDF using OCR.
+    Extracts text from a scanned PDF using OCR.
     
     Args:
         pdf_path: Path to the scanned PDF file
-        page_numbers: List of specific page numbers to process (0-indexed). If None, process all pages.
+        dpi: DPI for image conversion (higher = better quality but slower)
         
     Returns:
         Extracted text from the PDF
     """
-    if not cv2_available or not pytesseract_available or not fitz_available:
-        raise RuntimeError(
-            "Required OCR dependencies (cv2, pytesseract, fitz) are not available. "
-            "Please install opencv-python, pytesseract, and PyMuPDF."
-        )
-    
     try:
-        # Start timing for metrics
-        start_time = time.time()
-        
-        # Open PDF with PyMuPDF
         doc = fitz.open(str(pdf_path))
+        extracted_text = ""
         
-        # Determine which pages to process
-        if page_numbers is None:
-            page_range = range(len(doc))
-        else:
-            page_range = [pn for pn in page_numbers if 0 <= pn < len(doc)]
-        
-        extracted_text = []
-        
-        for page_num in page_range:
-            page = doc[page_num]
+        for page_num in range(len(doc)):
+            # Get the page
+            page = doc.load_page(page_num)
             
-            # Get the pixmap (image) of the page
-            pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))  # Scale to 300 DPI
+            # Convert to image (pixmap)
+            mat = fitz.Matrix(dpi / 72, dpi / 72)  # 72 is default DPI
+            pix = page.get_pixmap(matrix=mat)
             
-            # Convert to numpy array
+            # Convert pixmap to bytes and then to PIL Image
             img_data = pix.tobytes("png")
-            img_array = np.frombuffer(img_data, dtype=np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-            
-            if img is None:
-                logger.warning(f"Could not decode page {page_num} as image")
-                continue
-            
-            # Preprocess image for better OCR
-            processed_img = preprocess_image_for_ocr(img)
+            img = Image.open(io.BytesIO(img_data))
             
             # Perform OCR
-            text = pytesseract.image_to_string(processed_img, lang='ita')
-            extracted_text.append(text)
+            text = pytesseract.image_to_string(img)
+            extracted_text += text + "\n"
         
         doc.close()
-        
-        # Record metrics
-        processing_time = time.time() - start_time
-        ente = Path(pdf_path).parent.parent.name  # Extract ente from path structure
-        metrics_collector = get_metrics_collector()
-        metrics_collector.record_document_processed(
-            document_type='scanned_pdf',
-            processing_method='ocr',
-            ente=ente,
-            processing_time_sec=processing_time
-        )
-        
-        return "\n".join(extracted_text)
-    
+        return extracted_text
     except Exception as e:
-        logger.error(f"Error extracting text from scanned PDF {pdf_path}: {e}")
-        
-        # Record error metrics
-        ente = Path(pdf_path).parent.parent.name  # Extract ente from path structure
-        metrics_collector = get_metrics_collector()
-        metrics_collector.record_error(
-            error_type='ocr_failure',
-            module='ocr_processor',
-            ente=ente,
-            details=str(e)
-        )
-        
+        logger.error(f"Error extracting text from scanned PDF: {e}")
         return ""
 
 

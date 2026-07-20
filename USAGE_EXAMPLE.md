@@ -1,126 +1,220 @@
-# 📖 Esempi Pratici d'Uso (Cookbook)
+# Esempi di Utilizzo
 
-Di seguito alcuni esempi pratici per utilizzare la piattaforma via terminale o via codice.
+Questa guida mostra come utilizzare i vari comandi del sistema Albo Pretorio Audit Delivery con esempi pratici e completi.
 
-## 1. Pipeline Automatica Base
+## Due Sistemi di Comando
+
+Il sistema dispone di due modalità di utilizzo:
+
+1. **Interfaccia Click-based (Consigliata)** - Comandi disponibili direttamente con `python run.py <comando>`
+2. **Sistema Legacy** - Comandi accessibili tramite il sistema di mapping per compatibilità
+
+## Esecuzione della Pipeline Completa
+
+### Pipeline Standard (Modalità Moderna)
 ```bash
-# Scarica, estrae e analizza gli atti di un ente
-python run.py pipeline --ente baiano
+# Esecuzione della pipeline completa per un ente specifico
+python run.py pipeline --ente=baiano
+
+# Con opzioni avanzate
+python run.py pipeline --ente=baiano --limit 5
 ```
 
-## 2. Comandi Individuali
+### Pipeline Enterprise
 ```bash
-# Estrazione dati
-python run.py scrape --ente baiano --use-llm
+# Esecuzione workflow enterprise completo
+python run.py enterprise --ente=comune_di_esempio --workflow=full
 
-# Analisi dati
-python run.py analyze --ente baiano --force
+# Esecuzione workflow solo analisi
+python run.py enterprise --ente=comune_di_esempio --workflow=analyze-only
 
-# Costruzione knowledge graph
-python run.py build-kg --ente baiano
+# Esecuzione workflow solo scraping
+python run.py enterprise --ente=comune_di_esempio --workflow=scrape-only
 
-# Control room (dashboard Streamlit)
+# Con file di configurazione personalizzato
+python run.py enterprise --ente=comune_di_esempio --config=config/personalizzato.yaml
+```
+
+## Esecuzione di Singoli Moduli (Modalità Moderna)
+
+### Estrazione Dati (Scraping)
+```bash
+# Estrazione dati per un ente specifico (se disponibile)
+python run.py scrape --ente=baiano
+
+# Estrazione con date specifiche (solo se il modulo è disponibile)
+python run.py scrape --ente=baiano --date-from 2023-01-01 --date-to 2023-01-31
+```
+
+### Analisi e Parsing
+```bash
+# Analisi dei documenti scaricati
+python run.py analyze --ente=baiano
+
+# Analisi con utilizzo di LLM
+python run.py analyze --ente=baiano --use-llm
+
+# Analisi con provider LLM specifico
+python run.py analyze --ente=baiano --use-llm --llm-provider=openai --llm-model=gpt-4
+```
+
+### Audit Antifrode
+```bash
+# Esecuzione audit standard
+python run.py audit --ente=baiano
+
+# Esecuzione audit con LLM
+python run.py audit --ente=baiano --use-llm
+
+# Esecuzione audit con provider e modello specifici
+python run.py audit --ente=baiano --use-llm --llm-provider=gemini --llm-model=gemini-pro
+```
+
+### Knowledge Graph
+```bash
+# Costruzione del knowledge graph
+python run.py build-kg --ente=baiano
+
+# Analisi della topologia del knowledge graph
+python run.py analyze-topology --ente=baiano
+```
+
+### Post-Elaborazione Classificazioni
+```bash
+# Post-process delle classificazioni OCR
+python run.py post-process-classification --input=data/input.csv --output=data/output.csv
+```
+
+## Dashboard e Interfacce (Modalità Moderna)
+
+### Control Room
+```bash
+# Avvio della dashboard di controllo
 python run.py control-room
+
+# Alternativamente
+python run.py ui
+python run.py dashboard
 ```
 
-## 3. Nuove Funzionalità Avanzate
+## Machine Learning e Analisi Avanzate (Modalità Moderna)
 
-### 3.1. Valutazione del Rischio
+### Training Modelli
 ```bash
-# Esegui analisi di rischio per un ente
-python run.py risk-assessment --ente baiano
+# Training del modello ML
+python run.py train --ente=baiano
+
+# Training supervisionato
+python run.py supervised-training --ente=baiano
 ```
 
-### 3.2. Analisi Attuariale
+### Analisi del Rischio
 ```bash
-# Calcola provvigioni e rischi finanziari
-python run.py actuarial-analysis --ente baiano
+# Esecuzione risk assessment
+python run.py risk-assessment --ente=baiano
+
+# Con opzioni specifiche
+python run.py risk-assessment --ente=baiano --base=data/baiano/albo_download
 ```
 
-### 3.3. Calcolo KPI Manageriali
+### KPI di Gestione
 ```bash
-# Calcola indicatori chiave di performance
-python run.py management-kpi --ente baiano
+# Calcolo KPI di gestione
+python run.py management-kpi --ente=baiano
 ```
 
-### 3.4. Post-processing Classificazione
+### Analisi Attuariale
 ```bash
-# Affina i risultati della classificazione automatica
-python run.py post-process-classification --ente baiano
+# Esecuzione analisi attuariale
+python run.py actuarial-analysis --ente=baiano
 ```
 
-### 3.5. Applicazione Correzioni da Feedback
+## Operazioni di Manutenzione (Modalità Moderna)
+
+### Validazione Dati
 ```bash
-# Applica correzioni basate su feedback umano
-python run.py apply-corrections --ente baiano
-```
-
-## 4. Utilizzo RAG da codice Python
-```python
-from src.delibere_comunali.rag.rag_chat import esegui_query_rag_core
-
-# Interrogazione standard
-risposta = esegui_query_rag_core("Quali ditte hanno vinto gli appalti della scuola?", "baiano")
-print(risposta)
-
-# Interrogazione focalizzata ESCLUSIVAMENTE sui documenti finanziari
-risposta_fin = esegui_query_rag_core("Quali ditte hanno vinto gli appalti?", "baiano", only_accounting=True)
-print(risposta_fin)
-```
-
-## 5. Estrazione manuale dei Metadati
-```python
-from pathlib import Path
-from src.delibere_comunali.parsing.analyze_albo import extract_full_metadata
-
-pdf_path = Path("data/baiano/albo_download/pdf/Determina_123.pdf")
-metadati = extract_full_metadata(pdf_path)
-
-print(f"RUP: {metadati['responsabile']}")
-print(f"Rilevanza Finanziaria: {metadati['accounting_relevant']}")
-```
-
-## 6. Pulizia Agentica Discrezionale
-```bash
-# Ripulisce falsi positivi (es. "Manifesti" scambiati per atti) senza riavviare la pipeline
-python run.py clean-texts --ente baiano
-```
-
-## 7. Riaddestramento Modello
-```bash
-# Addestra il Random Forest dopo aver fatto validazioni in Excel
-python run.py train --ente baiano
-```
-
-## 8. Risoluzione Avanzata delle Entità
-```bash
-# Esegue risoluzione avanzata delle entità coinvolte nei procedimenti
-python run.py advanced-resolution --ente baiano
-```
-
-## 9. Validazione Finanziaria
-```bash
-# Esegue validazione degli aspetti finanziari dei documenti
-python run.py finance-validate --ente baiano
-```
-
-## 10. Visualizzazione Grafica
-```bash
-# Avvia l'interfaccia di visualizzazione grafica
-python run.py visualize-graph --ente baiano
-```
-
-## 11. Comandi Aggiuntivi Utili
-```bash
-# Lista completa dei comandi disponibili
-python run.py
-
 # Validazione output
-python run.py validate-csv --ente baiano
+python run.py validate-output --ente=baiano
 
-# Esplorazione dati
-python run.py explore --ente baiano
-
-# Rilevamento anomalie
-python run.py detect-anomalies --ente baiano
+# Validazione CSV
+python run.py validate-csv --ente=baiano
 ```
+
+### Pulizia Dati
+```bash
+# Pulizia testi
+python run.py clean-texts --ente=baiano
+
+# Sincronizzazione testi
+python run.py sync-texts --ente=baiano
+```
+
+## Privacy e GDPR (Modalità Moderna)
+
+### Report di Conformità GDPR
+```bash
+# Generazione report di conformità GDPR
+python run.py privacy-report --ente=baiano
+```
+
+### Diritto all'Oblio
+```bash
+# Cancellazione dati utente (diritto all'oblio)
+python run.py gdpr-delete --user-identifier=CF12345678901
+
+# Con percorso dati specifico
+python run.py gdpr-delete --user-identifier=CF12345678901 --data-path=data/custom_path/
+```
+
+## Sistema Legacy (Per Compatibilità)
+
+Il sistema supporta anche il sistema legacy di comandi per compatibilità con versioni precedenti:
+
+### Comandi Base
+```bash
+# Esecuzione della pipeline completa (modalità legacy)
+python run.py pipeline --ente=baiano
+
+# Estrazione dati (modalità legacy)
+python run.py scrape --ente=baiano
+
+# Analisi dati (modalità legacy)
+python run.py analyze --ente=baiano
+```
+
+### Dashboard e UI (Modalità Legacy)
+```bash
+# Avvio della dashboard (modalità legacy)
+python run.py control-room
+python run.py ui
+python run.py dashboard
+```
+
+## Opzioni Comuni
+
+Molti comandi accettano le seguenti opzioni comuni:
+
+- `--ente`: Nome dell'ente locale (obbligatorio per la maggior parte dei comandi)
+- `--base`: Directory base per i dati (default: data/{ente}/albo_download)
+- `--use-llm`: Abilita l'arricchimento con LLM
+- `--llm-provider`: Provider LLM da utilizzare (openai, gemini, mistral, ecc.)
+- `--llm-model`: Modello LLM specifico da utilizzare
+- `--force`: Forza l'esecuzione anche se i risultati sono già presenti
+
+## Risoluzione Problemi Comuni
+
+### Comando non trovato
+Se ricevi un messaggio "comando non trovato", assicurati di:
+1. Essere nella directory principale del progetto
+2. Avere installato tutte le dipendenze
+3. Usare il nome corretto del comando (controlla con `python run.py --help`)
+
+### Errori di permessi
+Se ricevi errori di permessi durante l'esecuzione:
+1. Controlla di avere i permessi di lettura/scrittura sulla directory `data/`
+2. Verifica che il processo abbia accesso ai file di configurazione
+
+### Porta già in uso
+Se ricevi errori relativi a porte già in uso (es. 8501 per la dashboard):
+1. Chiudi eventuali istanze precedenti dell'applicazione
+2. Usa un'altra porta se disponibile

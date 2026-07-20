@@ -3,9 +3,24 @@ import sys
 from pathlib import Path
 import click
 import os
-from delibere_comunali.core.config_manager import ConfigManager
-from delibere_comunali.core.enterprise_orchestration import EnterpriseOrchestrator
-from delibere_comunali.utils.privacy_guard import get_privacy_guard
+import re
+
+
+def safe_import(module_name, attr_name=None):
+    """Safely import a module or attribute, returning None if not available."""
+    try:
+        module = __import__(module_name, fromlist=[attr_name] if attr_name else [])
+        if attr_name:
+            return getattr(module, attr_name, None)
+        return module
+    except ImportError:
+        return None
+
+
+# Try to import optional dependencies
+ConfigManager = safe_import('delibere_comunali.core.config_manager', 'ConfigManager')
+EnterpriseOrchestrator = safe_import('delibere_comunali.core.enterprise_orchestration', 'EnterpriseOrchestrator')
+get_privacy_guard = safe_import('delibere_comunali.utils.privacy_guard', 'get_privacy_guard')
 
 
 @click.group()
@@ -22,26 +37,41 @@ def enterprise(ente: str, workflow: str, config: str):
     """
     Esegue il workflow enterprise per un ente specifico.
     """
+    if ConfigManager is None or EnterpriseOrchestrator is None:
+        print("❌ Modulo enterprise non disponibile: dipendenze mancanti")
+        return
+    
     config_path = Path(config)
     if not config_path.exists():
         print(f"❌ Configurazione non trovata: {config_path}")
         return
     
     config_manager = ConfigManager(config_path)
-    orchestrator = EnterpriseOrchestrator(config_manager)
+    orchestrator = EnterpriseOrchestrator(ente=ente, config_manager=config_manager)
     
     try:
-        if workflow == 'full':
-            orchestrator.execute_full_workflow(ente)
-        elif workflow == 'analyze-only':
-            orchestrator.execute_analysis_only(ente)
-        elif workflow == 'scrape-only':
-            orchestrator.execute_scraping_only(ente)
-        else:
-            print(f"❌ Workflow non riconosciuto: {workflow}")
-            return
-            
+        # Map workflow options to corresponding parameters
+        workflow_mapping = {
+            'full': 'full',
+            'analyze-only': 'full',  # Full analysis without scraping
+            'scrape-only': 'minimal'  # Minimal analysis for scraping only
+        }
+        
+        workflow_type = workflow_mapping.get(workflow, 'full')
+        
+        custom_params = {}
+        if workflow == 'scrape-only':
+            # For scraping only, we might want to skip other analyses
+            custom_params = {'skip_risk': True, 'skip_kpi': True, 'skip_ml': True, 'skip_audit': True}
+        
+        results = orchestrator.run_workflow(
+            workflow_type=workflow_type,
+            custom_params=custom_params
+        )
+        
         print(f"✅ Workflow completato per l'ente: {ente}")
+        print(f"Tipo workflow: {workflow}")
+        print(f"Risultati: {results}")
     except Exception as e:
         print(f"❌ Errore nell'esecuzione del workflow: {e}")
 
@@ -56,45 +86,28 @@ def audit(base: str, ente: str, use_llm: bool, llm_provider: str, llm_model: str
     """
     Esegue l'audit antifrode sugli atti comunali.
     """
-    # Costruisci il comando Python per eseguire il modulo di audit
-    cmd = [
-        sys.executable,
-        "-c",
-        f"""
-import sys
-sys.path.insert(0, '.')
-from delibere_comunali.processing.audit_engine import main
-import argparse
+    original_argv = sys.argv
+    try:
+        from delibere_comunali.processing.audit_engine import main as audit_main
 
-# Simula argomenti da linea di comando
-class Args:
-    pass
+        # Simula gli argomenti a riga di comando per il modulo target
+        sys.argv = ['audit_engine.py', '--base', base]
+        if ente:
+            sys.argv.extend(['--ente', ente])
+        if use_llm:
+            sys.argv.append('--use-llm')
+        if llm_provider:
+            sys.argv.extend(['--llm-provider', llm_provider])
+        if llm_model:
+            sys.argv.extend(['--llm-model', llm_model])
 
-args = Args()
-args.base = "{base}"
-args.ente = "{ente}" if "{ente}" != "None" else None
-args.use_llm = {use_llm}
-args.llm_provider = "{llm_provider}" if "{llm_provider}" != "None" else None
-args.llm_model = "{llm_model}" if "{llm_model}" != "None" else None
-args.skip_supervision = False  # Di default applica la supervisione
-
-# Imposta args se il modulo ha un parser
-import sys
-from io import StringIO
-
-# Esegui la funzione main
-main()
-"""
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-    
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print("ERROR:", result.stderr)
-    
-    return result.returncode
+        audit_main()
+    except ImportError:
+        print("❌ Modulo di audit non trovato. Assicurati che le dipendenze siano installate.")
+    except Exception as e:
+        print(f"❌ Errore durante l'esecuzione dell'audit: {e}", file=sys.stderr)
+    finally:
+        sys.argv = original_argv
 
 
 @cli.command()
@@ -104,37 +117,22 @@ def build_kg(base: str, ente: str):
     """
     Costruisce il knowledge graph relazionale.
     """
-    # Costruisci il comando Python per eseguire il modulo di knowledge graph
-    cmd = [
-        sys.executable,
-        "-c",
-        f"""
-import sys
-sys.path.insert(0, '.')
-from delibere_comunali.knowledge_graph.builder import main
-import argparse
+    original_argv = sys.argv
+    try:
+        from delibere_comunali.knowledge_graph.builder import main as builder_main
 
-# Simula argomenti da linea di comando
-class Args:
-    pass
+        # Simula gli argomenti a riga di comando
+        sys.argv = ['builder.py', '--base', base]
+        if ente:
+            sys.argv.extend(['--ente', ente])
 
-args = Args()
-args.base = "{base}"
-args.ente = "{ente}" if "{ente}" != "None" else None
-
-# Esegui la funzione main
-main()
-"""
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-    
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print("ERROR:", result.stderr)
-    
-    return result.returncode
+        builder_main()
+    except ImportError:
+        print("❌ Modulo builder del Knowledge Graph non trovato.")
+    except Exception as e:
+        print(f"❌ Errore durante la costruzione del Knowledge Graph: {e}", file=sys.stderr)
+    finally:
+        sys.argv = original_argv
 
 
 @cli.command()
@@ -144,32 +142,18 @@ def post_process_classification(input: str, output: str):
     """
     Applica post-elaborazione alle classificazioni dei documenti con OCR.
     """
-    # Esegue il modulo di post-process classification
-    cmd = [
-        sys.executable,
-        "-c",
-        f"""
-import sys
-sys.path.insert(0, '.')
-from delibere_comunali.parsing.post_process_classification import apply_post_processing_classification
-from pathlib import Path
-
-success = apply_post_processing_classification(Path('{input}'), Path('{output}'))
-if success:
-    print('✅ Post-processing classification completato con successo.')
-else:
-    print('❌ Errore nel post-processing classification.')
-"""
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-    
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print("ERROR:", result.stderr)
-    
-    return result.returncode
+    try:
+        from delibere_comunali.parsing.post_process_classification import apply_post_processing_classification
+        
+        success = apply_post_processing_classification(Path(input), Path(output))
+        if success:
+            print('[OK] Post-processing della classificazione completato con successo.')
+        else:
+            print('❌ Errore nel post-processing della classificazione.')
+    except ImportError:
+        print("❌ Modulo di post-processing non trovato.")
+    except Exception as e:
+        print(f"❌ Errore durante il post-processing: {e}", file=sys.stderr)
 
 
 @cli.command()
@@ -179,37 +163,18 @@ def analyze_topology(base: str, ente: str):
     """
     Analizza la topologia del knowledge graph.
     """
-    # Costruisci il comando Python per eseguire l'analisi topologica
-    cmd = [
-        sys.executable,
-        "-c",
-        f"""
-import sys
-sys.path.insert(0, '.')
-from delibere_comunali.analysis.topology_analyzer import main
-import argparse
+    try:
+        # Importa il nuovo modulo refactorizzato
+        from delibere_comunali.analysis.topology_analyzer import main as analyze_topology_main
+        from delibere_comunali.utils.config import get_tenant_dir
 
-# Simula argomenti da linea di comando
-class Args:
-    pass
+        effective_ente = ente or 'baiano'
+        effective_base = base or str(get_tenant_dir(effective_ente) / "albo_download")
 
-args = Args()
-args.base = "{base}"
-args.ente = "{ente}" if "{ente}" != "None" else None
-
-# Esegui la funzione main
-main()
-"""
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-    
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print("ERROR:", result.stderr)
-    
-    return result.returncode
+        analyze_topology_main(ente=effective_ente, base_dir=effective_base)
+    except Exception as e:
+        print(f"❌ Errore durante l'analisi topologica: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 @cli.command()
@@ -219,37 +184,22 @@ def supervised_training(base: str, ente: str):
     """
     Esegue il riaddestramento supervisionato con feedback umano.
     """
-    # Costruisci il comando Python per eseguire il riaddestramento supervisionato
-    cmd = [
-        sys.executable,
-        "-c",
-        f"""
-import sys
-sys.path.insert(0, '.')
-from delibere_comunali.ml.trainer import main
-import argparse
+    original_argv = sys.argv
+    try:
+        from delibere_comunali.ml.trainer import main as trainer_main
 
-# Simula argomenti da linea di comando
-class Args:
-    pass
+        # Simula gli argomenti a riga di comando
+        sys.argv = ['trainer.py', '--base', base]
+        if ente:
+            sys.argv.extend(['--ente', ente])
 
-args = Args()
-args.base = "{base}"
-args.ente = "{ente}" if "{ente}" != "None" else None
-
-# Esegui la funzione main
-main()
-"""
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-    
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print("ERROR:", result.stderr)
-    
-    return result.returncode
+        trainer_main()
+    except ImportError:
+        print("❌ Modulo di training non trovato.")
+    except Exception as e:
+        print(f"❌ Errore durante il training supervisionato: {e}", file=sys.stderr)
+    finally:
+        sys.argv = original_argv
 
 
 @cli.command()
@@ -257,28 +207,9 @@ def metrics_exporter():
     """
     Avvia il server per l'esportazione delle metriche e il monitoraggio.
     """
-    # Esegue il modulo di esportazione metriche
-    cmd = [
-        sys.executable,
-        "-c",
-        """
-import sys
-sys.path.insert(0, '.')
-from delibere_comunali.web.metrics_exporter import main
-
-# Esegui la funzione main
-main()
-"""
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
-    
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print("ERROR:", result.stderr)
-    
-    return result.returncode
+    from delibere_comunali.web.metrics_exporter import main as exporter_main
+    print("Avvio del server di esportazione metriche...")
+    exporter_main()
 
 
 @cli.command()
@@ -288,6 +219,10 @@ def gdpr_delete(user_identifier: str, data_path: str):
     """
     Implementa il diritto all'oblio (GDPR Art. 17) cancellando i dati utente.
     """
+    if get_privacy_guard is None:
+        print("❌ Modulo privacy guard non disponibile: dipendenze mancanti")
+        return
+        
     try:
         privacy_guard = get_privacy_guard()
         success = privacy_guard.right_to_be_forgotten(user_identifier, Path(data_path))
@@ -307,6 +242,10 @@ def privacy_report(ente: str):
     """
     Genera un report di conformità GDPR per un ente specifico.
     """
+    if get_privacy_guard is None:
+        print("❌ Modulo privacy guard non disponibile: dipendenze mancanti")
+        return
+        
     try:
         privacy_guard = get_privacy_guard()
         report = privacy_guard.generate_privacy_report([ente])
@@ -330,5 +269,296 @@ def privacy_report(ente: str):
         print(f"❌ Errore nella generazione del report di conformità: {e}")
 
 
+@cli.command()
+def control_room():
+    """
+    Avvia la dashboard di controllo (Streamlit app).
+    """
+    # Esegue l'app Streamlit della control room
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        "src/delibere_comunali/cli/app_control_room.py",
+        "--server.port",
+        "8501",
+        "--server.address",
+        "0.0.0.0"
+    ]
+    
+    result = subprocess.run(cmd, cwd=os.getcwd())
+    return result.returncode
+
+
+@cli.command()
+def dashboard():
+    """
+    Alias per avviare la dashboard di controllo (Streamlit app).
+    """
+    # Chiama lo stesso comando della control room
+    control_room()
+
+
+@cli.command()
+def ui():
+    """
+    Alias per avviare l'interfaccia utente (Streamlit app).
+    """
+    # Chiama lo stesso comando della control room
+    control_room()
+
+
+# Legacy command mapping system for backward compatibility
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+def _run_tool(script_candidates, module_candidates, args):
+    """Esegue uno script o modulo con i parametri forniti."""
+    # Controlla prima i moduli
+    for module in module_candidates:
+        try:
+            cmd = [sys.executable, "-m", module] + list(args)
+            result = subprocess.run(cmd, check=True)
+            return result.returncode
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Errore nell'esecuzione del modulo {module}: {e}")
+            return e.returncode
+        except FileNotFoundError:
+            continue  # Prova il successivo
+    
+    # Poi prova gli script
+    for script in script_candidates:
+        script_path = Path(script)
+        if not script_path.is_absolute():
+            script_path = PROJECT_ROOT / script
+        if script_path.exists():
+            cmd = [sys.executable, str(script_path)] + list(args)
+            try:
+                result = subprocess.run(cmd, check=True)
+                return result.returncode
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Errore nell'esecuzione dello script {script_path}: {e}")
+                return e.returncode
+        else:
+            continue
+    
+    print(f"❌ File non trovato: {script_candidates or module_candidates}")
+    return 1
+
+
+def _sanitize_input(input_str):
+    """Sanitize input to prevent command injection."""
+    if not isinstance(input_str, str):
+        return input_str
+    # Remove potentially dangerous characters
+    return input_str.replace(';', '').replace('|', '').replace('&', '').replace('`', '')
+
+
+def _handle_alias_command(cmd, args):
+    """Handle command aliases by redirecting to the appropriate command."""
+    alias_map = {
+        "control-room": "dashboard",
+        "ui": "dashboard",
+        "dashboard": "streamlit_dashboard"
+    }
+    
+    if cmd in alias_map:
+        target_cmd = alias_map[cmd]
+        if target_cmd == "streamlit_dashboard":
+            # Special handling for streamlit apps
+            cmd = [
+                sys.executable,
+                "-m",
+                "streamlit",
+                "run",
+                "src/delibere_comunali/cli/app_control_room.py",
+                "--server.port",
+                "8501",
+                "--server.address",
+                "0.0.0.0"
+            ] + list(args)
+            result = subprocess.run(cmd, cwd=os.getcwd())
+            return result.returncode
+    return None
+
+
+# Mapping dei comandi legacy
+COMMAND_MAP = {
+    # Comandi principali
+    "scrape": ("-m", "delibere_comunali.scraping.new_albo_scraper"),
+    "analyze": ("-m", "delibere_comunali.parsing.analyze_albo"),
+    "pipeline": ("-m", "delibere_comunali.cli.run_pipeline"),
+    "validate-csv": ("-m", "delibere_comunali.validation.csv_validator"),
+    
+    # Comandi enterprise
+    "orchestrate": ("-m", "delibere_comunali.core.orchestrator"),
+    "data-coord": ("-m", "delibere_comunali.core.data_coordinator"),
+    "enterprise": ("-m", "delibere_comunali.core.enterprise_orchestration"),
+    "config-mgmt": ("-m", "delibere_comunali.core.config_manager"),
+    
+    # Comandi ML e analytics
+    "risk-assessment": ("-m", "delibere_comunali.analysis.risk_assessment"),
+    "management-kpi": ("-m", "delibere_comunali.analysis.management_kpi"),
+    "actuarial-analysis": ("-m", "delibere_comunali.analysis.actuarial_analysis"),
+    
+    # Comandi di post-processing e correzioni
+    "post-process-classification": ("-m", "delibere_comunali.parsing.post_process_classification"),
+    "apply-corrections": ("-m", "delibere_comunali.processing.correction_handler"),
+    
+    # Dashboard e UI
+    "dashboard": ("streamlit_dashboard",),  # Placeholder for special handling
+    "rag": ("-m", "delibere_comunali.rag.rag_app"),
+    "run-pipeline": ("-m", "delibere_comunali.cli.run_pipeline"),
+    "scraper": ("-m", "delibere_comunali.scraping.new_albo_scraper"),
+    
+    # Script legacy in scripts/
+    "build-kg": (str(PROJECT_ROOT / "scripts" / "build_knowledge_graph.py"),),
+    "analyze-topology": (str(PROJECT_ROOT / "scripts" / "analyze_topology.py"),),
+    "detect-anomalies": (str(PROJECT_ROOT / "scripts" / "detect_anomalies.py"),),
+    "export-linkeddata": (str(PROJECT_ROOT / "scripts" / "export_linked_data.py"),),
+    "train": (str(PROJECT_ROOT / "scripts" / "train_model.py"),),
+    "validate-output": (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
+    "clean-texts": (str(PROJECT_ROOT / "scripts" / "clean_texts.py"),),
+    "sync-texts": (str(PROJECT_ROOT / "scripts" / "sync_texts.py"),),
+    "generate-groundtruth": (str(PROJECT_ROOT / "scripts" / "generate_ground_truth.py"),),
+    "visualize-graph": (str(PROJECT_ROOT / "scripts" / "visualizza_grafo.py"),),
+    "explore": (str(PROJECT_ROOT / "scripts" / "explore_albo.py"),),
+    "reconcile": (str(PROJECT_ROOT / "scripts" / "reconcile_semantic.py"),),
+    "validate-fase0": (str(PROJECT_ROOT / "scripts" / "validate_fase0.py"),),
+    "validate-ground": (str(PROJECT_ROOT / "scripts" / "validate_ground_truth.py"),),
+    "verify-output": (str(PROJECT_ROOT / "scripts" / "verify_output.py"),),
+    "update-preview": (str(PROJECT_ROOT / "scripts" / "update_preview.py"),),
+    "finance-validate": (str(PROJECT_ROOT / "scripts" / "finance_validator.py"),),
+    "random-forest": (str(PROJECT_ROOT / "scripts" / "randomForest.py"),),
+}
+
+# Comandi speciali che richiedono lancio con Streamlit
+STREAMLIT_COMMANDS = {"rag", "apply-corrections", "risk-assessment", "actuarial-analysis", "management-kpi"}
+
+
+def normalize_command(cmd):
+    """Normalizza il comando convertendo underscore in trattini."""
+    return cmd.lower().replace("_", "-")
+
+
+def main():
+    """Funzione principale per il sistema di comandi legacy."""
+    if len(sys.argv) < 2:
+        print("Usage: python run.py <command> [args...]")
+        print("\nAvailable commands:")
+        for cmd in sorted(COMMAND_MAP.keys()):
+            print(f"  {cmd}")
+        print("\nCore orchestration commands:")
+        print("  orchestrate    Execute full coordination pipeline between all advanced modules (Risk Assessment, KPI, ML, Audit)")
+        print("  data-coord     Interact with centralized data coordinator for shared data management")
+        print("  enterprise     Execute enterprise orchestration with configurable parameters")
+        print("  config-mgmt    Manage enterprise configuration settings")
+        print("\nAdvanced analysis commands:")
+        print("  risk-assessment     Execute risk assessment analysis")
+        print("  actuarial-analysis  Execute actuarial analysis and provisioning")
+        print("  management-kpi      Execute management KPI calculation")
+        print("\nFor more information on orchestration commands, see COORDINATION_GUIDE.md")
+        sys.exit(0)
+
+    cmd = normalize_command(sys.argv[1])
+    args = sys.argv[2:]
+
+    # Handle aliases
+    if cmd in ["control-room", "ui"]:
+        # Special handling for control-room and ui aliases
+        if cmd == "control-room" or cmd == "ui":
+            cmd = "dashboard"  # Redirect to dashboard handling
+
+    # Sanitize command to prevent command injection
+    if not re.match(r'^[a-zA-Z0-9_-]+$', cmd):
+        print(f"❌ Comando non valido: {cmd}")
+        sys.exit(1)
+
+    if cmd not in COMMAND_MAP:
+        suggestions = [c for c in COMMAND_MAP.keys() if cmd in c or c in cmd]
+        error_msg = f"❌ Comando sconosciuto: {sys.argv[1]}"
+        if suggestions:
+            error_msg += f"\nDid you mean: {', '.join(suggestions)}?"
+        else:
+            error_msg += f"\nComandi disponibili: {', '.join(sorted(COMMAND_MAP.keys()))}"
+        print(error_msg)
+        sys.exit(1)
+
+    cmd_config = COMMAND_MAP[cmd]
+
+    # Imposta PYTHONPATH in modo che `src/` sia sempre nel path (necessario per Streamlit e script legacy)
+    env = os.environ.copy()
+    src_path = str(PROJECT_ROOT / "src")
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    if src_path not in existing_pythonpath.split(os.pathsep):
+        env["PYTHONPATH"] = src_path + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
+
+    # Special handling for dashboard
+    if cmd == "dashboard":
+        # Launch the Streamlit app directly
+        full_cmd = [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            "src/delibere_comunali/cli/app_control_room.py",
+            "--server.port",
+            "8501",
+            "--server.address",
+            "0.0.0.0"
+        ] + args
+    elif cmd in STREAMLIT_COMMANDS and cmd_config[0] == "-m":
+        module_path = cmd_config[1].replace(".", "/")
+        script_path = PROJECT_ROOT / "src" / f"{module_path}.py"
+        # Sanitize arguments
+        sanitized_args = [_sanitize_input(arg) for arg in args]
+        full_cmd = [sys.executable, "-m", "streamlit", "run", str(script_path), "--"] + sanitized_args
+    elif cmd_config[0] == "-m":
+        # Se il primo elemento è "-m", allora è un modulo
+        sanitized_args = [_sanitize_input(arg) for arg in args]
+        full_cmd = [sys.executable, *cmd_config, *sanitized_args]
+    elif cmd_config[0] == "streamlit_dashboard":
+        # Special case for dashboard
+        full_cmd = [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            "src/delibere_comunali/cli/app_control_room.py",
+            "--server.port",
+            "8501",
+            "--server.address",
+            "0.0.0.0"
+        ] + args
+    else:
+        # Altrimenti è uno script
+        sanitized_args = [_sanitize_input(arg) for arg in args]
+        full_cmd = [sys.executable, *cmd_config, *sanitized_args]
+
+    try:
+        result = subprocess.run(full_cmd, check=True, env=env)
+        sys.exit(result.returncode)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Errore nell'esecuzione di {' '.join(str(x) for x in full_cmd)}")
+        print(f"Codice di uscita: {e.returncode}")
+        sys.exit(e.returncode)
+    except FileNotFoundError as e:
+        print(f"❌ Comando non trovato: {e.filename}")
+        print("Assicurati che Python sia installato e nel PATH")
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    cli()
+    # Se viene eseguito direttamente con argomenti, usa il sistema legacy
+    if len(sys.argv) > 1 and sys.argv[1] not in ['-h', '--help']:
+        # Check if the command is one of the Click commands
+        click_commands = ['enterprise', 'audit', 'build-kg', 'post-process-classification', 
+                         'analyze-topology', 'supervised-training', 'metrics-exporter', 
+                         'gdpr-delete', 'privacy-report', 'control-room', 'dashboard', 'ui']
+        if sys.argv[1] in click_commands:
+            cli()
+        else:
+            main()
+    else:
+        # Per --help o nessun argomento, mostra l'aiuto del sistema Click
+        cli()

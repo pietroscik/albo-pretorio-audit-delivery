@@ -1,0 +1,88 @@
+# Configurazione per Albo Pretorio Audit Delivery - Comune di Avella
+# Copiare in config.yaml e modificare secondo le esigenze
+
+app_config:
+  # Configurazione generale dell'applicazione
+  debug: false
+  log_level: "INFO"
+  
+  # Configurazione OCR
+  ocr:
+    enabled: true
+    engine: "tesseract"  # tesseract, easyocr, etc.
+  
+  # Configurazione LLM (opzionale)
+  llm:
+    api_key_set: false  # Impostare a true se si utilizza un LLM
+    provider: "gemini"  # gemini, openai, mistral, etc.
+    model: "gemini-pro"  # Modello specifico
+  
+  # Configurazione performance
+  performance:
+    max_workers: 4
+    enable_caching: true
+
+scraping:
+  # Timeout per le richieste HTTP (secondi)
+  timeout: 30
+  # Numero massimo di tentativi per ogni richiesta
+  max_retries: 3
+  # User agent da utilizzare per le richieste
+  user_agent: "AlboPretorioBot/1.0 (ENIA - Ente Nazionale per l'Innovazione Amministrativa)"
+  # URL base per lo scraping
+  base_url: "https://servizi.comune.avella.av.it/openweb/albo/albo_pretorio_full.php"
+  # Numero massimo di pagine da scaricare
+  max_pages: 50
+
+database:
+  # Configurazione del database (opzionale, il sistema usa file CSV di default)
+  host: "localhost"
+  port: 5432
+  name: "albo_pretorio"
+  user: "${DB_USER}"  # Da impostare tramite variabili d'ambiente
+  password: "${DB_PASSWORD}"  # Da impostare tramite variabili d'ambiente
+
+security:
+  # Configurazione della sicurezza
+  spid:
+    # Integrazione con SPID (Sistema Pubblico di Identità Digitale)
+    enabled: false  # Attivare solo se si dispone di certificati SPID
+    entity_id: "https://albo-pretorio.esempio-pa.it"
+    acs_url: "https://albo-pretorio.esempio-pa.it/auth/callback"
+    cert_path: "/etc/ssl/certs/spid.pem"
+    key_path: "/etc/ssl/private/spid.key"
+  # Configurazione della registrazione utenti
+  user_registration:
+    enabled: false  # Disabilitare la registrazione automatica in ambiente PA
+    admin_approval_required: true
+
+logging:
+  # Configurazione del logging
+  level: "INFO"
+  file: "logs/albo_pretorio_avella.log"
+  # Rotazione dei log
+  rotation:
+    size: "100 MB"
+    count: 5
+
+privacy:
+  # Politiche di privacy e GDPR
+  data_retention_days: 1825  # 5 anni per documenti pubblici (D.Lgs. 33/2013)
+  log_retention_days: 365    # 1 anno per i log
+  right_to_erasure_enabled: true  # Abilita cancellazione dati su richiesta
+
+enterprise:
+  # Configurazione specifica per il workflow enterprise
+  params:
+    max_workers: 4
+    enable_caching: true
+    enable_parallel_processing: true
+    skip_risk_assessment: false
+    skip_kpi_calculation: false
+    skip_ml_analysis: false
+    skip_audit: false
+    enable_llm_enhancement: false
+    batch_size: 100
+    retry_attempts: 3
+    enable_monitoring: true
+    monitoring_port: 8001

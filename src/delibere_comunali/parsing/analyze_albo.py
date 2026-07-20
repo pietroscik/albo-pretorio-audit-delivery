@@ -727,7 +727,9 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
     # Mantieni retrocompatibilità per 'responsabile'
     out["responsabile"] = normalizza_rup(out.get("rup_nome") or out.get("responsabile"))
 
-    return ParsedDocument(**out, _text=text_one)
+    known_fields = set(ParsedDocument.__annotations__.keys())
+    filtered_out = {k: v for k, v in out.items() if k in known_fields}
+    return ParsedDocument(**filtered_out, _text=text_one)
 
 def safe_literal_list(s):
     """Converte la stringa della colonna allegati (lista) in lista Python."""
@@ -760,8 +762,26 @@ def build_parser():
     ap.add_argument("--force", action="store_true", help="Ignora la cache e rianalizza tutti i PDF.")
     return ap
 
-def main():
-    args = build_parser().parse_args()
+def main(args=None):
+    if args is None:
+        args = build_parser().parse_args()
+    else:
+        # If args is passed as an object, make sure it has the required attributes with defaults
+        if not hasattr(args, 'ente'):
+            args.ente = 'avella'  # default value
+        if not hasattr(args, 'base'):
+            from ..utils.config import get_tenant_dir
+            args.base = str(get_tenant_dir(args.ente))
+        if not hasattr(args, 'csv'):
+            args.csv = None
+        if not hasattr(args, 'pdf_dir'):
+            args.pdf_dir = None
+        if not hasattr(args, 'force'):
+            args.force = False
+        if not hasattr(args, 'use_llm'):
+            args.use_llm = False
+        if not hasattr(args, 'no_corpus'):
+            args.no_corpus = False
 
     from ..utils.config import get_tenant_dir
     base = get_tenant_dir(args.ente)
@@ -832,7 +852,7 @@ def main():
 
             if pdf_file.name in processed_cache:
                 info = processed_cache[pdf_file.name]
-                parsed_docs.append(ParsedDocument(**info))
+                parsed_docs.append(ParsedDocument.from_dict(info))
                 continue
 
             doc = extract_from_pdf(

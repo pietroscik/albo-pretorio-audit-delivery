@@ -198,7 +198,7 @@ def build_graph_from_csv(
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
     
     # Read CSV
-    df_atti = pd.read_csv(csv_path)
+    df_atti = pd.read_csv(csv_path, low_memory=False)
     
     # Parse dates (original logic)
     df_atti['data_parsed'] = pd.to_datetime(
@@ -405,22 +405,22 @@ def main():
     parser = argparse.ArgumentParser(
         description='Build knowledge graph from parsed Albo Pretorio data'
     )
-    parser.add_argument("--ente", default=None, help='Name of the entity (for multi-tenant support)')
-    parser.add_argument("--base", default='albo_download', help='Base directory containing CSV files')
+    parser.add_argument("--ente", default="avella", help='Name of the entity (for multi-tenant support)')
+    parser.add_argument("--base", default=None, help='Base directory containing CSV files. Overrides path derived from --ente.')
     parser.add_argument("--output", default=None, help='Output directory (default: <base>/report)')
     args = parser.parse_args()
     
     # Se viene fornito il nome dell'ente, usa il percorso standard per quell'ente
-    if args.ente:
+    if args.base:
+        base = Path(args.base)
+    elif args.ente:
         from delibere_comunali.utils.config import get_tenant_dir
         base = Path(get_tenant_dir(args.ente))
         # Assicurati che la directory esista
         base = base / "albo_download" if base.name != "albo_download" else base
-    elif args.base:
-        base = Path(args.base)
     else:
-        # Default fallback
-        base = Path("albo_download")
+        # This case should not be reached due to the default value of --ente
+        raise ValueError("Either --ente or --base must be provided.")
     
     # Find CSV file
     csv_path = find_csv_file(base)
@@ -445,14 +445,14 @@ def main():
     # Export GEXF
     gexf_path = report_dir / "knowledge_graph.gexf"
     nx.write_gexf(G, str(gexf_path))
-    print(f"✅ GEXF graph saved to: {gexf_path}")
+    print(f"[OK] GEXF graph saved to: {gexf_path}")
     
     # Export HTML (using original PyVis logic)
     try:
         from .exporters import save_interactive_html
         html_path = report_dir / "knowledge_graph.html"
         save_interactive_html(G, html_path)
-        print(f"✅ Interactive HTML graph saved to: {html_path}")
+        print(f"[OK] Interactive HTML graph saved to: {html_path}")
     except ImportError as e:
         print(f"⚠️  PyVis not available for HTML export: {e}")
     except Exception as e:

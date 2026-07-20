@@ -1,50 +1,286 @@
-# 📚 Documentazione API - Motore RAG
+# Documentazione API - Albo Pretorio Audit Delivery
 
-Questo documento descrive le funzioni principali esposte dai moduli `rag_app.py` e `src/web/rag_chat.py` per l'interazione con il sistema di Retrieval-Augmented Generation (RAG).
+## Struttura del Sistema
 
-## Funzioni Core
+Il sistema dispone di due interfacce principali:
 
-### `esegui_query_rag_core(query, ente, only_accounting)`
+1. **CLI Moderna (Click-based)** - Interfaccia principale consigliata
+2. **Sistema Legacy** - Per compatibilità con versioni precedenti
 
-Questa è la funzione di **alto livello** e il punto di ingresso principale per interrogare il sistema RAG da moduli esterni, come la `app_control_room.py`. È progettata per essere multi-tenant e domain-aware.
+## CLI Moderna (Click-based)
 
-- **Descrizione**: Esegue una query in linguaggio naturale su un corpus documentale specifico di un ente, con la possibilità di filtrare i risultati per dominio di pertinenza.
-- **Parametri**:
-  - `query` (str): La domanda dell'utente (es. "Quali sono gli affidamenti diretti sotto i 40k euro?").
-  - `ente` (str): Il nome dell'ente (es. "baiano", "avella"). Questo parametro determina la cartella `data/{ente}/albo_download` da cui caricare il corpus e l'indice FAISS.
-  - `only_accounting` (bool, default=`False`): Se `True`, la ricerca viene ristretta ai soli documenti marcati con `accounting_relevant=True`, aumentando drasticamente la precisione per le domande finanziarie.
-- **Valore di Ritorno**:
-  - `str`: La risposta testuale generata dall'LLM, oppure un messaggio di errore formattato in caso di problemi.
-- **Logica Interna**:
-  1. Utilizza una cache in memoria (`_multi_tenant_rag_chains`) per memorizzare le chain RAG già inizializzate per ogni combinazione di `ente` e `only_accounting`, evitando di ricaricare l'indice FAISS ad ogni chiamata.
-  2. Se una chain non è in cache, la inizializza chiamando `_init_rag_system_core` o, in fallback, `_init_local_chain_core`.
-  3. Invoca il metodo `.invoke()` della chain, passando sia la `query` che il flag `only_accounting`.
+La CLI moderna è accessibile tramite `python run.py <comando>` ed include i seguenti comandi principali:
 
----
+### `enterprise`
+Esegue il workflow enterprise per un ente specifico.
 
-### `LLMFailoverRAGChain.invoke(question, only_accounting)`
+**Opzioni:**
+- `--ente` (richiesto): Nome dell'ente locale da analizzare (es. milano, roma)
+- `--workflow`: Tipo di workflow da eseguire: full, analyze-only, scrape-only (default: full)
+- `--config`: Percorso al file di configurazione (default: config.yaml)
 
-Il cuore del motore RAG, che orchestra il recupero dei documenti e la generazione della risposta.
+**Esempio:**
+```bash
+python run.py enterprise --ente=baiano --workflow=full
+```
 
-- **Descrizione**: Esegue il processo RAG completo: recupera i documenti pertinenti, costruisce il contesto e interroga una catena di LLM in failover.
-- **Parametri**:
-  - `question` (str): La domanda dell'utente.
-  - `only_accounting` (bool, default=`False`): Il flag che attiva il filtro di dominio.
-- **Logica Interna**:
-  1. **Retrieval**:
-     - Se il retriever è un indice **FAISS**, esegue una ricerca per similarità. Per ottimizzare, recupera un numero maggiore di documenti (`k_fetch=20`) se `only_accounting` è `True`, per poi filtrare in memoria i risultati e mantenere solo i 6 più pertinenti con `accounting_relevant=True`.
-     - Se il retriever è il **`LocalTokenRetriever`** (fallback lessicale), passa direttamente il flag `only_accounting` per filtrare i documenti prima ancora di calcolare l'overlap dei token.
-  2. **Context Formatting**: Prepara il contesto per l'LLM formattando i documenti recuperati e aggiungendo metadati chiave come `[Fonte: ...]`, `[CIG: ...]`, ecc.
-  3. **LLM Failover**: Prova a invocare i modelli LLM (es. Gemini, Mistral) in ordine di priorità. Se un modello fallisce (es. per quota esaurita, errore 429), entra in un "cooldown" di 60 secondi e il sistema passa automaticamente al modello successivo nella catena.
+### `audit`
+Esegue l'audit antifrode sugli atti comunali.
 
----
+**Opzioni:**
+- `--base`: Cartella base dei dati (default: data/baiano/albo_download)
+- `--ente`: Identificativo ente (opzionale)
+- `--use-llm`: Abilita arricchimento LLM (opzionale)
+- `--llm-provider`: Provider LLM (openai, gemini, mistral...) (opzionale)
+- `--llm-model`: Modello LLM da usare (opzionale)
 
-### `_load_corpus_documents(corpus_path)`
+**Esempio:**
+```bash
+python run.py audit --ente=baiano --use-llm --llm-provider=gemini --llm-model=gemini-pro
+```
 
-Funzione di utilità per caricare e preparare i documenti per l'indicizzazione.
+### `build-kg`
+Costruisce il knowledge graph relazionale.
 
-- **Descrizione**: Legge il file `documenti_corpus.jsonl`, lo divide in chunk e arricchisce ogni chunk con i metadati più importanti (oggetto, CIG, CUP, RUP, beneficiario, etc.) come prefisso testuale.
-- **Logica Interna**:
-  1. Utilizza `RecursiveCharacterTextSplitter` per dividere il testo dei documenti in frammenti più piccoli e sovrapposti.
-  2. Per ogni chunk, costruisce un **prefisso testuale** contenente i metadati chiave. Questo passaggio è **cruciale** perché "ancora" il contenuto del chunk al suo contesto amministrativo, migliorando drasticamente l'accuratezza del retrieval semantico.
-  3. Salva il flag `accounting_relevant` all'interno dei metadati di ogni `Document` di LangChain.
+**Opzioni:**
+- `--base`: Cartella base dei dati (default: data/baiano/albo_download)
+- `--ente`: Identificativo ente (opzionale)
+
+**Esempio:**
+```bash
+python run.py build-kg --ente=baiano
+```
+
+### `post-process-classification`
+Applica post-elaborazione alle classificazioni dei documenti con OCR.
+
+**Opzioni:**
+- `--input` (richiesto): File CSV di input con documenti parsati
+- `--output` (richiesto): File CSV di output con classificazioni migliorate
+
+**Esempio:**
+```bash
+python run.py post-process-classification --input=data/input.csv --output=data/output.csv
+```
+
+### `analyze-topology`
+Analizza la topologia del knowledge graph.
+
+**Opzioni:**
+- `--base`: Cartella base dei dati (default: data/baiano/albo_download)
+- `--ente`: Identificativo ente (opzionale)
+
+**Esempio:**
+```bash
+python run.py analyze-topology --ente=baiano
+```
+
+### `supervised-training`
+Esegue il riaddestramento supervisionato con feedback umano.
+
+**Opzioni:**
+- `--base`: Cartella base dei dati (default: data/baiano/albo_download)
+- `--ente`: Identificativo ente (opzionale)
+
+**Esempio:**
+```bash
+python run.py supervised-training --ente=baiano
+```
+
+### `metrics-exporter`
+Avvia il server per l'esportazione delle metriche e il monitoraggio.
+
+**Opzioni:** Nessuna richiesta
+
+**Esempio:**
+```bash
+python run.py metrics-exporter
+```
+
+### `gdpr-delete`
+Implementa il diritto all'oblio (GDPR Art. 17) cancellando i dati utente.
+
+**Opzioni:**
+- `--user-identifier` (richiesto): Identificativo utente da cancellare (CF, PIVA, email, ecc.)
+- `--data-path`: Percorso dei dati in cui cercare i dati utente (default: 'data/')
+
+**Esempio:**
+```bash
+python run.py gdpr-delete --user-identifier=CF12345678901
+```
+
+### `privacy-report`
+Genera un report di conformità GDPR per un ente specifico.
+
+**Opzioni:**
+- `--ente` (richiesto): Nome dell'ente per cui generare il report di conformità
+
+**Esempio:**
+```bash
+python run.py privacy-report --ente=baiano
+```
+
+### `control-room`, `ui`, `dashboard`
+Avvia la dashboard di controllo (Streamlit app).
+
+**Opzioni:** Nessuna richiesta
+
+**Esempio:**
+```bash
+python run.py control-room
+```
+
+## Sistema Legacy (Compatibilità)
+
+I comandi legacy sono accessibili tramite lo stesso sistema (`python run.py <comando>`) ma rappresentano il sistema precedente di mapping comandi:
+
+### `scrape`
+Estrae dati dall'albo pretorio.
+
+**Esempio:**
+```bash
+python run.py scrape --ente=baiano
+```
+
+### `analyze`
+Analizza e fa il parsing dei documenti.
+
+**Esempio:**
+```bash
+python run.py analyze --ente=baiano
+```
+
+### `pipeline`
+Esegue la pipeline completa.
+
+**Esempio:**
+```bash
+python run.py pipeline --ente=baiano
+```
+
+### `validate-csv`
+Valida i file CSV prodotti.
+
+**Esempio:**
+```bash
+python run.py validate-csv --ente=baiano
+```
+
+### `orchestrate`
+Esegue la pipeline completa di coordinamento tra tutti i moduli avanzati (Risk Assessment, KPI, ML, Audit).
+
+**Esempio:**
+```bash
+python run.py orchestrate --ente=baiano
+```
+
+### `risk-assessment`
+Esegue la valutazione del rischio.
+
+**Esempio:**
+```bash
+python run.py risk-assessment --ente=baiano
+```
+
+### `management-kpi`
+Calcola i KPI di gestione.
+
+**Esempio:**
+```bash
+python run.py management-kpi --ente=baiano
+```
+
+### `actuarial-analysis`
+Esegue l'analisi attuariale e il provisioning.
+
+**Esempio:**
+```bash
+python run.py actuarial-analysis --ente=baiano
+```
+
+## API Web
+
+### Dashboard Web
+Il sistema include una dashboard web accessibile tramite interfaccia Streamlit.
+
+**Endpoint:** `http://localhost:8501` (dopo l'avvio con `control-room`)
+
+**Funzionalità:**
+- Monitoraggio dello stato dei processi
+- Visualizzazione dei risultati di analisi
+- Interfaccia per la configurazione
+- Reportistica in tempo reale
+- Esplorazione documenti con RAG
+
+### API REST
+Il sistema espone alcune API REST per l'integrazione:
+
+#### Metrics Exporter
+**Endpoint:** `http://localhost:8001/metrics`
+
+**Metodo:** GET
+
+**Descrizione:** Fornisce metriche di sistema in formato Prometheus
+
+#### RAG Service
+**Endpoint:** `http://localhost:8000/query` (disponibile se il servizio RAG è avviato)
+
+**Metodo:** POST
+
+**Contenuto richiesta:**
+```json
+{
+  "query": "domanda da porre al sistema",
+  "ente": "nome_ente",
+  "top_k": 5
+}
+```
+
+**Contenuto risposta:**
+```json
+{
+  "response": "risposta generata dal sistema",
+  "sources": ["fonte1", "fonte2", "..."],
+  "confidence": 0.85
+}
+```
+
+## Configurazione
+
+### File di Configurazione
+Il sistema utilizza file di configurazione YAML per impostare i parametri globali:
+
+**Posizione:** `config/config.yaml`
+
+**Struttura esempio:**
+```yaml
+scraper:
+  delay: 2.0
+  timeout: 30
+  max_retries: 3
+
+ocr:
+  tesseract_cmd: "/usr/bin/tesseract"
+  enabled: true
+
+llm:
+  default_provider: "openai"
+  default_model: "gpt-4"
+  api_key: "sk-..."
+
+rag:
+  top_k: 6
+  similarity_threshold: 0.7
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+```
+
+## Ambiente di Esecuzione
+
+### Variabili d'Ambiente
+- `GOOGLE_API_KEY`: Chiave API per Google Gemini (se utilizzato)
+- `OPENAI_API_KEY`: Chiave API per OpenAI (se utilizzato)
+- `DATABASE_URL`: Stringa di connessione al database (se utilizzato)
+- `LOG_LEVEL`: Livello di logging (DEBUG, INFO, WARNING, ERROR)
