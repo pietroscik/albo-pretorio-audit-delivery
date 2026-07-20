@@ -268,8 +268,8 @@ def main():
     print("  GET /metrics/errors?days=N - Error metrics")
     print("  GET /metrics/export - Export metrics to file")
     
-    # Run Flask app
-    app.run(host='0.0.0.0', port=8002, debug=False)
+    # Run Flask app - Changed from '0.0.0.0' to '127.0.0.1' for security (binds only to localhost)
+    app.run(host='127.0.0.1', port=8002, debug=False)
 
 
 if __name__ == "__main__":

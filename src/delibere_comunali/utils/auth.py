@@ -852,7 +852,7 @@ def require_permission(permission: str):
             if not getattr(f, '_permission_checked', False):
                 pass
             return f(*args, **kwargs)
-        return decorated_function
+        return decorator
     return decorator
 
 
@@ -862,10 +862,16 @@ if __name__ == '__main__':
     print("=== Test Autenticazione Locale ===")
     local_auth = LocalAuth()
     
+    # Generate a secure temporary password for testing
+    import secrets
+    import string
+    # Generate a random secure password for test purposes
+    test_password = ''.join(secrets.choice(string.ascii_letters + string.digits + string.punctuation) for _ in range(16))
+    
     # Aggiungi un utente
     user = local_auth.add_user(
         username="test_user",
-        password="test_password",
+        password=test_password,  # Now using a generated secure password
         email="test@test.it",
         name="Test",
         surname="User",
@@ -874,7 +880,7 @@ if __name__ == '__main__':
     print(f"✅ Utente creato: {user.full_name}")
     
     # Autentica l'utente
-    authenticated_user = local_auth.authenticate("test_user", "test_password")
+    authenticated_user = local_auth.authenticate("test_user", test_password)
     if authenticated_user:
         print(f"✅ Autenticazione riuscita: {authenticated_user.full_name}")
         print(f"   Ruoli: {authenticated_user.roles}")

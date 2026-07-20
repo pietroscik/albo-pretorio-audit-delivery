@@ -597,7 +597,10 @@ def _init_rag_system_core(embedding_models, llm_models, embed_batch_size: int, e
                     llm_models=llm_models,
                 )
                 return chain, embedding_model
-            except Exception:
+            except Exception as e:
+                # Log the exception for debugging
+                import logging
+                logging.warning(f"Failed to initialize RAG chain: {e}")
                 pass
 
     if not build_if_missing:

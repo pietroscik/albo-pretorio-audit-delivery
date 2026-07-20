@@ -270,8 +270,10 @@ def guess_next_url(base_url: str, step_default: int = 15) -> Optional[str]:
                 est = int(round((start - 1) / (page - 1)))
                 if 5 <= est <= 50:
                     step = est
-        except Exception:
-            pass
+        except Exception as e:
+            # Log the exception for debugging
+            import logging
+            logging.warning(f"Ignored exception during step calculation: {e}")
 
     page += 1
     start = 1 + (page - 1) * step

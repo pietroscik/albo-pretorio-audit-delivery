@@ -34,7 +34,10 @@ class SimpleAuthenticator:
             try:
                 with open(self.credentials_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except Exception:
+            except Exception as e:
+                # Log the exception for debugging
+                import logging
+                logging.warning(f"Failed to load JSON from auth file: {e}")
                 pass
         
         # Restituisce credenziali di default se il file non esiste o è corrotto

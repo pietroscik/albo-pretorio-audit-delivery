@@ -37,7 +37,10 @@ def _parse_list_env(value):
                 parsed = json.loads(txt)
                 if isinstance(parsed, list):
                     return [str(item).strip() for item in parsed if str(item).strip()]
-            except Exception:
+            except Exception as e:
+                # Log the exception for debugging
+                import logging
+                logging.warning(f"Failed to parse JSON from text '{txt[:50]}...': {e}")
                 pass
         return [item.strip() for item in txt.split(",") if item.strip()]
     return value

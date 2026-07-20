@@ -741,7 +741,10 @@ def safe_literal_list(s):
         val = ast.literal_eval(txt)
         if isinstance(val, list):
             return [str(x) for x in val]
-    except Exception:
+    except Exception as e:
+        # Log the exception for debugging
+        import logging
+        logging.warning(f"Failed to evaluate literal from text '{txt}': {e}")
         pass
     # fallback: separatore ; o |
     if ";" in txt:

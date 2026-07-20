@@ -288,8 +288,11 @@ class PrivacyGuard:
         try:
             numeric_amount = float(amount)
             # Apply small random perturbation (+/- 1%)
-            import random
-            perturbation = random.uniform(-0.01, 0.01)
+            import secrets
+            # Using secrets module instead of random for cryptographic purposes
+            # Generate a random float between -0.01 and 0.01 using secrets
+            perturbation_range = 0.02  # range from -0.01 to 0.01 is 0.02
+            perturbation = -0.01 + (secrets.randbelow(1000000) / 1000000.0) * perturbation_range
             perturbed_amount = numeric_amount * (1 + perturbation)
             return round(perturbed_amount, 2)
         except:

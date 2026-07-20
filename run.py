@@ -4,6 +4,38 @@ from pathlib import Path
 import click
 import os
 import re
+import shlex
+
+def sanitize_command_args(args):
+    """Sanitizes command-line arguments to prevent command injection."""
+    sanitized = []
+    for arg in args:
+        # Remove potentially dangerous characters
+        safe_arg = re.sub(r'[;&|`$()\\]', '', arg)
+        # Strip whitespace and quote characters
+        safe_arg = safe_arg.strip().replace('"', '').replace("'", "")
+        if safe_arg:
+            sanitized.append(safe_arg)
+    return sanitized
+
+def run_subprocess_securely(cmd, env=None, cwd=None):
+    """Runs a subprocess securely with sanitized command and environment."""
+    try:
+        # Log the command for debugging/audit
+        print(f"Executing command: {' '.join(shlex.quote(part) for part in cmd)}")
+        
+        # Execute securely
+        result = subprocess.run(
+            cmd,
+            check=True,
+            env=env,
+            cwd=cwd,
+            shell=False  # Prevent shell injection
+        )
+        return result.returncode
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error executing command securely: {e}")
+        return e.returncode
 
 
 def safe_import(module_name, attr_name=None):
@@ -178,6 +210,26 @@ def analyze_topology(base: str, ente: str):
 
 
 @cli.command()
+@click.option('--ente', required=True, help='Nome dell\'ente per cui addestrare il modello.')
+def train_classifier(ente: str):
+    """
+    Addestra il modello di classificazione con ottimizzazione degli iperparametri.
+    """
+    try:
+        from delibere_comunali.ml.classifier_trainer import train_and_evaluate_classifier
+        from delibere_comunali.utils.config import get_tenant_dir
+
+        print(f"Avvio training per l'ente: {ente}")
+        base_path = get_tenant_dir(ente)
+        # Assicurati che il percorso base per il training sia corretto
+        training_base_path = base_path / "albo_download" if base_path.name != "albo_download" else base_path
+        train_and_evaluate_classifier(training_base_path)
+        print(f"✅ Training completato per l'ente: {ente}")
+    except Exception as e:
+        print(f"❌ Errore durante il training del classificatore: {e}", file=sys.stderr)
+
+
+@cli.command()
 @click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
 @click.option('--ente', default=None, help='Identificativo ente (opzionale)')
 def supervised_training(base: str, ente: str):
@@ -317,9 +369,8 @@ def _run_tool(script_candidates, module_candidates, args):
     # Controlla prima i moduli
     for module in module_candidates:
         try:
-            cmd = [sys.executable, "-m", module] + list(args)
-            result = subprocess.run(cmd, check=True)
-            return result.returncode
+            cmd = [sys.executable, "-m", module] + list(sanitize_command_args(args))
+            return run_subprocess_securely(cmd)
         except subprocess.CalledProcessError as e:
             print(f"❌ Errore nell'esecuzione del modulo {module}: {e}")
             return e.returncode
@@ -332,10 +383,9 @@ def _run_tool(script_candidates, module_candidates, args):
         if not script_path.is_absolute():
             script_path = PROJECT_ROOT / script
         if script_path.exists():
-            cmd = [sys.executable, str(script_path)] + list(args)
+            cmd = [sys.executable, str(script_path)] + list(sanitize_command_args(args))
             try:
-                result = subprocess.run(cmd, check=True)
-                return result.returncode
+                return run_subprocess_securely(cmd)
             except subprocess.CalledProcessError as e:
                 print(f"❌ Errore nell'esecuzione dello script {script_path}: {e}")
                 return e.returncode
@@ -351,7 +401,7 @@ def _sanitize_input(input_str):
     if not isinstance(input_str, str):
         return input_str
     # Remove potentially dangerous characters
-    return input_str.replace(';', '').replace('|', '').replace('&', '').replace('`', '')
+    return input_str.replace(';', '').replace('|', '').replace('&', '').replace('`', '').replace('$(', '').replace('\n', '').replace('\r', '')
 
 
 def _handle_alias_command(cmd, args):
@@ -376,9 +426,8 @@ def _handle_alias_command(cmd, args):
                 "8501",
                 "--server.address",
                 "0.0.0.0"
-            ] + list(args)
-            result = subprocess.run(cmd, cwd=os.getcwd())
-            return result.returncode
+            ] + list(sanitize_command_args(args))
+            return run_subprocess_securely(cmd, cwd=os.getcwd())
     return None
 
 
@@ -506,17 +555,15 @@ def main():
             "8501",
             "--server.address",
             "0.0.0.0"
-        ] + args
+        ] + sanitize_command_args(args)
+        return run_subprocess_securely(full_cmd)
     elif cmd in STREAMLIT_COMMANDS and cmd_config[0] == "-m":
         module_path = cmd_config[1].replace(".", "/")
         script_path = PROJECT_ROOT / "src" / f"{module_path}.py"
-        # Sanitize arguments
-        sanitized_args = [_sanitize_input(arg) for arg in args]
-        full_cmd = [sys.executable, "-m", "streamlit", "run", str(script_path), "--"] + sanitized_args
+        full_cmd = [sys.executable, "-m", "streamlit", "run", str(script_path), "--"] + sanitize_command_args(args)
     elif cmd_config[0] == "-m":
         # Se il primo elemento è "-m", allora è un modulo
-        sanitized_args = [_sanitize_input(arg) for arg in args]
-        full_cmd = [sys.executable, *cmd_config, *sanitized_args]
+        full_cmd = [sys.executable, *cmd_config, *sanitize_command_args(args)]
     elif cmd_config[0] == "streamlit_dashboard":
         # Special case for dashboard
         full_cmd = [
@@ -529,22 +576,16 @@ def main():
             "8501",
             "--server.address",
             "0.0.0.0"
-        ] + args
+        ] + sanitize_command_args(args)
     else:
         # Altrimenti è uno script
-        sanitized_args = [_sanitize_input(arg) for arg in args]
-        full_cmd = [sys.executable, *cmd_config, *sanitized_args]
+        full_cmd = [sys.executable, *cmd_config, *sanitize_command_args(args)]
 
     try:
-        result = subprocess.run(full_cmd, check=True, env=env)
-        sys.exit(result.returncode)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Errore nell'esecuzione di {' '.join(str(x) for x in full_cmd)}")
-        print(f"Codice di uscita: {e.returncode}")
-        sys.exit(e.returncode)
-    except FileNotFoundError as e:
-        print(f"❌ Comando non trovato: {e.filename}")
-        print("Assicurati che Python sia installato e nel PATH")
+        exit_code = run_subprocess_securely(full_cmd, env=env)
+        sys.exit(exit_code)
+    except Exception as e:
+        print(f"❌ Errore critico durante l'esecuzione: {e}")
         sys.exit(1)
 
 

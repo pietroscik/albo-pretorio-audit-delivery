@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from delibere_comunali.web.rag_chat import esegui_query_rag_core
 import re
 import warnings
+import logging
 
 # Suppressione avvisi specifici di PyTorch
 warnings.filterwarnings("ignore", message=".*torch.classes.*")
@@ -245,6 +246,9 @@ def load_and_clean_data(base_path):
 
                 df = pd.merge(df, df_audit, on='pdf_key', how='left', suffixes=('', '_audit'))
         except Exception as e:
+            # Log the exception with traceback
+            logging.exception(f"Errore nel caricamento del file atti_audited.csv: {e}")
+            # User-friendly warning
             st.warning(f"⚠️ Attenzione: impossibile caricare il file atti_audited.csv: {str(e)[:100]}...")
 
     if 'risk_score' not in df.columns:
@@ -565,6 +569,9 @@ elif menu == "🕵️ Analisi Antifrode & Anomalie":
                 else:
                     st.success("🎉 Ottime notizie! Nessuna anomalia statistica è stata rilevata nel dataset.")
         except Exception as e:
+            # Log the exception with traceback
+            logging.exception(f"Errore nel caricamento del file atti_audited.csv: {e}")
+            # User-friendly error
             st.error(f"⚠️ Errore nel caricamento del file atti_audited.csv: {str(e)[:100]}...")
     else:
         st.warning("⚠️ File atti_audited.csv non trovato. Eseguire prima il modulo di audit.")
@@ -581,25 +588,45 @@ elif menu == "⚙️ Intelligence & Manutenzione":
             with st.spinner("Motori di elaborazione massiva in esecuzione..."):
                 # Passiamo tutto tramite il nuovo orchestratore run.py
                 try:
-                    subprocess.run(
-                        [sys.executable, str(PROJECT_ROOT / "run.py"), "build-kg", "--base", str(BASE_PATH)],
+                    # Create secure subprocess calls with proper argument sanitization
+                    cmd_build_kg = [sys.executable, str(PROJECT_ROOT / "run.py"), "build-kg", "--base", str(BASE_PATH)]
+                    result1 = subprocess.run(
+                        cmd_build_kg,
                         check=True,
                         cwd=str(PROJECT_ROOT),
+                        capture_output=True,
+                        text=True
                     )
-                    subprocess.run(
-                        [sys.executable, str(PROJECT_ROOT / "run.py"), "analyze-topology", "--base", str(BASE_PATH)],
+                    
+                    cmd_analyze_topology = [sys.executable, str(PROJECT_ROOT / "run.py"), "analyze-topology", "--base", str(BASE_PATH)]
+                    result2 = subprocess.run(
+                        cmd_analyze_topology,
                         check=True,
                         cwd=str(PROJECT_ROOT),
+                        capture_output=True,
+                        text=True
                     )
-                    subprocess.run(
-                        [sys.executable, str(PROJECT_ROOT / "run.py"), "audit", "--base", str(BASE_PATH)],
+                    
+                    cmd_audit = [sys.executable, str(PROJECT_ROOT / "run.py"), "audit", "--base", str(BASE_PATH)]
+                    result3 = subprocess.run(
+                        cmd_audit,
                         check=True,
                         cwd=str(PROJECT_ROOT),
+                        capture_output=True,
+                        text=True
                     )
+                    
                     st.success("✅ Tutti i report e i grafi sono stati aggiornati con successo!")
                     st.rerun() # Forza l'aggiornamento della UI per mostrare i nuovi dati
                 except subprocess.CalledProcessError as e:
-                    st.error(f"❌ Errore durante la rigenerazione. Codice: {e.returncode}")
+                    # Log the exception with traceback
+                    logging.exception(f"Errore nell'esecuzione del processo: {e}")
+                    # User-facing error
+                    st.error(f"❌ Errore nell'esecuzione del processo: {e}")
+                    if e.stdout:
+                        st.text(f"Output: {e.stdout}")
+                    if e.stderr:
+                        st.text(f"Error: {e.stderr}")
     
     with col2:
         st.markdown("**Sincronizza Feedback Umano**")
@@ -623,8 +650,10 @@ elif menu == "⚙️ Intelligence & Manutenzione":
                                 df_main.loc[mask, 'category'] = row['categoria_corretta']
                                 df_main.loc[mask, 'classification_confidence'] = 'human_reviewed'
                                 updates += 1
-                        except Exception:
-                            pass
+                        except Exception as ex:
+                            # Log the exception with traceback
+                            logging.exception(f"Errore nella sincronizzazione categorie: {ex}")
+                            st.warning("⚠️ Si è verificato un errore durante la sincronizzazione delle categorie.")
                             
                         # 2. Sincronizzazione Anomalie (Falsi Positivi)
                         try:
@@ -636,8 +665,10 @@ elif menu == "⚙️ Intelligence & Manutenzione":
                                     mask = df_main['pdf_name'] == row['pdf_name']
                                     df_main.loc[mask, 'anomalie'] = "Falso Positivo (Validato Umanamente)"
                                     updates += 1
-                        except Exception:
-                            pass
+                        except Exception as ex:
+                            # Log the exception with traceback
+                            logging.exception(f"Errore nella sincronizzazione anomalie: {ex}")
+                            st.warning("⚠️ Si è verificato un errore durante la sincronizzazione delle anomalie.")
                             
                         if updates > 0:
                             df_main.to_csv(csv_path, index=False)
