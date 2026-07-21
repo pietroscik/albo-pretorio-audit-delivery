@@ -69,7 +69,7 @@ def normalize_amount(txt: Optional[str]) -> Optional[float]:
         return None
 
     # Rimuovi simboli monetari e spazi
-    s = txt.strip()
+    s = str(txt).strip()
     s = re.sub(r"[€\$£]", "", s)  # Rimuovi simboli monetari
     s = re.sub(r"[a-zA-Z]+", "", s)  # Rimuovi testo (euro, EUR, ecc.)
     s = re.sub(r"[:=]", "", s)  # Rimuovi separatori
@@ -78,30 +78,73 @@ def normalize_amount(txt: Optional[str]) -> Optional[float]:
     if not s:
         return None
 
-    # Gestione separatori
+    # Gestione separatori - migliorata per distinguere tra separatore migliaia e decimale
     if "." in s and "," in s:
         # Formato europeo: 1.234,56 (punto = migliaia, virgola = decimale)
-        s = s.replace(".", "").replace(",", ".")
+        # Formato americano: 1,234.56 (virgola = migliaia, punto = decimale)
+        # Dobbiamo distinguere quale è quale
+        # Se la parte dopo la virgola ha 2-3 cifre, probabilmente è il decimale
+        parts = s.split(',')
+        if len(parts) > 1 and len(parts[-1]) <= 3 and parts[-1].isdigit():
+            # Probabilmente formato europeo
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            # Probabilmente formato americano
+            s = s.replace(",", "")
     elif "," in s:
-        # Formato con solo virgola: 1234,56
-        s = s.replace(",", ".")
+        # Formato con solo virgola: 1234,56 o 1.234,56 senza punto
+        # Se la parte dopo la virgola ha 2-3 cifre, è il decimale
+        parts = s.split(',')
+        if len(parts) > 1 and len(parts[-1]) <= 3 and parts[-1].isdigit():
+            s = s.replace(",", ".")
+        else:
+            # Altrimenti trattare come separatore di migliaia
+            s = s.replace(",", "")
     elif "." in s:
         # Formato con solo punto: potrebbe essere 1234.56 (decimale) o 1.000 (migliaia)
         # Controlla se il punto è un separatore delle migliaia (es. 1.000.000 o 1.000)
         # Se ci sono più punti OPPURE il punto è seguito da esattamente 3 cifre e poi la fine
-        if s.count(".") > 1:
+        point_parts = s.split(".")
+        if len(point_parts) > 2:
             # Più punti -> separatore delle migliaia
             s = s.replace(".", "")
-        elif len(s.split(".")[-1]) == 3 and s.replace(".", "").isdigit():
-            # Ultima parte ha 3 cifre e tutto è numerico -> separatore delle migliaia (es. 1.000)
+        elif len(point_parts) == 2 and len(point_parts[1]) <= 3 and point_parts[1].isdigit():
+            # La parte dopo il punto ha 1-3 cifre, probabilmente è il decimale
+            pass  # Lascia così, è già in formato corretto
+        else:
+            # Altrimenti trattare come separatore di migliaia
             s = s.replace(".", "")
-        # altrimenti è già un decimale
 
     try:
         return float(s)
     except (ValueError, TypeError):
-        return None
-
+        # Tentativo alternativo: prova a cercare un valore numerico con due cifre decimali
+        # all'interno della stringa originale
+        numeric_match = re.search(r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))', str(txt))
+        if numeric_match:
+            numeric_str = numeric_match.group(1)
+            # Converti in formato standard
+            numeric_str = numeric_str.replace(".", "").replace(",", ".")
+            try:
+                return float(numeric_str)
+            except (ValueError, TypeError):
+                pass
+        
+        # Ultimo tentativo: cerca pattern specifici comuni in documenti amministrativi
+        admin_patterns = [
+            r"(?i)importo.*?di.*?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))",
+            r"(?i)per.*?un.*?importo.*?di.*?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))",
+            r"(?i)ammontare.*?a.*?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))",
+        ]
+        for pattern in admin_patterns:
+            match = re.search(pattern, str(txt))
+            if match:
+                numeric_str = match.group(1)
+                numeric_str = numeric_str.replace(".", "").replace(",", ".")
+                try:
+                    return float(numeric_str)
+                except (ValueError, TypeError):
+                    continue
         return None
 
 
@@ -253,7 +296,7 @@ class EntityExtractor:
 
         # 4. Estrazione importi
         amount_data = self._extract_amounts(
-            text, subcategory, llm_data.get("importi_raw")
+            text, doc_type, subcategory, llm_data.get("importi_raw")
         )
 
         # 5. Unione e prioritizzazione dei risultati
@@ -402,10 +445,24 @@ class EntityExtractor:
     def _extract_amounts(
         self,
         text: str,
+        doc_type: str,
         subcategory: Optional[str] = None,
         llm_amounts: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Estrae e calcola gli importi da un testo."""
+        
+        # Determina se il documento dovrebbe avere importi
+        should_extract = should_extract_amounts(text, doc_type, subcategory)
+        
+        if not should_extract:
+            # Se il documento non dovrebbe avere importi, ritorna valori nulli
+            return {
+                "importi_raw": [],
+                "importo_max": None,
+                "importo_sum": None,
+                "importi_count": 0,
+            }
+        
         amts_norm = []
         if llm_amounts:
             for amount_raw in llm_amounts:
@@ -446,26 +503,54 @@ class EntityExtractor:
     def _extract_importi_raw(self, text: str) -> List[float]:
         """Estrae tutti gli importi (numerici e in lettere) da un testo."""
         importi = set()
-
-        for pattern in IMPORTI_REGEX[:8]:
+        
+        # Usare i pattern definiti in albo_patterns
+        from ..patterns.albo_patterns import IMPORTI_REGEX
+        
+        # Applica i primi 9 pattern (più specifici) a tutti i documenti
+        for pattern in IMPORTI_REGEX[:9]:  # Pattern per importi numerici specifici
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
-                importo_clean = re.sub(r"[^\d,]", "", str(match))
+                # Estrarre solo il valore numerico dal match
+                importo_clean = re.sub(r"[^\d,.\-\s]", "", str(match)).strip()
                 if importo_clean:
                     val = normalize_amount(importo_clean)
-                    if val and 0 < val < 100_000_000:
-                        importi.add(val)
-
-        for pattern in IMPORTI_REGEX[8:]:
+                    if val and 0 < val < 100_000_000:  # Filtro per valori ragionevoli
+                        # Filtro aggiuntivo: verificare che non sia un codice CIG/CUP
+                        # Un codice CIG ha 10 caratteri alfanumerici, un CUP ne ha 15
+                        # Se il valore è un numero intero di 10 o 15 cifre, probabilmente non è un importo
+                        str_val = str(int(val)) if val.is_integer() else str(val)
+                        clean_digits = str_val.replace('.', '').replace(',', '')
+                        if not (len(clean_digits) == 10 or len(clean_digits) == 15):
+                            # Ulteriore controllo contestuale: verificare che non sia vicino a parole chiave CIG/CUP
+                            match_str = str(match)
+                            text_lower = text.lower()
+                            
+                            # Trova la posizione del match nel testo
+                            pos = text_lower.find(match_str.lower())
+                            if pos != -1:
+                                # Controlla un contesto di circa 50 caratteri prima e dopo il match
+                                start = max(0, pos - 50)
+                                end = min(len(text), pos + len(match_str) + 50)
+                                context = text[start:end].lower()
+                                
+                                # Se il contesto contiene CIG o CUP, è probabile che non sia un importo
+                                if 'cig' not in context and 'cup' not in context:
+                                    importi.add(val)
+                        
+        for pattern in IMPORTI_REGEX[9:]:  # Pattern per importi in lettere
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
-                numero = lettere_to_numero(
-                    match[0] if isinstance(match, tuple) else match
-                )
-                if numero:
-                    importi.add(numero)
-
-        return sorted(importi, reverse=True)
+                testo_importo = match[0] if isinstance(match, tuple) else match
+                numero = lettere_to_numero(testo_importo)
+                if numero and 0 < numero < 100_000_000: 
+                    # Controllo simile per importi in lettere
+                    str_numero = str(int(numero)) if numero.is_integer() else str(numero)
+                    clean_digits = str_numero.replace('.', '').replace(',', '')
+                    if not (len(clean_digits) == 10 or len(clean_digits) == 15):
+                        importi.add(numero)
+                    
+        return sorted(list(importi), reverse=True)
 
     def _merge_results(self, llm: Dict, adv: Dict, regex: Dict) -> Dict[str, Any]:
         """
@@ -497,3 +582,50 @@ class EntityExtractor:
                 merged[key] = value
 
         return merged
+
+
+def is_financial_document(text: str, doc_type: str, subcategory: str = None) -> bool:
+    """
+    Determines if a document is likely to contain financial amounts based on its type and content.
+    """
+    # Check document type
+    financial_types = ['determinazione', 'delibera', 'atto', 'vistocontabile', 'impegno', 'liquidazione']
+    if doc_type.lower() in financial_types:
+        return True
+    
+    if subcategory and subcategory.lower() in ['contabilità', 'finanziario', 'impegno', 'liquidazione']:
+        return True
+    
+    # Check content for financial keywords
+    text_lower = text.lower()
+    financial_keywords = [
+        'importo', 'spesa', 'impegno', 'liquidazione', 'conto', 'bilancio', 'euro', '€',
+        'costo', 'ricavo', 'provento', 'onorario', 'compens', 'tariff', 'canon', 'IVA',
+        'oneri', 'accertamento', 'competenza', 'previsione', 'preventivo', 'consuntivo'
+    ]
+    
+    financial_indicators = sum(1 for keyword in financial_keywords if keyword in text_lower)
+    
+    # If we have at least 2 financial indicators, it's likely a financial document
+    return financial_indicators >= 2
+
+
+def should_extract_amounts(text: str, doc_type: str, subcategory: str = None) -> bool:
+    """
+    Determines if amounts should be extracted from a document based on type and content.
+    """
+    # Check if document type suggests it should have amounts
+    has_financial_type = is_financial_document(text, doc_type, subcategory)
+    
+    # Check for explicit non-financial document types
+    non_financial_types = ['pubblicazione', 'avviso', 'notifica', 'atto_non_finanziario']
+    if doc_type.lower() in non_financial_types:
+        return False
+    
+    # Check for publication documents that typically don't have amounts
+    text_lower = text.lower()
+    if 'pubblicazione' in text_lower or 'rende noto' in text_lower or 'notifica' in text_lower:
+        return False
+    
+    # If it's a financial document type or has financial content, extract amounts
+    return has_financial_type

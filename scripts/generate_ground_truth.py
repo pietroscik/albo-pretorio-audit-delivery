@@ -112,6 +112,10 @@ def extract_importo(text: str) -> Optional[float]:
         r'importo[\s:]*€?\s*(\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})?)',
         r'per\s+(?:un\s+)?importo\s+(?:complessivo\s+)?di\s+€?\s*(\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})?)',
         r'si\s+(?:liquidano|impegnano|pagano)\s+€?\s*(\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})?)',
+        # Nuovi pattern aggiunti per migliorare la copertura
+        r"(?i)(?:importo|spesa|impegno|liquidazione)\s+(?:di|pari a|ammontare a|per un)\s+€?\s*(\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})?)",
+        r"(?i)(?:approvare|autorizzare|disporre)\s+l['’]\s*?importo\s+di\s+€?\s*(\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})?)",
+        r"(?i)(?:parere favorevole|si dispone|si autorizza)\s+(?:l['’]\s*?impegno|il pagamento)\s+di\s+€?\s*(\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})?)",
     ]
     
     for pattern in patterns:
@@ -132,8 +136,8 @@ def extract_all_importi(text: str) -> List[float]:
     # - Contains a comma or a period as a decimal separator, followed by 2 digits.
     # - Or is a whole number followed by ",00".
     # - It avoids matching simple years or protocol numbers like '2024' or '123'.
-    pattern = r'€?\s*(\d{1,3}(?:[.,]\d{3})*,\d{2}|\d+\.\d{2,})'
-    matches = re.findall(pattern, text)
+    pattern = r'€?\s*(\d{1,3}(?:[.,]\d{3})*[.,]\d{2}|\d+\.\d{2,})'
+    matches = re.findall(pattern, text, re.IGNORECASE)
     importi = []
     for m in matches:
         try:
@@ -153,25 +157,32 @@ def extract_date_from_text(text: str) -> Optional[str]:
     patterns = [
         r'(\d{1,2})[\/_\-](\d{1,2})[\/_\-](\d{2,4})',
         r'(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})',
+        # Nuovi pattern aggiunti per migliorare la copertura
+        r"(?i)(?:il\s+|del\s+|data\s+del\s+)(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})",
+        r"(?i)(?:il\s+|del\s+|data\s+del\s+)(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})",
+        r"(?i)della data (\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})",
     ]
     
     month_map = {
         'gennaio': '01', 'febbraio': '02', 'marzo': '03', 'aprile': '04',
         'maggio': '05', 'giugno': '06', 'luglio': '07', 'agosto': '08',
-        'settembre': '09', 'ottobre': '10', 'novembre': '11', 'dicembre': '12'
+        'settembre': '09', 'ottobre': '10', 'novembre': '11', 'dicembre': '12',
+        'GENNAIO': '01', 'FEBBRAIO': '02', 'MARZO': '03', 'APRILE': '04',
+        'MAGGIO': '05', 'GIUGNO': '06', 'LUGLIO': '07', 'AGOSTO': '08',
+        'SETTEMBRE': '09', 'OTTOBRE': '10', 'NOVEMBRE': '11', 'DICEMBRE': '12'
     }
     
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            if pattern == patterns[0]:
+            if pattern == patterns[0] or 'della data' in pattern.lower() or 'del' in pattern.lower():
                 day = match.group(1).zfill(2)
                 month = match.group(2).zfill(2)
                 year = match.group(3)
                 if len(year) == 2:
                     year = f"20{year}"
                 return f"{year}-{month}-{day}"
-            else:
+            elif 'gennaio' in pattern.lower() or 'febbraio' in pattern.lower() or 'marzo' in pattern.lower() or 'aprile' in pattern.lower() or 'maggio' in pattern.lower() or 'giugno' in pattern.lower() or 'luglio' in pattern.lower() or 'agosto' in pattern.lower() or 'settembre' in pattern.lower() or 'ottobre' in pattern.lower() or 'novembre' in pattern.lower() or 'dicembre' in pattern.lower():
                 day = match.group(1).zfill(2)
                 month = month_map.get(match.group(2).lower())
                 year = match.group(3)

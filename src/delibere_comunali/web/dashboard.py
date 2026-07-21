@@ -146,8 +146,8 @@ if selected_doc_id:
                 
             with st.expander("Vedi Testo Originale Completo (Lettura da disco)", expanded=True):
                 # Cerca il testo originale dal documento originale se disponibile
-                if selected_doc and selected_doc._text:
-                    testo_raw = selected_doc._text
+                if selected_doc and selected_doc.text_preview:
+                    testo_raw = selected_doc.text_preview
                     st.text_area("Testo integrale estratto dall'atto:", value=testo_raw, height=400, disabled=True)
                 else:
                     # Cerca il file di testo originale

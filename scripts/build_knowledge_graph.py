@@ -2,81 +2,46 @@ import argparse
 import pandas as pd
 import networkx as nx
 from pathlib import Path
-from dateutil import parser
-import json
+import numpy as np
+import re
 
-# Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
-from delibere_comunali.utils.config import get_tenant_dir
-
-try:
-    from pyvis.network import Network
-except ModuleNotFoundError as exc:
-    raise SystemExit(
-        "Missing dependency 'pyvis'. Install with: pip install pyvis"
-    ) from exc
-
-def clean_node(val):
-    if pd.isna(val): return None
-    v = str(val).strip()
-    return v if v else None
-
-def save_interactive_graph(G, output_path):
-    """Genera una versione HTML interattiva del grafo utilizzando PyVis."""
-    net = Network(height="750px", width="100%", bgcolor="#ffffff", font_color="#000000", directed=True)
+def clean_node(name):
+    """Clean node names for use in the graph by removing special characters and normalizing."""
+    if pd.isna(name) or name is None:
+        return None
+    name = str(name).strip()
+    if not name or name.lower() in ['nan', 'none', 'null', '']:
+        return None
     
-    # Mappa colori per tipo nodo
-    color_map = {
-        "Atto": "#1E3A8A",      # Blu scuro
-        "RUP": "#10B981",       # Verde
-        "Beneficiario": "#F59E0B", # Arancione
-        "Capitolo": "#6366F1",  # Viola
-        "CIG": "#EF4444"        # Rosso
-    }
-    
-    for node, attrs in G.nodes(data=True):
-        label = str(node)
-        if attrs.get('type') == 'Atto':
-            label = f"Atto: {attrs.get('doc_type', 'N/D')}\n€{attrs.get('importo', 0):,.2f}"
-        
-        net.add_node(node, label=label, title=label, color=color_map.get(attrs.get('type'), "#999999"))
-        
-    for source, target, data in G.edges(data=True):
-        net.add_edge(source, target, title=data.get('relation', ''))
-        
-    net.toggle_physics(True)
-    net.save_graph(str(output_path))
+    # Remove special characters and normalize
+    cleaned = re.sub(r'[^\w\s\-_]', '', name)
+    cleaned = re.sub(r'\s+', '_', cleaned.strip())
+    return cleaned if cleaned else None
 
+def clean_attributes(attrs):
+    """Remove None values from attributes dict to make it compatible with GEXF export."""
+    return {k: v for k, v in attrs.items() if v is not None}
+
+# Main execution
 def main():
-    parser_arg = argparse.ArgumentParser()
-    parser_arg.add_argument("--ente", default=None, help="Nome dell'ente per cui costruire il grafo (per supporto multi-tenant).")
-    parser_arg.add_argument("--base", default="albo_download")
-    args = parser_arg.parse_args()
+    parser = argparse.ArgumentParser(description='Build knowledge graph from parsed documents')
+    parser.add_argument('--ente', required=True, help='Entity name (e.g., avella)')
+    args = parser.parse_args()
     
-    # Se viene fornito il nome dell'ente, usa il percorso standard per quell'ente
-    if args.ente:
-        base_path = Path(get_tenant_dir(args.ente))
-        # Assicurati che la directory esista
-        base = base_path / "albo_download" if base_path.name != "albo_download" else base_path
-    else:
-        base = Path(args.base)
+    # Setup paths
+    base = Path(f"data/{args.ente}/albo_download")
     
-    # Preferiamo allegati_parsed.csv che è quello arricchito dall'LLM
-    atti_path = base / "allegati_parsed.csv"
-    if not atti_path.exists():
-        atti_path = base / "atti_parsed.csv"
-    
-    if not atti_path.exists():
-        print(f"File {atti_path} non trovato. Impossibile costruire il grafo.")
+    # Caricamento dati
+    csv_path = base / "allegati_parsed.csv"
+    if not csv_path.exists():
+        print(f"❌ File non trovato: {csv_path}")
         return
-        
-    df_atti = pd.read_csv(atti_path)
+    df_atti = pd.read_csv(csv_path)
+    df_atti['data_parsed'] = pd.to_datetime(df_atti['data_atto'], format='%Y-%m-%d', errors='coerce')
+    print(f"✅ Caricati {len(df_atti)} atti da {csv_path}")
     
-    # Conversione data
-    df_atti['data_parsed'] = pd.to_datetime(df_atti['data_atto'], format='%d/%m/%Y', errors='coerce')
-    df_atti = df_atti.sort_values(by='data_parsed', na_position='last')
-    
-    G = nx.MultiDiGraph()
-    cig_timeline = {}
+    # Costruzione grafo
+    G = nx.DiGraph()
     
     # Per il grafo multi-ente, usiamo pdf_name o atto_group come ID
     for _, row in df_atti.iterrows():
@@ -90,15 +55,26 @@ def main():
         
         data_atto = str(row['data_parsed'].date()) if pd.notna(row['data_parsed']) else ""
         
-        # Nodo Atto
-        G.add_node(atto_id, type="Atto", doc_type=doc_type, importo=importo, data=data_atto)
+        # Nodo Atto - puliamo gli attributi da valori None
+        node_attrs = clean_attributes({
+            'type': 'Atto', 
+            'doc_type': doc_type, 
+            'importo': importo, 
+            'data': data_atto
+        })
+        G.add_node(atto_id, **node_attrs)
         
         # Nodo RUP
         rup = clean_node(row.get('responsabile'))
         if rup and rup != "NON IDENTIFICATO":
             # Arricchiamo il nodo RUP con i nuovi attributi, se non esiste già
             if not G.has_node(rup):
-                G.add_node(rup, type="RUP", area=row.get('rup_area'), ruolo=row.get('rup_ruolo'))
+                rup_attrs = clean_attributes({
+                    'type': 'RUP', 
+                    'area': row.get('rup_area'), 
+                    'ruolo': row.get('rup_ruolo')
+                })
+                G.add_node(rup, **rup_attrs)
             G.add_edge(rup, atto_id, relation="FIRMA_O_GESTISCE")
                 
         # Nodo Beneficiario
@@ -106,7 +82,8 @@ def main():
         if ben and ben != "NON IDENTIFICATO":
             G.add_node(ben, type="Beneficiario")
             rel = "LIQUIDA" if doc_type in ["Determinazione", "VistoContabile"] else "AFFIDA"
-            G.add_edge(atto_id, ben, relation=rel, importo=importo)
+            edge_attrs = clean_attributes({'relation': rel, 'importo': importo})
+            G.add_edge(atto_id, ben, **edge_attrs)
                 
         # Nodo CIG
         cig = clean_node(row.get('cig'))
@@ -125,14 +102,17 @@ def main():
     report_dir.mkdir(exist_ok=True)
     
     gexf_path = report_dir / "knowledge_graph.gexf"
-    nx.write_gexf(G, str(gexf_path))
-    
-    html_path = report_dir / "knowledge_graph.html"
     try:
-        save_interactive_graph(G, html_path)
-        print(f"✅ Grafo interattivo salvato in: {html_path}")
+        nx.write_gexf(G, str(gexf_path))
+        print(f"✅ Grafo salvato in: {gexf_path} ({G.number_of_nodes()} nodi, {G.number_of_edges()} archi)")
     except Exception as e:
-        print(f"❌ Errore generazione HTML grafo: {e}")
+        print(f"❌ Errore durante il salvataggio del file GEXF: {e}")
+        # Salvataggio alternativo in altri formati
+        try:
+            nx.write_graphml(G, str(report_dir / "knowledge_graph.graphml"))
+            print(f"⚠️  Grafo salvato in formato alternativo: {report_dir / 'knowledge_graph.graphml'}")
+        except Exception as e2:
+            print(f"❌ Errore durante il salvataggio in formato alternativo: {e2}")
 
 if __name__ == "__main__":
     main()

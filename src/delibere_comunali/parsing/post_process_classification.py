@@ -72,12 +72,12 @@ class OCRPostProcessor:
                 setattr(enhanced_doc, attr, getattr(doc, attr))
         
         # Clean OCR artifacts from text
-        if enhanced_doc._text:
-            enhanced_doc._text = self._clean_ocr_artifacts(enhanced_doc._text)
+        if enhanced_doc.text_preview:
+            enhanced_doc.text_preview = self._clean_ocr_artifacts(enhanced_doc.text_preview)
         
         # Re-classify document with enhanced logic for OCR content
-        if enhanced_doc._text:
-            classification_result = self.classifier.classify_document(enhanced_doc._text)
+        if enhanced_doc.text_preview:
+            classification_result = self.classifier.classify_document(enhanced_doc.text_preview)
             
             # Only update classification if confidence is high enough
             if classification_result and classification_result.get('confidence', 0) >= self.min_confidence_threshold:
@@ -111,8 +111,8 @@ class OCRPostProcessor:
         
         # For non-OCR documents, perform validation only
         # Check if classification is missing or low confidence and attempt to improve
-        if (not validated_doc.doc_type or not validated_doc.category) and validated_doc._text:
-            classification_result = self.classifier.classify_document(validated_doc._text)
+        if (not validated_doc.doc_type or not validated_doc.category) and validated_doc.text_preview:
+            classification_result = self.classifier.classify_document(validated_doc.text_preview)
             
             if classification_result and classification_result.get('confidence', 0) >= self.min_confidence_threshold:
                 if not validated_doc.doc_type:

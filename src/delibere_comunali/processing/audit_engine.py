@@ -298,21 +298,28 @@ class AuditEngine:
         self.df = self.df.sort_values(by='risk_score', ascending=False)
         return self.df
 
-def main():
-    parser = argparse.ArgumentParser(description="Motore Antifrode: Scoring Dinamico")
-    parser.add_argument("--base", default="data/baiano/albo_download", help="Cartella base dei dati.")
-    parser.add_argument("--ente", default=None, help="Identificativo ente (opzionale)")
-    parser.add_argument("--use-llm", action="store_true", help="Abilita arricchimento LLM (opzionale)")
-    parser.add_argument("--llm-provider", default=None, help="Provider LLM (openai, gemini, mistral...)")
-    parser.add_argument("--llm-model", default=None, help="Modello LLM da usare")
-    args = parser.parse_args()
+def main(args_obj=None):
+    if args_obj is not None and hasattr(args_obj, 'ente'):
+        # Chiamata dall'orchestrator con oggetto Args
+        ente = getattr(args_obj, 'ente', 'baiano')
+        base = Path(f"data/{ente}/albo_download")
+    else:
+        # Chiamata normale da riga di comando
+        parser = argparse.ArgumentParser(description="Motore Antifrode: Scoring Dinamico")
+        parser.add_argument("--base", default="data/baiano/albo_download", help="Cartella base dei dati.")
+        parser.add_argument("--ente", default=None, help="Identificativo ente (opzionale)")
+        parser.add_argument("--use-llm", action="store_true", help="Abilita arricchimento LLM (opzionale)")
+        parser.add_argument("--llm-provider", default=None, help="Provider LLM (openai, gemini, mistral...)")
+        parser.add_argument("--llm-model", default=None, help="Modello LLM da usare")
+        args = parser.parse_args()
 
-    base = Path(args.base)
-    
-    # Se --ente specificato e --base è il default, aggiusta il path
-    if args.ente and args.base == "data/baiano/albo_download":
-        base = Path(f"data/{args.ente}/albo_download")
+        base = Path(args.base)
+        
+        # Se --ente specificato e --base è il default, aggiusta il path
+        if args.ente and args.base == "data/baiano/albo_download":
+            base = Path(f"data/{args.ente}/albo_download")
 
+    # Il resto del codice rimane invariato
     atti_path = base / "atti_parsed.csv"
     output_path = base / "atti_audited.csv"
 
@@ -321,8 +328,10 @@ def main():
         return
 
     print("[RUN] Avvio Motore Audit Dinamico...")
-    if args.use_llm:
+    if args_obj is None and hasattr(args, 'use_llm') and args.use_llm:
         print(f"   LLM: {args.llm_provider or 'default'} / {args.llm_model or 'default'}")
+    elif args_obj is not None and hasattr(args_obj, 'use_llm') and args_obj.use_llm:
+        print(f"   LLM: {args_obj.llm_provider or 'default'} / {args_obj.llm_model or 'default'}")
 
     df = pd.read_csv(atti_path)
 
