@@ -438,6 +438,7 @@ COMMAND_MAP = {
     "analyze": ("-m", "delibere_comunali.parsing.analyze_albo"),
     "pipeline": ("-m", "delibere_comunali.cli.run_pipeline"),
     "validate-csv": ("-m", "delibere_comunali.validation.csv_validator"),
+    "validate-output": ("-m", "delibere_comunali.validation.output_validator"),  # Updated to new module
     
     # Comandi enterprise
     "orchestrate": ("-m", "delibere_comunali.core.orchestrator"),
@@ -466,7 +467,6 @@ COMMAND_MAP = {
     "detect-anomalies": (str(PROJECT_ROOT / "scripts" / "detect_anomalies.py"),),
     "export-linkeddata": (str(PROJECT_ROOT / "scripts" / "export_linked_data.py"),),
     "train": (str(PROJECT_ROOT / "scripts" / "train_model.py"),),
-    "validate-output": (str(PROJECT_ROOT / "scripts" / "validate_output.py"),),
     "clean-texts": (str(PROJECT_ROOT / "scripts" / "clean_texts.py"),),
     "sync-texts": (str(PROJECT_ROOT / "scripts" / "sync_texts.py"),),
     "generate-groundtruth": (str(PROJECT_ROOT / "scripts" / "generate_ground_truth.py"),),

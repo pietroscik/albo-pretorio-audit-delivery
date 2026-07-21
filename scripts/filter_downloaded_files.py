@@ -27,16 +27,31 @@ def analyze_file_content(file_path: Path) -> Dict:
     try:
         import PyPDF2
         with open(file_path, 'rb') as f:
-            pdf_reader = PyPDF2.PdfReader(f)
-            if len(pdf_reader.pages) == 0:
+            try:
+                pdf_reader = PyPDF2.PdfReader(f)
+            except Exception as e:
+                logger.warning(f"Impossibile leggere il PDF {file_path}: {e}")
+                # Se non possiamo leggere il PDF, procediamo con l'analisi del nome del file
+                pdf_reader = None
+            
+            if pdf_reader is None:
+                # Fall back all'analisi del nome del file
+                pass
+            elif len(pdf_reader.pages) == 0:
                 return {"is_attachment": False, "reason": "empty_pdf"}
-            
-            # Leggi le prime pagine per analisi (leggiamo più pagine per identificare file introduttivi)
-            text_content = ""
-            for i in range(min(3, len(pdf_reader.pages))):  # Leggi max 3 pagine
-                text_content += pdf_reader.pages[i].extract_text()
-            
-            text_lower = text_content.lower()
+            else:
+                # Leggi le prime pagine per analisi (leggiamo più pagine per identificare file introduttivi)
+                text_content = ""
+                for i in range(min(3, len(pdf_reader.pages))):  # Leggi max 3 pagine
+                    try:
+                        page_text = pdf_reader.pages[i].extract_text()
+                        text_content += page_text
+                    except Exception as e:
+                        logger.warning(f"Impossibile estrarre testo dalla pagina {i} del PDF {file_path}: {e}")
+                        # Continua con le altre pagine o usa quanto estratto finora
+                        continue
+                
+                text_lower = text_content.lower()
             
             # Cerca indicatori di file che NON sono introduttivi (documenti effettivi)
             # Questi sono documenti specifici che devono essere mantenuti
