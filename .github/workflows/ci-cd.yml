@@ -78,7 +78,7 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Set up Docker
-      uses: docker/setup-docker-action@v3
+      uses: docker/setup-docker-action@v5
 
     - name: Test Docker Compose
       run: |
