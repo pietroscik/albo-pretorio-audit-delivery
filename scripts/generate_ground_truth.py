@@ -257,15 +257,23 @@ def infer_doc_type(filename: str, text: str) -> str:
 
 
 def extract_cig(text: str) -> Optional[str]:
-    """Estrae il CIG."""
-    match = re.search(r'CIG[\s:\-]*([A-Z0-9]{10,15})', text, re.IGNORECASE)
-    return match.group(1) if match else None
+    """Estrae il CIG con validazione stretta."""
+    # Trova potenziali candidati CIG
+    matches = re.findall(r'CIG[\s:\-]*([A-Z0-9]{10})', text, re.IGNORECASE)
+    for match in matches:
+        if len(match) == 10 and match.isalnum():  # Assicura esattamente 10 caratteri alfanumerici
+            return match.upper()
+    return None
 
 
 def extract_cup(text: str) -> Optional[str]:
-    """Estrae il CUP."""
-    match = re.search(r'CUP[\s:\-]*([A-Z0-9]{15})', text, re.IGNORECASE)
-    return match.group(1) if match else None
+    """Estrae il CUP con validazione stretta."""
+    # Trova potenziali candidati CUP
+    matches = re.findall(r'CUP[\s:\-]*([A-Z0-9]{15})', text, re.IGNORECASE)
+    for match in matches:
+        if len(match) == 15 and match.isalnum():  # Assicura esattamente 15 caratteri alfanumerici
+            return match.upper()
+    return None
 
 
 # ============================================================================

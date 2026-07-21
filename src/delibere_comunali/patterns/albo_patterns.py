@@ -55,22 +55,22 @@ RX_IBAN    = re.compile(r'\bIT\s*\d{2}\s*[A-Z]\s*\d{5}\s*\d{5}\s*[0-9A-Z]{12}\b'
 RX_IMPORTO_LIQUIDATO = re.compile(r'(?:liquidare|pagare|erogare|saldo del SAL|certificato di pagamento)[\s\w\n]{1,80}?(?:€|euro)\s*([\d.,]+)', re.IGNORECASE)
 
 # Pattern aggiornati per importi
-IMPORTI_REGEX = [
-    # Pattern specifici per importi in contesti contabili
-    r"(?i)(?:importo|ammontare|quantità|somma)\s*(?:complessivo|totale|di\s+spesa|a\s+base\s+d[’']asta|relativo)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
-    r"(?i)(?:impegno|liquidazione|accredito|pagamento|spesa|onorario|compens[o|i])\s+(?:n\.?\s*\d+\s*)?(?:€\s*|\s+di\s+)?[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
-    r"(?i)(?:per\s+un\s+importo|per\s+l[’']?importo|importo\s+di|importo\s+a|importo\s+lordo|importo\s+netto)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
-    r"(?i)(?:approvare|autorizzare)\s+l[’']?importo\s+di\s+€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
-    r"(?i)€\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})\s*(?:per|a|al|nell[’']?ambito|di|del)",
-    r"(?i)[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})\s*(?:euro|€|EUR)\s+(?:per|a|al|di|del)",
-    r"(?i)IVA\s+(?:inclusa|esclusa)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
-    r"(?i)oner[i|j]\s+di\s+sicurezza\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
-    # Pattern aggiuntivo per contesti finanziari in documenti come delibere e determine
-    r"(?i)(?:dispone|si\s+dichiara|è\s+approvato|è\s+stabilito|è\s+fissato)\s+(?:l[’']?importo|la\s+somma)\s+(?:di|pari\s+a)\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
-    # Pattern per importi in lettere (limitati ai contesti appropriati)
-    r"(?i)\b(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s+(?:euro|€|EUR)\b",
-    r"(?i)\b(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s*/\d{2}\b",
+PRECOMPILED_IMPORTI_REGEX = [
+    re.compile(r"(?i)(?:importo|ammontare|quantità|somma)\s*(?:complessivo|totale|di\s+spesa|a\s+base\s+d[’']asta|relativo)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})"),
+    re.compile(r"(?i)(?:impegno|liquidazione|accredito|pagamento|spesa|onorario|compens[o|i])\s+(?:n\.?\s*\d+\s*)?(?:€\s*|\s+di\s+)?[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})"),
+    re.compile(r"(?i)(?:per\s+un\s+importo|per\s+l[’']?importo|importo\s+di|importo\s+a|importo\s+lordo|importo\s+netto)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})"),
+    re.compile(r"(?i)(?:approvare|autorizzare)\s+l[’']?importo\s+di\s+€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})"),
+    re.compile(r"(?i)€\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})\s*(?:per|a|al|nell[’']?ambito|di|del)"),
+    re.compile(r"(?i)[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})\s*(?:euro|€|EUR)\s+(?:per|a|al|di|del)"),
+    re.compile(r"(?i)IVA\s+(?:inclusa|esclusa)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})"),
+    re.compile(r"(?i)oner[i|j]\s+di\s+sicurezza\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})"),
+    re.compile(r"(?i)(?:dispone|si\s+dichiara|è\s+approvato|è\s+stabilito|è\s+fissato)\s+(?:l[’']?importo|la\s+somma)\s+(?:di|pari\s+a)\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})"),
+    re.compile(r"(?i)\b(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s+(?:euro|€|EUR)\b"),
+    re.compile(r"(?i)\b(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s*/\d{2}\b"),
 ]
+
+# Keep the old name for backward compatibility
+IMPORTI_REGEX = PRECOMPILED_IMPORTI_REGEX
 
 # ============================================================================
 # PATTERN PER COMPETENZE DEL PERSONALE (50+)
@@ -696,22 +696,30 @@ def is_document_relevant(text: str, doc_type: str = None) -> Dict[str, bool]:
 # ============================================================================
 
 def extract_cig_cup(text: str) -> Dict[str, str]:
-    """Estrae CIG e CUP da un testo con migliorata precisione."""
+    """Estrae CIG e CUP da un testo con migliorata precisione e validazione stretta."""
     result = {'cig': None, 'cup': None}
 
-    # CIG (10 caratteri alfanumerici)
-    cig_match = re.search(
-        r'\bC\.?I\.?G\.?(?:\s*n\.?\s*|\s+codice\s+)?([A-Z0-9]{10})\b', 
+    # CIG (10 caratteri alfanumerici esatti)
+    cig_matches = re.findall(
+        r'\bC\.?I\.?G\.?(?:\s*n\.?\s*|\s+codice\s+|:)?\s*([A-Z0-9]{10})\b', 
         text, re.IGNORECASE)
-    if cig_match:
-        result['cig'] = cig_match.group(1)
+    
+    # Validazione stretta: solo stringhe di esattamente 10 caratteri alfanumerici
+    for match in cig_matches:
+        if len(match) == 10 and match.isalnum():  # Assicura esattamente 10 caratteri alfanumerici
+            result['cig'] = match.upper()
+            break  # Usa il primo match valido
 
-    # CUP (15 caratteri alfanumerici)
-    cup_match = re.search(
-        r'\bC\.?U\.?P\.?(?:\s*n\.?\s*|\s+codice\s+)?([A-Z0-9]{15})\b', 
+    # CUP (15 caratteri alfanumerici esatti)
+    cup_matches = re.findall(
+        r'\bC\.?U\.?P\.?(?:\s*n\.?\s*|\s+codice\s+|:)?\s*([A-Z0-9]{15})\b', 
         text, re.IGNORECASE)
-    if cup_match:
-        result['cup'] = cup_match.group(1)
+    
+    # Validazione stretta: solo stringhe di esattamente 15 caratteri alfanumerici
+    for match in cup_matches:
+        if len(match) == 15 and match.isalnum():  # Assicura esattamente 15 caratteri alfanumerici
+            result['cup'] = match.upper()
+            break  # Usa il primo match valido
 
     return result
 
@@ -771,7 +779,7 @@ def extract_importi(text: str, doc_type: str = "unknown") -> List[float]:
     
     # Prova a estrarre usando i pattern appropriati
     for pattern in patterns_to_use:
-        matches = re.findall(pattern, text, re.IGNORECASE)
+        matches = pattern.findall(text)  # Usare il metodo findall dell'oggetto pattern compilato
         for match in matches:
             # Pulizia e conversione
             clean = str(match).replace('€', '').replace('$', '').replace('£', '').strip()

@@ -498,26 +498,8 @@ def lettere_to_numero(testo: str) -> Optional[float]:
         pass
     return None
 
-# Pattern aggiornati per importi
-IMPORTI_REGEX = [
-    r"€\s*[\d.,]+",
-    r"[\d.,]+\s*(euro|€|EUR)",
-    r"importo\s*(totale|complessivo|di\s+spesa|a\s+base\s+d[’']asta)\s*[:=]?\s*[\d.,]+",
-    r"(impegno|liquidazione|accredito|pagamento)\s+(n\.?\s*\d+\s*)?[\d.,]+",
-    # Fixed: Capture amounts that follow CIG/CUP but don't confuse the identifiers themselves
-    r"CIG\s+[A-Z0-9]{10}\s*[:\-]?\s*€?\s*[\d.,]+(?:[.,]\d{2})?",
-    r"CUP\s+[A-Z0-9]{15}\s*[:\-]?\s*€?\s*[\d.,]+(?:[.,]\d{2})?",
-    r"IVA\s+(inclusa|esclusa)\s*[\d.,]+",
-    r"\b\d{1,3}/\d{2}\b",
-    r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s+(euro|€|EUR)\b",
-    r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s*/\d{2}\b",
-    # Nuovi pattern aggiunti per migliorare la copertura
-    r"(?i)(?:importo|spesa|impegno|liquidazione)\s+(?:di|pari a|ammontare a|per un)\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
-    r"(?i)(?:importo|spesa|impegno|liquidazione)\s*[:=]\s*€?\s*[\d.,]+(?:[.,]\d{2})?",
-    r"(?i)(?:approvare|autorizzare|disporre)\s+l['’]\s*?importo\s+di\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
-    r"(?i)(?:parere favorevole|si dispone|si autorizza)\s+(?:l['’]\s*?impegno|il pagamento)\s+di\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
-    r"(?i)importo\s+d[’']\s*?affidamento\s+di\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
-]
+# Import the centralized patterns
+from ..patterns.albo_patterns import IMPORTI_REGEX
 
 # Regex per CIG e CUP (Migliorate per intercettare C.I.G., spaziature, ecc.)
 RX_CIG = re.compile(r'\bC\.?I\.?G\.?(?:\s*(?:n\.|numero|codice)?\s*[:\-]?\s*)([A-Z0-9]{10})\b', re.IGNORECASE)
