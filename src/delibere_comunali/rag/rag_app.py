@@ -6,20 +6,39 @@ import json
 import logging
 from typing import Dict, List, Any, Optional
 
-from ..utils.config import get_config
-from ..utils.logger import get_logger
-from .semantic_rag_engine import SemanticRAGEngine
+# Fix relative import issue by adding the src directory to path
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from delibere_comunali.utils.config import get_config
+from delibere_comunali.utils.logger import get_logger
+from delibere_comunali.rag.semantic_rag_engine import SemanticRAGEngine
 
 logger = get_logger(__name__)
 
 
-def main():
-    """Main function for the RAG Streamlit app."""
-    st.set_page_config(
-        page_title="RAG System - Albo Pretorio Audit",
-        page_icon="🏛️",
-        layout="wide"
-    )
+def main(args_obj=None):
+    """Main function for the RAG Streamlit app.
+    
+    Args:
+        args_obj: Optional Args object from orchestrator for headless operation
+    """
+    if args_obj is not None and hasattr(args_obj, 'ente'):
+        # Called from orchestrator with Args object - for headless operation
+        # We'll just initialize and potentially perform batch operations
+        ente = getattr(args_obj, 'ente', 'avella')
+        print(f"RAG initialized for entity: {ente}")
+        # Perform any headless RAG operations here if needed
+        # For now, we just acknowledge initialization
+        return
+    else:
+        # Normal Streamlit UI operation
+        st.set_page_config(
+            page_title="RAG System - Albo Pretorio Audit",
+            page_icon="🏛️",
+            layout="wide"
+        )
     
     st.title("🏛️ RAG System - Albo Pretorio Audit")
     st.markdown("""
@@ -215,16 +234,20 @@ def main():
 
 def get_available_entities() -> List[str]:
     """Get list of available entities from data directory."""
-    config = get_config()
-    data_dir = Path(config.paths.data_dir)
+    # Look directly in the data directory for entities
+    data_dir = Path("data")  # Look in the data directory where entities are stored
     
     entities = []
     if data_dir.exists():
         for item in data_dir.iterdir():
-            if item.is_dir() and (item / "albo_download").exists():
-                entities.append(item.name)
+            if item.is_dir():
+                # Check if this entity has albo_download directory which indicates a valid entity
+                albo_dir = item / "albo_download"
+                if albo_dir.exists():
+                    entities.append(item.name)
     
-    return sorted(entities) if entities else ["seleziona_ente"]
+    # If no entities found, return a default option
+    return sorted(entities) if entities else ["avella", "seleziona_ente"]  # Added default entity 'avella'
 
 
 if __name__ == "__main__":

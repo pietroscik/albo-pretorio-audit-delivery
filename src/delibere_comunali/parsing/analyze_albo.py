@@ -54,7 +54,31 @@ from ..patterns.albo_patterns import (
     match_patterns_in_text,
     get_patterns_by_category,
     ACCOUNTING_PATTERNS as EXTENDED_ACCOUNTING_PATTERNS,
-    PERSONNEL_PATTERNS as EXTENDED_PERSONNEL_PATTERNS,
+    PERSONNEL_PATTERNS,
+    DETERMINAZIONE_PATTERNS,
+    DELIBERA_PATTERNS,
+    ORDINANZA_PATTERNS,
+    NUMERARIA_PATTERNS,
+    ATTO_PATTERNS,
+    AVVISO_PATTERNS,
+    BANDO_PATTERNS,
+    TRANSVERSAL_PATTERNS,
+    RX_CIG,
+    RX_CUP,
+    RX_OGGETTO,
+    RX_NUM_ATTO,
+    RX_REG_GEN,
+    RX_RESPONSABILE,
+    RX_UFFICIO,
+    RX_BENEF,
+    extract_importi,
+    IMPORTI_REGEX,
+    RX_IMPEGNO,
+    RX_ACCERT,
+    RX_CAPITOLO,
+    RX_PEG,
+    RX_IBAN,
+    RX_IMPORTO_LIQUIDATO
 )
 
 # --- Nuovi import per il Digital Twin ---
@@ -431,6 +455,9 @@ def remove_boilerplate(text):
     """Rimuove il boilerplate dal testo."""
     if not text:
         return text
+    # Ensure text is a string
+    if not isinstance(text, str):
+        text = str(text)
     for pattern in BOILERPLATE_PATTERNS:
         text = pattern.sub("", text)
     text = re.sub(r'\n\s*\n', '\n\n', text)
@@ -477,12 +504,19 @@ IMPORTI_REGEX = [
     r"[\d.,]+\s*(euro|€|EUR)",
     r"importo\s*(totale|complessivo|di\s+spesa|a\s+base\s+d[’']asta)\s*[:=]?\s*[\d.,]+",
     r"(impegno|liquidazione|accredito|pagamento)\s+(n\.?\s*\d+\s*)?[\d.,]+",
-    r"CIG\s+[A-Z0-9]+\s*[:\-]?\s*[\d.,]+",
-    r"CUP\s+[A-Z0-9]+\s*[:\-]?\s*[\d.,]+",
+    # Fixed: Capture amounts that follow CIG/CUP but don't confuse the identifiers themselves
+    r"CIG\s+[A-Z0-9]{10}\s*[:\-]?\s*€?\s*[\d.,]+(?:[.,]\d{2})?",
+    r"CUP\s+[A-Z0-9]{15}\s*[:\-]?\s*€?\s*[\d.,]+(?:[.,]\d{2})?",
     r"IVA\s+(inclusa|esclusa)\s*[\d.,]+",
     r"\b\d{1,3}/\d{2}\b",
     r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s+(euro|€|EUR)\b",
     r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s*/\d{2}\b",
+    # Nuovi pattern aggiunti per migliorare la copertura
+    r"(?i)(?:importo|spesa|impegno|liquidazione)\s+(?:di|pari a|ammontare a|per un)\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
+    r"(?i)(?:importo|spesa|impegno|liquidazione)\s*[:=]\s*€?\s*[\d.,]+(?:[.,]\d{2})?",
+    r"(?i)(?:approvare|autorizzare|disporre)\s+l['’]\s*?importo\s+di\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
+    r"(?i)(?:parere favorevole|si dispone|si autorizza)\s+(?:l['’]\s*?impegno|il pagamento)\s+di\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
+    r"(?i)importo\s+d[’']\s*?affidamento\s+di\s+€?\s*[\d.,]+(?:[.,]\d{2})?",
 ]
 
 # Regex per CIG e CUP (Migliorate per intercettare C.I.G., spaziature, ecc.)
@@ -515,6 +549,50 @@ RX_IBAN    = re.compile(r'\bIT\s*\d{2}\s*[A-Z]\s*\d{5}\s*\d{5}\s*[0-9A-Z]{12}\b'
 # Regex per catturare l'importo specifico di liquidazione/SAL evitando il totale dell'appalto
 RX_IMPORTO_LIQUIDATO = re.compile(r'(?:liquidare|pagare|erogare|saldo del SAL|certificato di pagamento)[\s\w\n]{1,80}?(?:€|euro)\s*([\d.,]+)', re.IGNORECASE)
 
+# Aggiunta funzione per l'estrazione delle date
+def extract_date_from_text(text: str) -> List[str]:
+    """Estrae tutte le date dal testo in vari formati italiani."""
+    date_patterns = [
+        r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # DD/MM/YYYY
+        r'\b\d{1,2}-\d{1,2}-\d{4}\b',  # DD-MM-YYYY
+        r'\b\d{4}-\d{1,2}-\d{1,2}\b',  # YYYY-MM-DD
+        r'\b\d{1,2}\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}\b',  # DD MMMM YYYY
+        # Nuovi pattern aggiunti per migliorare la copertura in documenti amministrativi
+        r"(?i)(?:il\s+|del\s+|data\s+del\s+)(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})",
+        r"(?i)(?:il\s+|del\s+|data\s+del\s+)(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})",
+        r"(?i)della data (\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})",
+        r"(?i)(?:determinazione|delibera|ordinanza)\s+n\.?\s*\d+[/\-]\d{4}\s*del\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})",
+    ]
+    dates = []
+    for pattern in date_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for match in matches:
+            if isinstance(match, tuple):
+                # Se il match contiene gruppi, ricostruiamo la data
+                if len(match) == 3:  # Giorno, mese, anno
+                    day, month, year = match
+                    if month.lower() in ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 
+                                         'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']:
+                        month_num = {
+                            'gennaio': '01', 'febbraio': '02', 'marzo': '03', 'aprile': '04',
+                            'maggio': '05', 'giugno': '06', 'luglio': '07', 'agosto': '08',
+                            'settembre': '09', 'ottobre': '10', 'novembre': '11', 'dicembre': '12'
+                        }[month.lower()]
+                        formatted_date = f"{day.zfill(2)}/{month_num}/{year}"
+                    else:
+                        formatted_date = f"{day.zfill(2)}/{month.zfill(2)}/{year}"
+                    dates.append(formatted_date)
+                elif len(match) == 1:  # Singolo match
+                    dates.extend(match)
+            else:
+                dates.append(match)
+    
+    # Rimuovere duplicati mantenendo l'ordine
+    unique_dates = []
+    for date in dates:
+        if date not in unique_dates:
+            unique_dates.append(date)
+    return unique_dates
 
 # -------- Competenze Personale (Pattern basati su documenti reali) --------
 
@@ -599,6 +677,71 @@ def is_accounting_relevant(text, doc_type, category):
         return True
     return False
 
+def is_accounting_relevant_extended(text: str) -> bool:
+    """Versione estesa del controllo di rilevanza contabile."""
+    from ..models.administrative_event import DocumentType
+    
+    haystack = (text or "").lower()
+    
+    # Se contiene evidenti indicatori contabili, è rilevante
+    accounting_indicators = [
+        "importo", "euro", "€", "spesa", "incasso", "bilancio", "conto", 
+        "finanziamento", "contributo", "rimborso", "accertamento", "impegno",
+        "liquidazione", "pagamento", "variazione di bilancio", "riconoscimento debito",
+        "debito fuori bilancio", "competenza", "cassa", "accantonamento",
+        "prelievo", "integrazione", "integrazione bilancio", "variazione"
+    ]
+    
+    # Cerchiamo indicatori contabili
+    found_accounting = any(indicator in haystack for indicator in accounting_indicators)
+    
+    # Cerchiamo anche pattern numerici specifici (es. importi con contesto)
+    import re
+    amount_patterns = [
+        r'euro\s+[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})',
+        r'€\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})',
+        r'importo\s+di\s+[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})',
+        r'impegno\s+di\s+spesa',
+        r'liquidazione\s+(?:del|di)',
+        r'approvazione\s+.*\s+spesa'
+    ]
+    
+    found_amount_patterns = any(re.search(pattern, haystack, re.IGNORECASE) for pattern in amount_patterns)
+    
+    return found_accounting or found_amount_patterns
+
+def is_personnel_competence_relevant_extended(text: str) -> bool:
+    """Versione estesa del controllo di rilevanza per competenze del personale."""
+    haystack = (text or "").lower()
+    
+    # Indicatori di documenti relativi al personale
+    personnel_indicators = [
+        "personale", "dipendente", "dipartimento", "ufficio", "area", "settore",
+        "nomina", "incarico", "delega", "attribuzione", "funzione", "ruolo",
+        "dirigente", "responsabile", "posizione organizzativa", "struttura",
+        "organigramma", "ripartizione", "gestione personale", "risorse umane",
+        "funzioni", "competenze", "mansioni", "attribuzioni",
+        "regolamento", "disciplina", "norme", "procedura", "modalità"
+    ]
+    
+    # Cerchiamo indicatori di personale
+    found_personnel = any(indicator in haystack for indicator in personnel_indicators)
+    
+    # Cerchiamo anche pattern specifici per competenze
+    import re
+    competence_patterns = [
+        r'(?:funzioni|competenze|attribuzioni|mansioni|ruolo|incarico)\s+(?:del|della|dei|delle|di)',
+        r'(?:nomina|delega|incarico|assegnazione)\s+(?:a|di|del|della)',
+        r'personale\s+(?:dell|del|della|di)',
+        r'ufficio\s+(?:di|del|della|di)',
+        r'regolamento\s+.*\s+personale',
+        r'disciplina\s+.*\s+personale'
+    ]
+    
+    found_competence_patterns = any(re.search(pattern, haystack, re.IGNORECASE) for pattern in competence_patterns)
+    
+    return found_personnel or found_competence_patterns
+
 def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[DocumentClassifier] = None, entity_extractor: Optional[EntityExtractor] = None, feature_extractor: Optional[TextFeatureExtractor] = None, ente_nome=None, text_dir=None) -> ParsedDocument:
     """Estrae testo e cattura campi principali da un PDF (testuale -> OCR fallback)."""
     
@@ -643,8 +786,8 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
         "anomalie": None,
         "responsabile": None,
         "ufficio": None,
-        "impegno_num": None,
-        "impegno_anno": None,
+        "impeggo_num": None,
+        "impeggo_anno": None,
         "accert_num": None,
         "accert_anno": None,
         "quadro_economico": None,
@@ -729,7 +872,12 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
 
     known_fields = set(ParsedDocument.__annotations__.keys())
     filtered_out = {k: v for k, v in out.items() if k in known_fields}
-    return ParsedDocument(**filtered_out, _text=text_one)
+    
+    # Aggiungi il testo estratto a text_preview se presente
+    if 'text_preview' in known_fields and '_text' in locals():
+        filtered_out['text_preview'] = text_one
+    
+    return ParsedDocument(**filtered_out)
 
 def safe_literal_list(s):
     """Converte la stringa della colonna allegati (lista) in lista Python."""
@@ -875,18 +1023,20 @@ def main(args=None):
 
             parsed_docs.append(doc)
 
-            if event_factory and doc._text:
+            if event_factory and doc.text_preview:
                 event = event_factory.create_event(doc)
                 procedure_builder.add_event(event)
 
             if not args.no_corpus:
-                corpus_row = doc.model_dump()
-                corpus_row["text"] = doc._text
+                import dataclasses
+                corpus_row = dataclasses.asdict(doc)
+                corpus_row["text"] = doc.text_preview
                 corpus_rows.append(corpus_row)
 
         op.set_items_processed(len(files))
 
-    dfp = pd.DataFrame([p.model_dump() for p in parsed_docs])
+    import dataclasses
+    dfp = pd.DataFrame([dataclasses.asdict(p) for p in parsed_docs])
 
     # --- Digital Twin Procedure Analysis ---
     logger.info("Costruzione e analisi dei procedimenti (Digital Twin)...")
@@ -943,7 +1093,8 @@ def main(args=None):
     logger.info("Salvataggio CSV...")
     dfp.to_csv(out_csv_allegati, index=False, encoding="utf-8")
 
-    feature_cols = [c for c in ParsedDocument.model_fields.keys() if c != "_text"]
+    import dataclasses
+    feature_cols = [field.name for field in dataclasses.fields(ParsedDocument)]
     dff = dfp[[c for c in feature_cols if c in dfp.columns]].copy()
     dff.to_csv(out_csv_features, index=False, encoding="utf-8")
 
@@ -972,3 +1123,103 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
+
+# Funzione per estrarre le date in vari formati
+def extract_date(text: str) -> List[str]:
+    """Estrae tutte le date in formato DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, MM-DD-YYYY, YYYY-MM-DD, YYYY/MM/DD, DD MMMM YYYY o MMMM DD, YYYY."""
+    import re
+    # Pattern per date in vari formati
+    date_patterns = [
+        r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # DD/MM/YYYY o MM/DD/YYYY
+        r'\b\d{1,2}-\d{1,2}-\d{4}\b',  # DD-MM-YYYY o MM-DD-YYYY
+        r'\b\d{4}-\d{1,2}-\d{1,2}\b',  # YYYY-MM-DD
+        r'\b\d{4}/\d{1,2}/\d{1,2}\b',  # YYYY/MM/DD
+        r'\b(?:0?[1-9]|[12][0-9]|3[01])[\/\-](?:0?[1-9]|1[012])[\/\-](?:19|20)\d{2}\b',  # DD/MM/YYYY o DD-MM-YYYY
+        r'\b(?:0?[1-9]|1[012])[\/\-](?:0?[1-9]|[12][0-9]|3[01])[\/\-](?:19|20)\d{2}\b',  # MM/DD/YYYY o MM-DD-YYYY
+        r'\b(?:3[01]|[12][0-9]|0?[1-9])\s+(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}\b',  # DD MMMM YYYY
+        r'\b(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(?:3[01]|[12][0-9]|0?[1-9]),?\s+\d{4}\b',  # MMMM DD, YYYY
+    ]
+    dates = []
+    for pattern in date_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        dates.extend(matches)
+    # Rimuovere duplicati mantenendo l'ordine
+    unique_dates = []
+    for date in dates:
+        if date not in unique_dates:
+            unique_dates.append(date)
+    return unique_dates
+
+# Funzione per estrarre tutti i metadati
+def extract_all_metadata(pdf_path: str, filename: str = "") -> Dict:
+    """Estrae TUTTI i metadati con pattern estesi."""
+    if not filename:
+        filename = os.path.basename(pdf_path)
+
+    # Determina tipo documento
+    doc_type = "altro"
+    if any(t in filename for t in ["Determinazione", "Determina"]):
+        doc_type = "determinazione"
+    elif "Delibera" in filename:
+        doc_type = "delibera"
+    elif "Ordinanza" in filename:
+        doc_type = "ordinanza"
+    elif "Numeraria" in filename:
+        doc_type = "numeraria"
+    elif "Avviso" in filename:
+        doc_type = "avviso"
+    elif "Bando" in filename:
+        doc_type = "bando"
+    elif "Atto" in filename:
+        doc_type = "atto"
+
+    # Leggi testo
+    text = ""
+    try:
+        with open(pdf_path, 'r', encoding='utf-8', errors='ignore') as f:
+            text = f.read()
+    except:
+        pass
+
+    # Estrai con pattern estesi
+    metadata = {
+        'filename': filename,
+        'doc_type': doc_type,
+        'is_accounting_relevant': is_accounting_relevant_extended(text),
+        'is_personnel_competence_relevant': is_personnel_competence_relevant_extended(text),
+    }
+
+    # Estrai CIG e CUP
+    cig_cup = extract_cig_cup(text)
+    metadata.update(cig_cup)
+
+    # Estrai importi
+    importi = extract_importi(text, doc_type)  # Changed from extract_importi_extended to extract_importi and added doc_type parameter
+    if importi:
+        metadata['importi'] = importi
+        metadata['importo_totale'] = sum(importi)
+
+    # Estrai date
+    dates = extract_date(text)
+    if dates:
+        metadata['date'] = dates
+
+    # Estrai nomi propri
+    nomi = extract_nomi_propri(text)
+    if nomi:
+        metadata['nomi_propri'] = list(set(nomi))  # Rimuovi duplicati
+
+    # Estrai competenze del personale
+    competences = extract_personnel_competences(text)
+    metadata['personnel_competences'] = [c.__dict__ for c in competences]
+
+    # Estrai riferimenti a decreti
+    metadata['decree_references'] = extract_decree_references(text)
+
+    # Match pattern specifici per tipologia
+    category_patterns = get_category_specific_patterns(doc_type)
+    matched_patterns = match_patterns_in_text(text, category_patterns)
+    if matched_patterns:
+        metadata['matched_patterns'] = matched_patterns
+
+    return metadata

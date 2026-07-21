@@ -37,23 +37,18 @@ class SemanticRAGEngine:
     """
     
     def __init__(self, ente: str, model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
+        # Store configuration and initialize components
         self.ente = ente
         self.config = get_config()
-        self.privacy_guard = get_privacy_guard()
-        
-        # Initialize embedding model
-        try:
-            self.embedding_model = SentenceTransformer(model_name)
-        except Exception as e:
-            logger.error(f"Failed to initialize embedding model: {e}")
-            # Fallback to a simpler approach
-            self.embedding_model = None
-        
-        # Setup paths
-        self.data_path = Path(self.config.paths.data_dir) / ente / "albo_download"
-        self.faiss_index_path = self.data_path / "faiss_index" / "index.bin"
+        # Fixed: construct the path correctly to point to data/{ente}/albo_download
+        self.data_path = Path("data") / ente / "albo_download"
+        self.faiss_index_path = self.data_path / "faiss_index" / "index.faiss"
         self.documents_path = self.data_path / "documenti_corpus.jsonl"
         self.metadata_path = self.data_path / "documenti_metadata.json"
+        
+        # Initialize privacy guard for GDPR compliance
+        from ..utils.privacy_guard import get_privacy_guard
+        self.privacy_guard = get_privacy_guard()
         
         # Initialize FAISS index
         self.index = None

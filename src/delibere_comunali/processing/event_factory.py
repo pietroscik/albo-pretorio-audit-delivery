@@ -23,17 +23,17 @@ class DigitalTwinEventFactory:
         Creates an AdministrativeEvent from a ParsedDocument object.
         """
         # 1. Route the document to determine its type in the Digital Twin context
-        doc_type_enum, event_type_enum = route_document(doc._text)
+        doc_type_enum, event_type_enum = route_document(doc.text_preview or "")
 
         # 2. Build the list of actors involved
         actors: List[Actor] = []
-        if doc.rup_nome and doc.rup_nome != "NON IDENTIFICATO":
+        if doc.responsabile and doc.responsabile != "NON IDENTIFICATO":
             actors.append(
                 Actor(
-                    name=doc.rup_nome,
+                    name=doc.responsabile,
                     actor_type=ActorType.RUP,
-                    role=doc.rup_ruolo,
-                    area=doc.rup_area,
+                    role=getattr(doc, 'rup_ruolo', None),
+                    area=getattr(doc, 'rup_area', None),
                 )
             )
         if doc.beneficiario and doc.beneficiario not in [
@@ -55,7 +55,7 @@ class DigitalTwinEventFactory:
             cup=doc.cup,
             actors=actors,
             confidence=0.8,  # Placeholder confidence, can be improved later
-            raw_text=doc._text,
+            raw_text=doc.text_preview or "",
             metadata={"urn": doc.legal_urn, "source_file": doc.pdf_name},
         )
         return event

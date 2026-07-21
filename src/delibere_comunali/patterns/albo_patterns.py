@@ -56,16 +56,20 @@ RX_IMPORTO_LIQUIDATO = re.compile(r'(?:liquidare|pagare|erogare|saldo del SAL|ce
 
 # Pattern aggiornati per importi
 IMPORTI_REGEX = [
-    r"€\s*[\d.,]+",
-    r"[\d.,]+\s*(euro|€|EUR)",
-    r"importo\s*(totale|complessivo|di\s+spesa|a\s+base\s+d[’']asta)\s*[:=]?\s*[\d.,]+",
-    r"(impegno|liquidazione|accredito|pagamento)\s+(n\.?\s*\d+\s*)?[\d.,]+",
-    r"CIG\s+[A-Z0-9]+\s*[:\-]?\s*[\d.,]+",
-    r"CUP\s+[A-Z0-9]+\s*[:\-]?\s*[\d.,]+",
-    r"IVA\s+(inclusa|esclusa)\s*[\d.,]+",
-    r"\b\d{1,3}/\d{2}\b",
-    r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s+(euro|€|EUR)\b",
-    r"\b(uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s*/\d{2}\b",
+    # Pattern specifici per importi in contesti contabili
+    r"(?i)(?:importo|ammontare|quantità|somma)\s*(?:complessivo|totale|di\s+spesa|a\s+base\s+d[’']asta|relativo)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
+    r"(?i)(?:impegno|liquidazione|accredito|pagamento|spesa|onorario|compens[o|i])\s+(?:n\.?\s*\d+\s*)?(?:€\s*|\s+di\s+)?[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
+    r"(?i)(?:per\s+un\s+importo|per\s+l[’']?importo|importo\s+di|importo\s+a|importo\s+lordo|importo\s+netto)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
+    r"(?i)(?:approvare|autorizzare)\s+l[’']?importo\s+di\s+€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
+    r"(?i)€\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})\s*(?:per|a|al|nell[’']?ambito|di|del)",
+    r"(?i)[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})\s*(?:euro|€|EUR)\s+(?:per|a|al|di|del)",
+    r"(?i)IVA\s+(?:inclusa|esclusa)\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
+    r"(?i)oner[i|j]\s+di\s+sicurezza\s*[:=]?\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
+    # Pattern aggiuntivo per contesti finanziari in documenti come delibere e determine
+    r"(?i)(?:dispone|si\s+dichiara|è\s+approvato|è\s+stabilito|è\s+fissato)\s+(?:l[’']?importo|la\s+somma)\s+(?:di|pari\s+a)\s*€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})",
+    # Pattern per importi in lettere (limitati ai contesti appropriati)
+    r"(?i)\b(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s+(?:euro|€|EUR)\b",
+    r"(?i)\b(?:uno|due|tre|quattro|cinque|sei|sette|otto|nove|dieci|undici|dodici|tredici|quattordici|quindici|sedici|diciassette|diciotto|diciannove|venti|trenta|quaranta|cinquanta|sessanta|settanta|ottanta|novanta|cento|mille|milione|miliardo)\s*/\d{2}\b",
 ]
 
 # ============================================================================
@@ -692,45 +696,159 @@ def is_document_relevant(text: str, doc_type: str = None) -> Dict[str, bool]:
 # ============================================================================
 
 def extract_cig_cup(text: str) -> Dict[str, str]:
-    """Estrae CIG e CUP da un testo."""
+    """Estrae CIG e CUP da un testo con migliorata precisione."""
     result = {'cig': None, 'cup': None}
 
-    # CIG
-    cig_match = re.search(r'CIG\s*[:\s]+([A-Z0-9]{10})', text, re.IGNORECASE)
+    # CIG (10 caratteri alfanumerici)
+    cig_match = re.search(
+        r'\bC\.?I\.?G\.?(?:\s*n\.?\s*|\s+codice\s+)?([A-Z0-9]{10})\b', 
+        text, re.IGNORECASE)
     if cig_match:
         result['cig'] = cig_match.group(1)
 
-    # CUP
-    cup_match = re.search(r'CUP\s*[:\s]+([A-Z0-9]{15})', text, re.IGNORECASE)
+    # CUP (15 caratteri alfanumerici)
+    cup_match = re.search(
+        r'\bC\.?U\.?P\.?(?:\s*n\.?\s*|\s+codice\s+)?([A-Z0-9]{15})\b', 
+        text, re.IGNORECASE)
     if cup_match:
         result['cup'] = cup_match.group(1)
 
     return result
 
-def extract_importi(text: str) -> List[float]:
-    """Estrae tutti gli importi in euro da un testo."""
-    import re
-
-    # Pattern per importi con € o senza
-    euro_pattern = r'€?\s*[\d]{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?'
-    matches = re.findall(euro_pattern, text)
-
+def extract_importi(text: str, doc_type: str = "unknown") -> List[float]:
+    """Estrae tutti gli importi in euro da un testo con maggiore precisione."""
     importi = []
-    for match in matches:
-        # Pulizia
-        clean = match.replace('€', '').replace('.', '').replace(',', '.').strip()
-        if clean:
-            try:
-                importi.append(float(clean))
-            except ValueError:
-                pass
-
-    return importi
+    
+    # Per documenti finanziari, usiamo tutti i pattern
+    # Per documenti non finanziari, usiamo solo i pattern più specifici
+    from ..models.administrative_event import DocumentType
+    
+    financial_doc_types = {
+        DocumentType.DELIBERA.value, 
+        DocumentType.DETERMINA.value,
+        DocumentType.ORDINANZA.value,
+        DocumentType.BANDO.value,
+        DocumentType.ATTO.value,
+        DocumentType.ESITO.value,
+        "Liquidazione",  # Testo normale per liquidazioni
+        "Contabilità",   # Testo normale per contabilità
+        "Visto Contabile", # Testo normale per visto contabile
+        "Atto Contabile"   # Testo normale per atto contabile
+    }
+    
+    # Convert doc_type string to match the enum values
+    doc_type_normalized = doc_type.lower() if doc_type else "unknown"
+    
+    # Mappa i nomi comuni ai valori dell'enum
+    doc_type_mapping = {
+        "delibera": DocumentType.DELIBERA.value,
+        "determinazione": DocumentType.DETERMINA.value,
+        "determina": DocumentType.DETERMINA.value,
+        "ordinanza": DocumentType.ORDINANZA.value,
+        "bando": DocumentType.BANDO.value,
+        "avviso": DocumentType.AVVISO.value,
+        "atto": DocumentType.ATTO.value,
+        "esito": DocumentType.ESITO.value,
+        "numeraria": DocumentType.NUMERARIA.value,
+        "liquidazione": "Liquidazione",
+        "conto": "Contabilità",
+        "contabilita": "Contabilità",
+        "vistocontabile": "Visto Contabile",
+        "visto_contabile": "Visto Contabile",
+        "attocontabile": "Atto Contabile",
+        "atto_contabile": "Atto Contabile"
+    }
+    
+    # Ottieni il tipo normalizzato
+    normalized_doc_type = doc_type_mapping.get(doc_type_normalized, "unknown")
+    
+    if normalized_doc_type in financial_doc_types:
+        # Per documenti finanziari, usiamo tutti i pattern
+        patterns_to_use = IMPORTI_REGEX
+    else:
+        # Per altri documenti, usiamo solo i pattern più specifici per evitare falsi positivi
+        patterns_to_use = IMPORTI_REGEX[:6]  # Solo i pattern più specifici
+    
+    # Prova a estrarre usando i pattern appropriati
+    for pattern in patterns_to_use:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for match in matches:
+            # Pulizia e conversione
+            clean = str(match).replace('€', '').replace('$', '').replace('£', '').strip()
+            
+            # Rimuovi eventuali caratteri non numerici eccetto punti e virgole
+            clean = re.sub(r'[^\d.,\s]', '', clean).strip()
+            
+            # Estrai il valore numerico dal testo pulito
+            # Cerca formati come 1.234,56 o 1,234.56 o 1234.56 o 1234,56
+            num_pattern = r'(?:\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})|\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+(?:[.,]\d{2}))'
+            num_matches = re.findall(num_pattern, clean)
+            
+            for num_match in num_matches:
+                # Converti in base al formato italiano (punto come separatore migliaia, virgola come decimale)
+                # o formato americano (virgola come separatore migliaia, punto come decimale)
+                
+                # Controlla se l'ultimo separatore è un punto o una virgola
+                last_dot_pos = num_match.rfind('.')
+                last_comma_pos = num_match.rfind(',')
+                
+                if last_dot_pos > last_comma_pos and last_dot_pos != -1:
+                    # Ultimo separatore è punto - potrebbe essere formato americano o misto
+                    # Se abbiamo qualcosa dopo l'ultimo punto che ha 1-2 cifre, probabilmente è il decimale
+                    after_last_dot = num_match[last_dot_pos+1:]
+                    if len(after_last_dot) <= 2 and after_last_dot.isdigit():
+                        # Formato tipo 1,234.56 (americano o misto)
+                        clean_num = num_match.replace(',', '')
+                    else:
+                        # Formato tipo 1.234 (solo migliaia italiane)
+                        clean_num = num_match.replace('.', '')
+                elif last_comma_pos > last_dot_pos and last_comma_pos != -1:
+                    # Ultimo separatore è virgola - formato italiano probabile
+                    # Se abbiamo qualcosa dopo l'ultima virgola che ha 1-2 cifre, probabilmente è il decimale
+                    after_last_comma = num_match[last_comma_pos+1:]
+                    if len(after_last_comma) <= 2 and after_last_comma.isdigit():
+                        # Formato tipo 1.234,56 (italiano)
+                        clean_num = num_match.replace('.', '').replace(',', '.')
+                    else:
+                        # Formato tipo 1.234 (solo migliaia)
+                        clean_num = num_match.replace(',', '')
+                else:
+                    # Nessun separatore decimale complesso, solo numeri
+                    clean_num = num_match.replace(',', '.')
+                
+                try:
+                    float_val = float(clean_num)
+                    if float_val > 0:  # Solo valori positivi
+                        importi.append(float_val)
+                except ValueError:
+                    pass
+    
+    # Rimuove duplicati e ordina
+    return sorted(list(set(importi)))
 
 def extract_date(text: str) -> List[str]:
-    """Estrae tutte le date in formato DD/MM/YYYY."""
-    date_pattern = r'\b\d{2}/\d{2}/\d{4}\b'
-    return re.findall(date_pattern, text)
+    """Estrae tutte le date in formato DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, MM-DD-YYYY, YYYY-MM-DD, YYYY/MM/DD, DD MMMM YYYY o MMMM DD, YYYY."""
+    # Pattern per date in vari formati
+    date_patterns = [
+        r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # DD/MM/YYYY o MM/DD/YYYY
+        r'\b\d{1,2}-\d{1,2}-\d{4}\b',  # DD-MM-YYYY o MM-DD-YYYY
+        r'\b\d{4}-\d{1,2}-\d{1,2}\b',  # YYYY-MM-DD
+        r'\b\d{4}/\d{1,2}/\d{1,2}\b',  # YYYY/MM/DD
+        r'\b(?:0?[1-9]|[12][0-9]|3[01])[\/\-](?:0?[1-9]|1[012])[\/\-](?:19|20)\d{2}\b',  # DD/MM/YYYY o DD-MM-YYYY
+        r'\b(?:0?[1-9]|1[012])[\/\-](?:0?[1-9]|[12][0-9]|3[01])[\/\-](?:19|20)\d{2}\b',  # MM/DD/YYYY o MM-DD-YYYY
+        r'\b(?:3[01]|[12][0-9]|0?[1-9])\s+(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}\b',  # DD MMMM YYYY
+        r'\b(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(?:3[01]|[12][0-9]|0?[1-9]),?\s+\d{4}\b',  # MMMM DD, YYYY
+    ]
+    dates = []
+    for pattern in date_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        dates.extend(matches)
+    # Rimuovere duplicati mantenendo l'ordine
+    unique_dates = []
+    for date in dates:
+        if date not in unique_dates:
+            unique_dates.append(date)
+    return unique_dates
 
 def extract_nomi_propri(text: str) -> List[str]:
     """Estrae nomi propri (persone, enti) da un testo."""

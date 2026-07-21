@@ -20,7 +20,8 @@ def validate_document(row_meta, row_allegati=None) -> Dict:
     classification_conf = str(row_allegati.get("classification_confidence", "")) if row_allegati is not None else ""
 
     tipologia_conf = calculate_tipologia_confidence(tipologia, filename, oggetto, url, doc_type_ml)
-    importi = extract_importi(text) if text else []
+    # Estrai importi
+    importi = extract_importi(text, doc_type_ml) if text else []  # Use doc_type_ml which is available
     importi_conf = calculate_importi_confidence(importi, doc_type_ml, category, len(text))
     overall_conf = calculate_overall_confidence(tipologia_conf, importi_conf, classification_conf)
 
