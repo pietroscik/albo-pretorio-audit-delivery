@@ -5,12 +5,12 @@ Handles environment variables, configuration files, and tenant-specific settings
 OPTIMIZATION: Added support for environment variables via python-dotenv.
 """
 
+import os
 import json
 import logging
-import os
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
+from functools import lru_cache
 
 # Try to import dotenv for environment variable management
 try:
@@ -22,7 +22,6 @@ except ImportError:
     load_dotenv = None
 
 # Setup basic logging to avoid circular import
-# We'll use a simple logger here and import the full logger later
 _basic_logger = logging.getLogger(__name__)
 _basic_logger.setLevel(logging.INFO)
 _handler = logging.StreamHandler()
@@ -86,9 +85,7 @@ class Config:
     configuration files, and provides type-safe access.
     """
 
-    def __init__(
-        self, config_file: Optional[str] = None, env_file: Optional[str] = None
-    ):
+    def __init__(self, config_file: Optional[str] = None, env_file: Optional[str] = None):
         """
         Initialize the configuration manager.
 
@@ -198,12 +195,7 @@ class Config:
                     if isinstance(default_value, bool):
                         # Convert string to boolean
                         env_value = os.environ[env_var].lower()
-                        self._config[config_key] = env_value in (
-                            "true",
-                            "1",
-                            "yes",
-                            "on",
-                        )
+                        self._config[config_key] = env_value in ("true", "1", "yes", "on")
                     elif isinstance(default_value, int):
                         self._config[config_key] = int(os.environ[env_var])
                     elif isinstance(default_value, float):
@@ -270,6 +262,31 @@ class Config:
         """Return list of loaded configuration files."""
         return self._loaded_files.copy()
 
+    # Backward compatibility properties
+    @property
+    def data_dir(self) -> Path:
+        """Backward compatibility: data_dir property."""
+        return self.get_path("DATA_DIR")
+
+    @property
+    def output_dir(self) -> Path:
+        """Backward compatibility: output_dir property."""
+        return self.get_path("OUTPUT_DIR")
+
+    @property
+    def log_dir(self) -> Path:
+        """Backward compatibility: log_dir property."""
+        return self.get_path("LOG_DIR")
+
+    @property
+    def cache_dir(self) -> Path:
+        """Backward compatibility: cache_dir property."""
+        return self.get_path("CACHE_DIR")
+
+
+# Backward compatibility alias
+AppConfig = Config
+
 
 # Global configuration instance
 _config_instance: Optional[Config] = None
@@ -320,7 +337,11 @@ def get_db_connection_string() -> str:
         Database connection string
     """
     config = get_config()
-    return f"postgresql://{config.get('DB_USER')}:{config.get('DB_PASSWORD')}@{config.get('DB_HOST')}:{config.get('DB_PORT')}/{config.get('DB_NAME')}"
+
+    return (
+        f"postgresql://{config.get('DB_USER')}:{config.get('DB_PASSWORD')}"
+        f"@{config.get('DB_HOST')}:{config.get('DB_PORT')}/{config.get('DB_NAME')}"
+    )
 
 
 def get_redis_connection_string() -> str:
@@ -333,5 +354,9 @@ def get_redis_connection_string() -> str:
     config = get_config()
     password = config.get("REDIS_PASSWORD")
     if password:
-        return f"redis://:{password}@{config.get('REDIS_HOST')}:{config.get('REDIS_PORT')}/{config.get('REDIS_DB')}"
+
+        return (
+            f"redis://:{password}@{config.get('REDIS_HOST')}"
+            f":{config.get('REDIS_PORT')}/{config.get('REDIS_DB')}"
+        )
     return f"redis://{config.get('REDIS_HOST')}:{config.get('REDIS_PORT')}/{config.get('REDIS_DB')}"
