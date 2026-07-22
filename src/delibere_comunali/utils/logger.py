@@ -2,196 +2,206 @@
 """
 Logging module with structured logging support.
 Provides centralized logging configuration for the entire application.
+
+FIXED: Removed circular import with config module.
 """
 
 import logging
 import sys
-from pathlib import Path
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Optional
-
-from .config import LoggingConfig, get_config
 
 
 class CustomFormatter(logging.Formatter):
     """Custom formatter with color support for console output."""
-    
+
     COLORS = {
-        'DEBUG': '\033[36m',     # Cyan
-        'INFO': '\033[32m',      # Green
-        'WARNING': '\033[33m',   # Yellow
-        'ERROR': '\033[31m',     # Red
-        'CRITICAL': '\033[35m',  # Magenta
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
     }
-    RESET = '\033[0m'
-    
+    RESET = "\033[0m"
+
     def format(self, record):
         # Avoid mutating levelname for downstream handlers (e.g. file logging).
         original_level = record.levelname
-        log_color = self.COLORS.get(original_level, self.RESET)
-        record.levelname = f"{log_color}{original_level}{self.RESET}"
-        try:
-            return super().format(record)
-        finally:
-            record.levelname = original_level
+
+        # Add color to levelname
+        if record.levelname in self.COLORS:
+            record.levelname = (
+                f"{self.COLORS[record.levelname]}{record.levelname}{self.RESET}"
+            )
+
+        # Format the message
+        formatted = super().format(record)
+
+        # Restore original levelname
+        record.levelname = original_level
+
+        return formatted
 
 
-def setup_logging(
-    config: Optional[LoggingConfig] = None,
-    log_file: Optional[Path] = None,
-    level: Optional[str] = None,
+class JSONFormatter(logging.Formatter):
+    """Formatter for JSON output."""
+
+    def format(self, record):
+        import json
+
+        log_data = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+        }
+
+        # Add exception info if present
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info)
+
+        # Add extra fields
+        for key, value in record.__dict__.items():
+            if key not in log_data and not key.startswith("_"):
+                try:
+                    # Try to serialize the value
+                    json.dumps(value)
+                    log_data[key] = value
+                except (TypeError, ValueError):
+                    # If not serializable, convert to string
+                    log_data[key] = str(value)
+
+        return json.dumps(log_data, ensure_ascii=False)
+
+
+# Global logger configuration
+_loggers = {}
+
+
+def get_logger(
+    name: str, log_level: Optional[str] = None, log_format: Optional[str] = None
 ) -> logging.Logger:
     """
-    Set up logging with both console and file handlers.
-    
+    Get a configured logger instance.
+
     Args:
-        config: Logging configuration (uses app config if not provided)
-        log_file: Optional path to log file (overrides config)
-        level: Optional logging level (overrides config)
-    
+        name: Logger name (typically __name__)
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_format: Log format ('text' or 'json')
+
     Returns:
         Configured logger instance
     """
-    if config is None:
-        config = get_config().logging
-    
-    if level is None:
-        level = config.level
-    
-    # Create root logger
-    logger = logging.getLogger('albo_pretorio')
-    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-    
-    # Clear existing handlers
-    logger.handlers.clear()
-    
-    # Console handler with colored output
+    if name in _loggers:
+        return _loggers[name]
+
+    # Create logger
+    logger = logging.getLogger(name)
+
+    # Set log level - handle None case
+    if log_level is None:
+        import os
+
+        log_level = os.environ.get("LOG_LEVEL", "INFO")
+
+    try:
+        level = getattr(logging, log_level.upper(), logging.INFO)
+        logger.setLevel(level)
+    except AttributeError:
+        logger.setLevel(logging.INFO)
+
+    # Prevent duplicate handlers
+    if logger.handlers:
+        _loggers[name] = logger
+        return logger
+
+    # Create console handler
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
-    console_formatter = CustomFormatter(config.format)
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-    
-    # File handler with rotation (if configured)
-    file_path = log_file or config.file_path
-    if file_path:
-        file_path = Path(file_path)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        file_handler = RotatingFileHandler(
-            file_path,
-            maxBytes=config.max_file_size,
-            backupCount=config.backup_count
+
+    # Determine format from environment or parameter
+    if log_format is None:
+        # Try to get from environment
+        import os
+
+        log_format = os.environ.get("LOG_FORMAT", "text")
+
+    if log_format == "json":
+        console_handler.setFormatter(JSONFormatter())
+    else:
+        console_handler.setFormatter(
+            CustomFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         )
-        # In tests this class can be patched/mocked; add only valid handlers.
-        if isinstance(file_handler, logging.Handler):
-            file_handler.setLevel(logging.DEBUG)
-            file_formatter = logging.Formatter(config.format)
-            file_handler.setFormatter(file_formatter)
+
+    # Add console handler
+    logger.addHandler(console_handler)
+
+    # Try to add file handler if log file is configured
+    try:
+        import os
+
+        log_file = os.environ.get("LOG_FILE")
+        if log_file:
+            log_path = Path(log_file)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            file_handler = RotatingFileHandler(
+                log_path,
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=5,
+                encoding="utf-8",
+            )
+            file_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
             logger.addHandler(file_handler)
-    
-    return logger
+    except Exception:
+        pass  # Ignore file handler errors
 
-
-def get_logger(name: str = __name__) -> logging.Logger:
-    """
-    Get a logger instance with the specified name.
-    
-    Args:
-        name: Logger name (typically __name__)
-    
-    Returns:
-        Logger instance
-    """
-    logger = logging.getLogger(f'albo_pretorio.{name}')
-
-    # Configure base logger once; child loggers normally do not own handlers.
-    base_logger = logging.getLogger("albo_pretorio")
-    if not base_logger.handlers:
-        setup_logging()
+    # Cache the logger
+    _loggers[name] = logger
 
     return logger
 
 
-class LogContext:
-    """Context manager for adding contextual information to logs."""
-    
-    def __init__(self, logger: logging.Logger, **context):
-        self.logger = logger
-        self.context = context
-        self.adapter = None
-    
-    def __enter__(self):
-        self.adapter = logging.LoggerAdapter(self.logger, self.context)
-        return self.adapter
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None:
-            self.adapter.error(
-                f"Exception occurred: {exc_val}",
-                exc_info=True
-            )
-        return False
-
-
-def log_operation(logger: logging.Logger, operation: str, **kwargs):
+def configure_logging(
+    log_level: str = "INFO", log_format: str = "text", log_file: Optional[str] = None
+):
     """
-    Log an operation with structured data.
-    
+    Configure logging for the entire application.
+
     Args:
-        logger: Logger instance
-        operation: Operation name
-        **kwargs: Additional context data
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_format: Log format ('text' or 'json')
+        log_file: Path to log file (optional)
     """
-    logger.info(f"Operation: {operation}", extra=kwargs)
+    # Set global log level
+    try:
+        level = getattr(logging, log_level.upper(), logging.INFO)
+        logging.basicConfig(
+            level=level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+    except AttributeError:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
+
+    # Store configuration for get_logger
+    import os
+
+    os.environ["LOG_LEVEL"] = log_level
+    os.environ["LOG_FORMAT"] = log_format
+    if log_file:
+        os.environ["LOG_FILE"] = log_file
 
 
-class PerformanceLogger:
-    """Context manager for logging performance metrics."""
-    
-    def __init__(self, logger: logging.Logger, operation: str):
-        self.logger = logger
-        self.operation = operation
-        self.start_time = None
-    
-    def __enter__(self):
-        import time
-        self.start_time = time.time()
-        self.logger.debug(f"Starting operation: {self.operation}")
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        import time
-        elapsed = time.time() - self.start_time
-        if exc_type is not None:
-            self.logger.error(
-                f"Operation {self.operation} failed after {elapsed:.2f}s: {exc_val}"
-            )
-        else:
-            self.logger.debug(
-                f"Operation {self.operation} completed in {elapsed:.2f}s"
-            )
-        return False
-
-
-# Example usage
-if __name__ == "__main__":
-    # Setup logging
-    logger = setup_logging(log_file=Path("./logs/app.log"))
-    
-    # Basic logging
-    logger.info("Application started")
-    logger.debug("Debug message")
-    logger.warning("Warning message")
-    logger.error("Error message")
-    
-    # Context logging
-    with LogContext(logger, user="test", action="scrape") as adapted_logger:
-        adapted_logger.info("Scraping started")
-    
-    # Performance logging
-    with PerformanceLogger(logger, "data_extraction"):
-        import time
-        time.sleep(0.1)  # Simulate work
-    
-    logger.info("Application finished")
+def reset_loggers():
+    """Reset all cached loggers."""
+    global _loggers
+    _loggers = {}

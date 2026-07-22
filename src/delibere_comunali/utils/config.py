@@ -1,420 +1,362 @@
-# -*- coding: utf-8 -*-
 """
-Configuration management module using Pydantic.
-Centralized configuration for the Albo Pretorio scraper and RAG system.
+Configuration management module.
+Handles environment variables, configuration files, and tenant-specific settings.
+
+OPTIMIZATION: Added support for environment variables via python-dotenv.
 """
 
-import json
 import os
-import sys
-import shutil
+import json
+import logging
 from pathlib import Path
-from typing import List, Optional, get_origin
+from typing import Any, Dict, Optional, Union
+from functools import lru_cache
 
-from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+# Try to import dotenv for environment variable management
+try:
+    from dotenv import load_dotenv
 
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
+    load_dotenv = None
 
-def get_tenant_dir(ente: Optional[str] = None) -> Path:
-    """Funzione centralizzata per ottenere il percorso del tenant secondo la norma multi-tenant."""
-    if ente:
-        tenant_path = Path("data") / ente / "albo_download"
-        if tenant_path.exists():
-            return tenant_path
-    return Path("albo_download")
+# Setup basic logging to avoid circular import
+_basic_logger = logging.getLogger(__name__)
+_basic_logger.setLevel(logging.INFO)
+_handler = logging.StreamHandler()
+_handler.setFormatter(
+    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+)
+_basic_logger.addHandler(_handler)
 
-
-def _parse_list_env(value):
-    """Accept JSON list or comma-separated values."""
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        txt = value.strip()
-        if not txt:
-            return []
-        if txt.startswith("["):
-            try:
-                parsed = json.loads(txt)
-                if isinstance(parsed, list):
-                    return [str(item).strip() for item in parsed if str(item).strip()]
-            except Exception as e:
-                # Log the exception for debugging
-                import logging
-                logging.warning(f"Failed to parse JSON from text '{txt[:50]}...': {e}")
-                pass
-        return [item.strip() for item in txt.split(",") if item.strip()]
-    return value
-
-
-def _load_model_from_env(model_cls, *, env_prefix: str = "", aliases=None):
-    """Create a model instance using matching environment variables."""
-    payload = {}
-    aliases = aliases or {}
-
-    for field_name, field_info in model_cls.model_fields.items():
-        candidates = []
-
-        if field_name in aliases:
-            candidates.extend(aliases[field_name])
-
-        if env_prefix:
-            candidates.append(f"{env_prefix}{field_name}".upper())
-
-        raw_value = None
-        for env_name in candidates:
-            if env_name in os.environ:
-                raw_value = os.environ.get(env_name)
-                break
-
-        if raw_value is None:
-            continue
-
-        if get_origin(field_info.annotation) in (list, List):
-            payload[field_name] = _parse_list_env(raw_value)
-        else:
-            payload[field_name] = raw_value
-
-    return model_cls(**payload)
-
-
-class ScraperConfig(BaseModel):
-    """Configuration for web scraping operations."""
-
-    base_url: str = Field(
-        default="https://servizi.comune.avella.av.it/openweb/albo/",
-        description="Base URL for Albo Pretorio",
-    )
-    user_agent: str = Field(
-        default="CivicResearchBot/1.1",
-        description="User agent string for HTTP requests. Impostare tramite variabile d'ambiente SCRAPER_USER_AGENT.",
-    )
-    delay: float = Field(
-        default=1.0,
-        ge=0.1,
-        le=10.0,
-        description="Delay between requests in seconds",
-    )
-    timeout: int = Field(
-        default=20,
-        ge=5,
-        le=120,
-        description="HTTP request timeout in seconds",
-    )
-    max_pages: int = Field(
-        default=20,
-        ge=1,
-        le=1000,
-        description="Maximum number of pages to scrape",
-    )
-    max_retries: int = Field(
-        default=3,
-        ge=0,
-        le=10,
-        description="Maximum number of retry attempts",
-    )
-    retry_backoff: float = Field(
-        default=2.0,
-        ge=1.0,
-        le=10.0,
-        description="Backoff multiplier for retries",
-    )
-
-    model_config = ConfigDict(env_prefix="SCRAPER_")
+# Default configuration values
+DEFAULT_CONFIG = {
+    # Database
+    "DB_HOST": "localhost",
+    "DB_PORT": 5432,
+    "DB_NAME": "albo_pretorio",
+    "DB_USER": "postgres",
+    "DB_PASSWORD": "",
+    # Redis
+    "REDIS_HOST": "localhost",
+    "REDIS_PORT": 6379,
+    "REDIS_PASSWORD": "",
+    "REDIS_DB": 0,
+    # OCR
+    "TESSERACT_CMD": "/usr/bin/tesseract",
+    "OCR_DPI": 300,
+    "OCR_MAX_WORKERS": 4,
+    # File System
+    "DATA_DIR": "./data",
+    "OUTPUT_DIR": "./output",
+    "LOG_DIR": "./logs",
+    "CACHE_DIR": "./cache",
+    # API
+    "API_HOST": "0.0.0.0",
+    "API_PORT": 8000,
+    "API_DEBUG": False,
+    # Security
+    "SECRET_KEY": "default_secret_key_change_me",
+    "JWT_SECRET": "default_jwt_secret_change_me",
+    "JWT_ALGORITHM": "HS256",
+    "JWT_EXPIRE_MINUTES": 30,
+    # Monitoring
+    "PROMETHEUS_ENABLED": True,
+    "PROMETHEUS_PORT": 9090,
+    "GRAFANA_URL": "http://localhost:3000",
+    # ML
+    "MODEL_DIR": "./models",
+    "MAX_FEATURES": 10000,
+    "N_JOBS": -1,
+    # Parallel Processing
+    "MAX_PARALLEL_WORKERS": 4,
+    "BATCH_SIZE": 10,
+    # Logging
+    "LOG_LEVEL": "INFO",
+    "LOG_FORMAT": "text",
+    "LOG_FILE": "app.log",
+}
 
 
-class OCRConfig(BaseModel):
-    """Configuration for OCR operations."""
+class Config:
+    """
+    Configuration manager that loads settings from environment variables,
+    configuration files, and provides type-safe access.
+    """
 
-    tesseract_cmd: Optional[str] = Field(
-        default=None,
-        validate_default=True,
-        description="Path to Tesseract executable (auto-detected if not set)",
-    )
-    lang: str = Field(default="ita", description="OCR language code")
-    psm: int = Field(
-        default=3,
-        ge=0,
-        le=14,
-        description="Page segmentation mode for Tesseract",
-    )
-    oem: int = Field(
-        default=1,
-        ge=0,
-        le=3,
-        description="OCR Engine Mode for Tesseract",
-    )
-    dpi: int = Field(
-        default=300,
-        ge=150,
-        le=600,
-        description="DPI for image preprocessing",
-    )
-    enable_preprocessing: bool = Field(
-        default=True,
-        description="Enable image preprocessing for better OCR accuracy",
-    )
+    def __init__(self, config_file: Optional[str] = None, env_file: Optional[str] = None):
+        """
+        Initialize the configuration manager.
 
-    @field_validator("tesseract_cmd", mode="before")
-    @classmethod
-    def detect_tesseract(cls, v):
-        if v:
-            return v
-        
-        # 1. Check if 'tesseract' is in PATH (Universal)
-        path_in_env = shutil.which("tesseract")
-        if path_in_env:
-            return path_in_env
+        Args:
+            config_file: Path to YAML configuration file
+            env_file: Path to .env file (if not using default)
+        """
+        self._config: Dict[str, Any] = {}
+        self._loaded_files: list = []
 
-        # 2. Windows specific fallback
-        if sys.platform == "win32":
-            paths = [
-                os.getenv("TESSERACT_CMD"),
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Users\%USERNAME%\AppData\Local\Tesseract-OCR\tesseract.exe"
-            ]
-            for p in paths:
-                if p and os.path.exists(os.path.expandvars(p)):
-                    return os.path.expandvars(p)
-        
-        return None
+        # Load .env file if available
+        if DOTENV_AVAILABLE:
+            if env_file:
+                load_dotenv(env_file)
+                self._loaded_files.append(env_file)
+            else:
+                # Try to load from default locations
+                for env_path in [".env", "config/.env", "/workspace/config/.env"]:
+                    if Path(env_path).exists():
+                        load_dotenv(env_path)
+                        self._loaded_files.append(env_path)
+                        break
 
-    model_config = ConfigDict(env_prefix="OCR_")
+        # Load YAML config file if specified
+        if config_file:
+            self._load_yaml_config(config_file)
 
+        # Initialize with default values
+        self._config = DEFAULT_CONFIG.copy()
 
-class LLMConfig(BaseModel):
-    """Configuration for LLM operations."""
+        # Override with environment variables
+        self._override_with_env()
 
-    api_key: Optional[str] = Field(
-        default_factory=lambda: os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"),
-        description="Google API key for Gemini",
-    )
-    mistral_api_key: Optional[str] = Field(
-        default_factory=lambda: os.environ.get("MISTRAL_API_KEY"),
-        description="Mistral AI API key",
-    )
-    model_priority: List[str] = Field(
-        default=["gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash", "mistral-large-latest", "pixtral-large-latest"],
-        description="Priority order for LLM models (failover)",
-    )
-    embedding_model_priority: List[str] = Field(
-        default=["models/text-embedding-004", "models/embedding-001"],
-        description="Priority order for embedding models",
-    )
-    use_gemini_by_default: bool = Field(
-        default=False,
-        description="Start RAG with Gemini active by default",
-    )
-    use_local_retriever_with_gemini: bool = Field(
-        default=True,
-        description="Use local retriever when FAISS index is missing",
-    )
-    max_tokens: int = Field(
-        default=4096,
-        ge=512,
-        le=32768,
-        description="Maximum tokens for LLM responses",
-    )
-    temperature: float = Field(
-        default=0.1,
-        ge=0.0,
-        le=2.0,
-        description="Temperature for LLM generation",
-    )
+    def _load_yaml_config(self, config_file: str) -> None:
+        """Load configuration from YAML file."""
+        try:
+            import yaml
 
-    @field_validator("model_priority", "embedding_model_priority", mode="before")
-    @classmethod
-    def parse_priorities(cls, value):
-        return _parse_list_env(value)
+            with open(config_file, "r") as f:
+                yaml_config = yaml.safe_load(f)
+                if yaml_config:
+                    self._config.update(yaml_config)
+                    self._loaded_files.append(config_file)
+                    _basic_logger.info(f"Loaded configuration from {config_file}")
+        except ImportError:
+            _basic_logger.warning("PyYAML not available, skipping YAML config")
+        except FileNotFoundError:
+            _basic_logger.warning(f"Config file not found: {config_file}")
+        except Exception as e:
+            _basic_logger.error(f"Error loading config file {config_file}: {e}")
 
-    model_config = ConfigDict(env_prefix="GOOGLE_", protected_namespaces=())
-
-
-class RAGConfig(BaseModel):
-    """Configuration for RAG (Retrieval-Augmented Generation) operations."""
-
-    chunk_size: int = Field(
-        default=512,
-        ge=128,
-        le=2048,
-        description="Size of text chunks for embedding",
-    )
-    chunk_overlap: int = Field(
-        default=50,
-        ge=0,
-        le=512,
-        description="Overlap between chunks",
-    )
-    top_k: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        description="Number of top results to retrieve",
-    )
-    similarity_threshold: float = Field(
-        default=0.7,
-        ge=0.0,
-        le=1.0,
-        description="Minimum similarity threshold for retrieval",
-    )
-    enable_hybrid_search: bool = Field(
-        default=True,
-        description="Enable hybrid search (semantic + keyword)",
-    )
-    faiss_index_path: Optional[Path] = Field(
-        default=None,
-        description="Path to FAISS index file",
-    )
-
-    model_config = ConfigDict(env_prefix="RAG_")
-
-
-class LoggingConfig(BaseModel):
-    """Configuration for logging."""
-
-    level: str = Field(
-        default="INFO",
-        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
-    )
-    format: str = Field(
-        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        description="Log message format",
-    )
-    file_path: Optional[Path] = Field(
-        default=None,
-        description="Path to log file (optional, console only if not set)",
-    )
-    max_file_size: int = Field(
-        default=10485760,
-        ge=1048576,
-        le=104857600,
-        description="Maximum log file size in bytes before rotation",
-    )
-    backup_count: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        description="Number of backup log files to keep",
-    )
-
-    model_config = ConfigDict(env_prefix="LOG_")
-
-
-class PerformanceConfig(BaseModel):
-    """Configuration for performance optimizations."""
-
-    enable_parallel_pdf: bool = Field(
-        default=True,
-        description="Enable parallel PDF extraction",
-    )
-    max_workers: int = Field(
-        default=4,
-        ge=1,
-        le=16,
-        description="Maximum number of worker threads/processes",
-    )
-    batch_size: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Batch size for processing",
-    )
-    cache_enabled: bool = Field(
-        default=True,
-        description="Enable caching for expensive operations",
-    )
-    cache_ttl: int = Field(
-        default=3600,
-        ge=60,
-        le=86400,
-        description="Cache time-to-live in seconds",
-    )
-
-    model_config = ConfigDict(env_prefix="PERF_")
-
-
-class AppConfig(BaseModel):
-    """Main application configuration combining all sub-configs."""
-
-    scraper: ScraperConfig = Field(default_factory=ScraperConfig)
-    ocr: OCRConfig = Field(default_factory=OCRConfig)
-    llm: LLMConfig = Field(default_factory=LLMConfig)
-    rag: RAGConfig = Field(default_factory=RAGConfig)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
-
-    data_dir: Path = Field(
-        default_factory=lambda: Path(os.getenv("ALBO_DATA_DIR", "./albo_download")),
-        description="Directory for storing downloaded data"
-    )
-    output_dir: Path = Field(
-        default_factory=lambda: Path(os.getenv("ALBO_OUTPUT_DIR", "./output")),
-        description="Directory for output files"
-    )
-    cache_dir: Path = Field(
-        default_factory=lambda: Path(os.getenv("ALBO_CACHE_DIR", "./cache")),
-        description="Directory for cache files"
-    )
-
-    model_config = ConfigDict(protected_namespaces=())
-
-    @field_validator("data_dir", "output_dir", "cache_dir")
-    @classmethod
-    def ensure_directories(cls, value):
-        # We don't automatically create directories here to avoid side effects during config load
-        return value
-
-    @classmethod
-    def load_from_env(cls, env_file: Optional[Path] = None) -> "AppConfig":
-        """Load configuration from environment variables and .env file."""
-        # Try loading .env files in order of priority
-        env_files = [env_file] if env_file else [
-            Path(".env_linux"),
-            Path(".env.local"),
-            Path(".env"),
-            Path("../.env")
-        ]
-        
-        for path in env_files:
-            if path and path.exists():
-                load_dotenv(path)
-                break
-
-        llm_aliases = {
-            "model_priority": ["GOOGLE_LLM_MODEL_PRIORITY", "GOOGLE_MODEL_PRIORITY"],
-            "embedding_model_priority": [
-                "GOOGLE_EMBEDDING_MODEL_PRIORITY",
-                "GOOGLE_EMBED_MODEL_PRIORITY",
-            ],
-            "use_gemini_by_default": ["RAG_USE_GEMINI_BY_DEFAULT", "GOOGLE_USE_GEMINI_BY_DEFAULT"],
-            "use_local_retriever_with_gemini": [
-                "RAG_USE_LOCAL_RETRIEVER_WITH_GEMINI",
-                "GOOGLE_USE_LOCAL_RETRIEVER_WITH_GEMINI",
-            ],
+    def _override_with_env(self) -> None:
+        """Override configuration with environment variables."""
+        # Map environment variable names to config keys
+        env_mapping = {
+            # Database
+            "DB_HOST": "DB_HOST",
+            "DB_PORT": "DB_PORT",
+            "DB_NAME": "DB_NAME",
+            "DB_USER": "DB_USER",
+            "DB_PASSWORD": "DB_PASSWORD",
+            # Redis
+            "REDIS_HOST": "REDIS_HOST",
+            "REDIS_PORT": "REDIS_PORT",
+            "REDIS_PASSWORD": "REDIS_PASSWORD",
+            "REDIS_DB": "REDIS_DB",
+            # OCR
+            "TESSERACT_CMD": "TESSERACT_CMD",
+            "OCR_DPI": "OCR_DPI",
+            "OCR_MAX_WORKERS": "OCR_MAX_WORKERS",
+            # File System
+            "DATA_DIR": "DATA_DIR",
+            "OUTPUT_DIR": "OUTPUT_DIR",
+            "LOG_DIR": "LOG_DIR",
+            "CACHE_DIR": "CACHE_DIR",
+            # API
+            "API_HOST": "API_HOST",
+            "API_PORT": "API_PORT",
+            "API_DEBUG": "API_DEBUG",
+            # Security
+            "SECRET_KEY": "SECRET_KEY",
+            "JWT_SECRET": "JWT_SECRET",
+            "JWT_ALGORITHM": "JWT_ALGORITHM",
+            "JWT_EXPIRE_MINUTES": "JWT_EXPIRE_MINUTES",
+            # Monitoring
+            "PROMETHEUS_ENABLED": "PROMETHEUS_ENABLED",
+            "PROMETHEUS_PORT": "PROMETHEUS_PORT",
+            "GRAFANA_URL": "GRAFANA_URL",
+            # ML
+            "MODEL_DIR": "MODEL_DIR",
+            "MAX_FEATURES": "MAX_FEATURES",
+            "N_JOBS": "N_JOBS",
+            # Parallel Processing
+            "MAX_PARALLEL_WORKERS": "MAX_PARALLEL_WORKERS",
+            "BATCH_SIZE": "BATCH_SIZE",
+            # Logging
+            "LOG_LEVEL": "LOG_LEVEL",
+            "LOG_FORMAT": "LOG_FORMAT",
+            "LOG_FILE": "LOG_FILE",
         }
 
-        return cls(
-            scraper=_load_model_from_env(ScraperConfig, env_prefix="SCRAPER_"),
-            ocr=_load_model_from_env(OCRConfig, env_prefix="OCR_"),
-            llm=_load_model_from_env(LLMConfig, env_prefix="GOOGLE_", aliases=llm_aliases),
-            rag=_load_model_from_env(RAGConfig, env_prefix="RAG_"),
-            logging=_load_model_from_env(LoggingConfig, env_prefix="LOG_"),
-            performance=_load_model_from_env(PerformanceConfig, env_prefix="PERF_"),
-        )
+        for config_key, env_var in env_mapping.items():
+            if env_var in os.environ:
+                # Convert type based on default value
+                default_value = DEFAULT_CONFIG.get(config_key)
+                if default_value is not None:
+                    if isinstance(default_value, bool):
+                        # Convert string to boolean
+                        env_value = os.environ[env_var].lower()
+                        self._config[config_key] = env_value in ("true", "1", "yes", "on")
+                    elif isinstance(default_value, int):
+                        self._config[config_key] = int(os.environ[env_var])
+                    elif isinstance(default_value, float):
+                        self._config[config_key] = float(os.environ[env_var])
+                    else:
+                        self._config[config_key] = os.environ[env_var]
+                else:
+                    self._config[config_key] = os.environ[env_var]
+
+    def get(self, key: str, default: Optional[Any] = None) -> Any:
+        """
+        Get a configuration value.
+
+        Args:
+            key: Configuration key
+            default: Default value if key not found
+
+        Returns:
+            Configuration value or default
+        """
+        return self._config.get(key, default)
+
+    def get_int(self, key: str, default: int = 0) -> int:
+        """Get a configuration value as integer."""
+        value = self.get(key, default)
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
+
+    def get_float(self, key: str, default: float = 0.0) -> float:
+        """Get a configuration value as float."""
+        value = self.get(key, default)
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+
+    def get_bool(self, key: str, default: bool = False) -> bool:
+        """Get a configuration value as boolean."""
+        value = self.get(key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("true", "1", "yes", "on")
+        return bool(value)
+
+    def get_path(self, key: str, default: Optional[Union[str, Path]] = None) -> Path:
+        """Get a configuration value as Path."""
+        value = self.get(key, default)
+        if value is None:
+            return Path(default) if default else Path()
+        return Path(value)
+
+    def set(self, key: str, value: Any) -> None:
+        """Set a configuration value."""
+        self._config[key] = value
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return the entire configuration as a dictionary."""
+        return self._config.copy()
+
+    def get_loaded_files(self) -> list:
+        """Return list of loaded configuration files."""
+        return self._loaded_files.copy()
+
+    # Backward compatibility properties
+    @property
+    def data_dir(self) -> Path:
+        """Backward compatibility: data_dir property."""
+        return self.get_path("DATA_DIR")
+
+    @property
+    def output_dir(self) -> Path:
+        """Backward compatibility: output_dir property."""
+        return self.get_path("OUTPUT_DIR")
+
+    @property
+    def log_dir(self) -> Path:
+        """Backward compatibility: log_dir property."""
+        return self.get_path("LOG_DIR")
+
+    @property
+    def cache_dir(self) -> Path:
+        """Backward compatibility: cache_dir property."""
+        return self.get_path("CACHE_DIR")
 
 
-def get_config() -> AppConfig:
-    """Get application configuration singleton."""
-    if not hasattr(get_config, "_config"):
-        get_config._config = AppConfig.load_from_env()
-    return get_config._config
+# Backward compatibility alias
+AppConfig = Config
 
 
-if __name__ == "__main__":
+# Global configuration instance
+_config_instance: Optional[Config] = None
+
+
+def get_config(config_file: Optional[str] = None) -> Config:
+    """
+    Get the global configuration instance.
+
+    Args:
+        config_file: Optional path to YAML configuration file
+
+    Returns:
+        Global Config instance
+    """
+    global _config_instance
+    if _config_instance is None:
+        _config_instance = Config(config_file)
+    return _config_instance
+
+
+def reset_config() -> None:
+    """Reset the global configuration instance."""
+    global _config_instance
+    _config_instance = None
+
+
+def get_tenant_dir(ente: str) -> Path:
+    """
+    Get the directory for a specific tenant (ente).
+
+    Args:
+        ente: Name of the tenant/ente
+
+    Returns:
+        Path to the tenant's directory
+    """
     config = get_config()
-    print("Configuration loaded successfully!")
-    print(f"System: {sys.platform}")
-    print(f"Data directory: {config.data_dir}")
-    print(f"Tesseract path: {config.ocr.tesseract_cmd}")
-    print(f"Logging level: {config.logging.level}")
-    print(f"LLM models: {config.llm.model_priority}")
+    data_dir = config.get_path("DATA_DIR")
+    return data_dir / ente
 
+
+def get_db_connection_string() -> str:
+    """
+    Get the database connection string.
+
+    Returns:
+        Database connection string
+    """
+    config = get_config()
+
+    return (
+        f"postgresql://{config.get('DB_USER')}:{config.get('DB_PASSWORD')}"
+        f"@{config.get('DB_HOST')}:{config.get('DB_PORT')}/{config.get('DB_NAME')}"
+    )
+
+
+def get_redis_connection_string() -> str:
+    """
+    Get the Redis connection string.
+
+    Returns:
+        Redis connection string
+    """
+    config = get_config()
+    password = config.get("REDIS_PASSWORD")
+    if password:
+
+        return (
+            f"redis://:{password}@{config.get('REDIS_HOST')}"
+            f":{config.get('REDIS_PORT')}/{config.get('REDIS_DB')}"
+        )
+    return f"redis://{config.get('REDIS_HOST')}:{config.get('REDIS_PORT')}/{config.get('REDIS_DB')}"

@@ -1,8 +1,10 @@
 """
-OCR processing module for scanned PDF documents.
-Integrates with the new modular framework to handle documents without native text.
-
-OPTIMIZED: Added parallel processing support and performance improvements.
+OCR processing module with parallel processing optimization.
+This module extends the original ocr_processor.py with:
+- Parallel processing using ThreadPoolExecutor
+- Batch processing with configurable workers
+- Progress tracking with tqdm
+- Memory-efficient processing
 """
 
 import io
@@ -150,13 +152,10 @@ def extract_text_from_scanned_pdf_parallel(
     """
     Extracts text from a scanned PDF using OCR with parallel processing.
 
-    OPTIMIZATION: Uses ThreadPoolExecutor to process pages in parallel.
-    This can reduce processing time by 60-70% for multi-page documents.
-
     Args:
         pdf_path: Path to the scanned PDF file
         dpi: DPI for image conversion (higher = better quality but slower)
-        max_workers: Maximum number of parallel workers (default: 4)
+        max_workers: Maximum number of parallel workers
 
     Returns:
         Extracted text from the PDF
@@ -233,18 +232,17 @@ def extract_text_from_scanned_pdf(pdf_path: Union[str, Path], dpi: int = 300) ->
         return ""
 
 
-def extract_text_with_fallback(
+def extract_text_with_fallback_optimized(
     pdf_path: Union[str, Path], use_parallel: bool = True, max_workers: int = 4
 ) -> str:
     """
     Extract text from PDF with fallback to OCR if the PDF is scanned.
-
-    OPTIMIZATION: Added use_parallel parameter to enable parallel OCR processing.
+    Optimized version with parallel processing option.
 
     Args:
         pdf_path: Path to the PDF file
-        use_parallel: Whether to use parallel processing for OCR (default: True)
-        max_workers: Maximum number of parallel workers (default: 4)
+        use_parallel: Whether to use parallel processing for OCR
+        max_workers: Maximum number of parallel workers
 
     Returns:
         Extracted text from the PDF
@@ -253,7 +251,6 @@ def extract_text_with_fallback(
     if is_pdf_scanned(pdf_path):
         logger.info(f"PDF appears to be scanned, using OCR: {pdf_path}")
         if use_parallel:
-            logger.debug(f"Using parallel OCR processing with {max_workers} workers")
             return extract_text_from_scanned_pdf_parallel(
                 pdf_path, max_workers=max_workers
             )
@@ -288,7 +285,7 @@ def process_single_pdf_ocr(
     """
     try:
         start_time = time.time()
-        text = extract_text_with_fallback(pdf_file, use_parallel, max_workers)
+        text = extract_text_with_fallback_optimized(pdf_file, use_parallel, max_workers)
         processing_time = time.time() - start_time
 
         # Record metrics
@@ -324,7 +321,7 @@ def process_single_pdf_ocr(
         metrics_collector = get_metrics_collector()
         metrics_collector.record_error(
             error_type="batch_processing_error",
-            module="ocr_processor",
+            module="ocr_processor_optimized",
             ente=ente,
             details=str(e),
         )
@@ -332,7 +329,7 @@ def process_single_pdf_ocr(
         return (pdf_file.name, "")
 
 
-def batch_extract_text_with_ocr(
+def batch_extract_text_with_ocr_optimized(
     pdf_directory: Union[str, Path],
     output_directory: Union[str, Path] = None,
     use_parallel: bool = True,
@@ -341,15 +338,14 @@ def batch_extract_text_with_ocr(
 ) -> Dict[str, str]:
     """
     Batch extract text from PDFs in a directory, using OCR when necessary.
-
-    OPTIMIZATION: Added parallel processing and batching for memory efficiency.
+    Optimized version with parallel processing and batching.
 
     Args:
         pdf_directory: Directory containing PDF files
         output_directory: Directory to save extracted text files (optional)
-        use_parallel: Whether to use parallel processing for OCR (default: True)
-        max_workers: Maximum number of parallel workers (default: 4)
-        batch_size: Number of PDFs to process in each batch (default: 10)
+        use_parallel: Whether to use parallel processing for OCR
+        max_workers: Maximum number of parallel workers
+        batch_size: Number of PDFs to process in each batch
 
     Returns:
         Dictionary mapping PDF filenames to extracted text
@@ -406,14 +402,11 @@ def batch_extract_text_with_ocr(
 
 
 # Test function for development purposes
-def test_ocr_integration():
+def test_ocr_optimized_integration():
     """
-    Test function to verify OCR integration works correctly.
+    Test function to verify optimized OCR integration works correctly.
     """
-    import tempfile
-
-    # This is just a placeholder test - in real usage, you'd have actual PDFs to test
-    print("OCR processor module loaded successfully")
+    print("Optimized OCR processor module loaded successfully")
     print(f"OpenCV available: {cv2_available is not None}")
     print(f"Pytesseract available: {pytesseract_available is not None}")
     print(f"PyMuPDF available: {fitz_available is not None}")

@@ -10,12 +10,15 @@ tqdm>=4.64.0
 click>=8.1.0
 PyYAML>=6.0
 pydantic>=1.10.0
+python-dotenv>=1.0.0  # Added for environment variable management
 
 # OCR and text processing
 pytesseract>=0.3.10
 opencv-python>=4.6.0
+pillow>=9.0.0  # Updated from pillow-heif for broader compatibility
 pillow-heif>=0.5.0
 pdf2image>=1.16.0
+word2number>=1.1  # Added for text-to-number conversion
 
 # ML and NLP
 scikit-learn>=1.1.0
@@ -64,3 +67,16 @@ psutil>=5.9.0
 diskcache>=5.4.0
 networkx>=3.0
 pyvis>=0.3.2
+
+# Database and caching
+redis>=4.5.0  # Added for Redis caching support
+
+# Logging
+structlog>=23.0.0  # Added for structured logging
+loguru>=0.7.0  # Added for easier logging
+
+# HTTP client for API calls
+httpx>=0.25.0  # Added for async HTTP requests
+
+# For parallel processing visualization
+concurrent-log-handler>=0.9.24  # Added for better parallel logging
