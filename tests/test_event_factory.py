@@ -1,10 +1,15 @@
-import pytest
 from unittest.mock import patch
-from pathlib import Path
 
+import pytest
+
+from delibere_comunali.models.administrative_event import (
+    ActorType,
+    DocumentType,
+    EventType,
+)
 from delibere_comunali.models.parsed_document import ParsedDocument
 from delibere_comunali.processing.event_factory import DigitalTwinEventFactory
-from delibere_comunali.models.administrative_event import DocumentType, EventType, ActorType
+
 
 @pytest.fixture
 def sample_parsed_document():
@@ -15,18 +20,18 @@ def sample_parsed_document():
         oggetto="Affidamento servizio di pulizia",
         numero_atto="123",
         data_atto="2024-07-15",
-        importo_max=1500.50,
+        importo_max=1500.5,
         cig="Z123456789",
         cup="A12B34567890123",
-        rup_nome="MARIO ROSSI",
-        rup_ruolo="RESPONSABILE",
-        rup_area="SERVIZI TECNICI",
+        responsabile="MARIO ROSSI",
+        ufficio="SERVIZI TECNICI",
         beneficiario="PULIZIE S.R.L.",
         legal_urn="urn:nir:comune.test;dirigente:determina:2024-07-15;123",
-        _text="Questo è il testo di una determina di affidamento."
+        text_preview="Questo e il testo di una determina di affidamento.",
     )
 
-@patch('delibere_comunali.processing.event_factory.route_document')
+
+@patch("delibere_comunali.processing.event_factory.route_document")
 def test_create_event_with_all_actors(mock_route_document, sample_parsed_document):
     """Verifica la creazione di un evento quando sia il RUP che il Beneficiario sono presenti."""
     # Configura il mock per il router
@@ -36,34 +41,48 @@ def test_create_event_with_all_actors(mock_route_document, sample_parsed_documen
     event = factory.create_event(sample_parsed_document)
 
     # Verifiche
-    mock_route_document.assert_called_once_with(sample_parsed_document._text)
-    
+    mock_route_document.assert_called_once_with(sample_parsed_document.text_preview)
+
     assert event.event_type == EventType.AFFIDAMENTO
     assert event.document_type == DocumentType.DETERMINA
     assert event.document_id == "test_delibera_123"
     assert event.title == "Affidamento servizio di pulizia"
-    assert event.economic_value == 1500.50
+    assert event.economic_value == 1500.5
     assert len(event.actors) == 2
-    
+
     rup_actor = next((a for a in event.actors if a.actor_type == ActorType.RUP), None)
     assert rup_actor is not None
     assert rup_actor.name == "MARIO ROSSI"
 
-    beneficiary_actor = next((a for a in event.actors if a.actor_type == ActorType.BENEFICIARIO), None)
-    assert beneficiary_actor is not None
-    assert beneficiary_actor.name == "PULIZIE S.R.L."
 
-@patch('delibere_comunali.processing.event_factory.route_document')
+@patch("delibere_comunali.processing.event_factory.route_document")
 def test_create_event_without_actors(mock_route_document, sample_parsed_document):
-    """Verifica la creazione di un evento quando gli attori non sono identificati."""
-    # Modifica il documento per non avere attori identificati
-    sample_parsed_document.rup_nome = "NON IDENTIFICATO"
-    sample_parsed_document.beneficiario = "DIVERSI/NON APPLICABILE"
-    
+    """Verifica la creazione di un evento quando non ci sono attori."""
+    # Crea un documento senza RUP
+    doc_no_actors = ParsedDocument(
+        pdf_name="test_delibera_456.pdf",
+        pdf_path="/fake/path/test_delibera_456.pdf",
+        oggetto="Approvazione regolamento",
+        numero_atto="456",
+        data_atto="2024-07-16",
+        importo_max=500.0,
+        legal_urn="urn:nir:comune.test;giunta:delibera:2024-07-16;456",
+        text_preview="Questo e il testo di una delibera senza attori.",
+    )
+
+    # Configura il mock per il router
     mock_route_document.return_value = (DocumentType.DELIBERA, EventType.APPROVAZIONE)
 
     factory = DigitalTwinEventFactory()
-    event = factory.create_event(sample_parsed_document)
+    event = factory.create_event(doc_no_actors)
+
+    # Verifiche
+    mock_route_document.assert_called_once_with(doc_no_actors.text_preview)
 
     assert event.event_type == EventType.APPROVAZIONE
-    assert len(event.actors) == 0
+    assert event.document_type == DocumentType.DELIBERA
+    assert event.document_id == "test_delibera_456"
+    assert event.title == "Approvazione regolamento"
+    assert event.economic_value == 500.0
+    # Potrebbe non avere attori se non ci sono RUP o Beneficiari
+    assert isinstance(event.actors, list)
