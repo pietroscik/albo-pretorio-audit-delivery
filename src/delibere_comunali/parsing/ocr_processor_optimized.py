@@ -1,10 +1,12 @@
 """
-OCR processing module with parallel processing optimization.
+OCR processing module with parallel processing optimization and layout-aware document triage.
 This module extends the original ocr_processor.py with:
 - Parallel processing using ThreadPoolExecutor
 - Batch processing with configurable workers
 - Progress tracking with tqdm
 - Memory-efficient processing
+- Document triage for optimal processing path selection
+- Integration with unstructured.io for layout-aware extraction
 """
 
 import io
@@ -13,7 +15,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
+import tempfile
 
 import cv2
 import fitz  # PyMuPDF
@@ -25,6 +28,15 @@ from ..utils.config import get_config
 from ..utils.metrics_collector import get_metrics_collector
 from ..utils.optional_deps import import_optional_dependency
 
+# Try importing unstructured.io for advanced layout-aware extraction
+try:
+    from unstructured.partition.pdf import partition_pdf
+    from unstructured.documents.elements import Table
+    UNSTRUCTURED_AVAILABLE = True
+except ImportError:
+    UNSTRUCTURED_AVAILABLE = False
+    partition_pdf = None
+
 # Setup logger
 logger = logging.getLogger(__name__)
 
@@ -34,9 +46,60 @@ pytesseract_available = import_optional_dependency("pytesseract")
 fitz_available = import_optional_dependency("fitz")  # PyMuPDF
 
 
+def classify_document_layout_type(pdf_path: Union[str, Path]) -> str:
+    """
+    Classify document layout type to route to the most appropriate processing engine.
+    Returns 'native_text', 'scanned_image', 'mixed_content', 'table_heavy', or 'text_heavy'.
+    """
+    try:
+        doc = fitz.open(str(pdf_path))
+        page = doc.load_page(0) if doc.page_count > 0 else None
+        
+        if not page:
+            doc.close()
+            return 'scanned_image'  # Empty PDF, assume scanned
+        
+        # Get text blocks and images to determine layout
+        text_blocks = page.get_text("dict")
+        text_chars = page.get_text("rawdict")["chars"] if "chars" in page.get_text("rawdict") else page.get_text("dict")["blocks"]
+        images = page.get_images()
+        
+        # Calculate text density
+        total_chars = len(text_chars) if isinstance(text_chars, list) else 0
+        page_area = page.rect.width * page.rect.height
+        char_density = total_chars / max(page_area, 1)
+        
+        # Check for images that might indicate scanned content
+        has_images = len(images) > 0
+        
+        # Check for existing text (if char_density is low but has images, likely scanned)
+        if char_density < 0.001 and has_images:
+            doc.close()
+            return 'scanned_image'
+        elif char_density > 0.01:
+            # Check if page has table-like structures based on text arrangement
+            # This is a simplified check - in reality, would use more sophisticated analysis
+            text_content = page.get_text()
+            has_table_indicators = any(keyword in text_content.lower() for keyword in ['tabella', 'quadro', 'elenco', 'colonna', 'riga'])
+            if has_table_indicators:
+                doc.close()
+                return 'table_heavy'
+            else:
+                doc.close()
+                return 'text_heavy'
+        else:
+            doc.close()
+            return 'mixed_content'
+            
+    except Exception as e:
+        logger.warning(f"Could not classify document layout type, assuming scanned: {e}")
+        return 'scanned_image'
+
+
 def is_pdf_scanned(pdf_path: Union[str, Path]) -> bool:
     """
     Determines if a PDF contains scanned images rather than native text.
+    Now integrated with the layout classification system for better accuracy.
 
     Args:
         pdf_path: Path to the PDF file
@@ -44,37 +107,162 @@ def is_pdf_scanned(pdf_path: Union[str, Path]) -> bool:
     Returns:
         True if the PDF appears to be scanned, False otherwise
     """
+    layout_type = classify_document_layout_type(pdf_path)
+    return layout_type == 'scanned_image'
+
+
+def extract_text_native_pdf(pdf_path: Union[str, Path]) -> str:
+    """
+    Extract text directly from native PDFs without OCR for efficiency.
+    This is the fast path for documents that already contain text layers.
+    """
     try:
-        # Import locally to avoid circular import
-        from .text_extractor import extract_text_pdf
-
-        # Extract a small amount of text to check if the PDF has native text
-        text_sample = extract_text_pdf(pdf_path, max_pages=2)
-
         doc = fitz.open(str(pdf_path))
-        total_pages = len(doc)
-
-        # Check if the pages contain more images than text
-        image_count = 0
-        page_count = min(total_pages, 3)  # Check first 3 pages
-
-        for page_num in range(page_count):
-            page = doc[page_num]
-            # Count images on the page
-            img_list = page.get_images()
-            if len(img_list) > 0:
-                image_count += len(img_list)
-
+        text = ""
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text += page.get_text() + "\n"
         doc.close()
-
-        # If we have images but little text, it's likely a scanned PDF
-        text_length = len(text_sample.strip()) if text_sample else 0
-
-        # Heuristic: if there are images and little text, consider it scanned
-        return image_count > 0 and text_length < 100
+        return text
     except Exception as e:
-        logger.warning(f"Could not determine if PDF is scanned: {e}")
-        return True  # Default to assuming it's scanned if we can't determine
+        logger.error(f"Error extracting text from native PDF: {e}")
+        return ""
+
+
+def extract_tables_unstructured(pdf_path: Union[str, Path]) -> List[Dict]:
+    """
+    Extract tables using unstructured.io for layout-aware processing (Slow Path).
+    This is the advanced path for complex documents with tables, charts, etc.
+    """
+    if not UNSTRUCTURED_AVAILABLE:
+        logger.warning("unstructured.io not available, skipping advanced table extraction")
+        return []
+    
+    try:
+        # Use unstructured.io to extract elements with layout awareness
+        elements = partition_pdf(str(pdf_path), strategy="hi_res")
+        tables = []
+        for element in elements:
+            if isinstance(element, Table):
+                # Convert unstructured table to our format
+                table_data = {
+                    'metadata': element.metadata.to_dict() if hasattr(element, 'metadata') else {},
+                    'text': element.text if hasattr(element, 'text') else str(element),
+                    'element_type': 'table'
+                }
+                tables.append(table_data)
+        return tables
+    except Exception as e:
+        logger.error(f"Error extracting tables with unstructured.io: {e}")
+        return []
+
+
+def extract_text_with_unstructured(pdf_path: Union[str, Path]) -> Dict[str, Any]:
+    """
+    Extract all text and structured elements using unstructured.io for layout-aware processing.
+    Returns a comprehensive representation of the document's content and structure.
+    """
+    if not UNSTRUCTURED_AVAILABLE:
+        logger.warning("unstructured.io not available, falling back to basic extraction")
+        return {
+            'text': extract_text_native_pdf(pdf_path),
+            'tables': [],
+            'elements': [],
+            'layout_analysis': {'engine_used': 'basic_extraction'}
+        }
+    
+    try:
+        # Use unstructured.io for comprehensive layout-aware extraction
+        elements = partition_pdf(str(pdf_path), strategy="hi_res")
+        text_elements = []
+        table_elements = []
+        other_elements = []
+        
+        for element in elements:
+            element_type = type(element).__name__
+            element_dict = {
+                'type': element_type,
+                'text': element.text if hasattr(element, 'text') else str(element),
+                'metadata': element.metadata.to_dict() if hasattr(element, 'metadata') else {}
+            }
+            
+            if element_type == 'Table':
+                table_elements.append(element_dict)
+            elif element_type in ['Title', 'NarrativeText', 'ListItem', 'Header', 'Footer']:
+                text_elements.append(element_dict)
+            else:
+                other_elements.append(element_dict)
+                
+        # Combine all text for backward compatibility
+        all_text = "\n".join([elem['text'] for elem in text_elements if elem['text']])
+        
+        return {
+            'text': all_text,
+            'tables': table_elements,
+            'text_elements': text_elements,
+            'other_elements': other_elements,
+            'layout_analysis': {
+                'engine_used': 'unstructured_hi_res',
+                'total_elements': len(elements),
+                'table_count': len(table_elements),
+                'text_element_count': len(text_elements)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error in comprehensive unstructured extraction: {e}")
+        # Fallback to basic extraction
+        return {
+            'text': extract_text_native_pdf(pdf_path),
+            'tables': [],
+            'elements': [],
+            'layout_analysis': {'engine_used': 'fallback_basic_extraction', 'error': str(e)}
+        }
+
+
+def extract_text_with_layout_awareness(pdf_path: Union[str, Path]) -> Dict[str, Any]:
+    """
+    Main function implementing document triage with layout-aware extraction.
+    Routes documents to the most appropriate processing engine based on layout type.
+    """
+    pdf_path = Path(pdf_path)
+    layout_type = classify_document_layout_type(pdf_path)
+    logger.info(f"Document layout type detected as: {layout_type} for {pdf_path.name}")
+    
+    if layout_type in ['native_text', 'text_heavy']:
+        # Fast Path: Native text extraction (Zero OCR)
+        logger.info(f"Using fast path for native text extraction: {pdf_path.name}")
+        text = extract_text_native_pdf(pdf_path)
+        return {
+            'text': text,
+            'tables': [],
+            'text_elements': [{'type': 'paragraph', 'text': text, 'metadata': {}}],
+            'other_elements': [],
+            'layout_analysis': {
+                'engine_used': 'native_extraction_fast_path',
+                'layout_type': layout_type,
+                'processing_time': 0  # Will be measured externally
+            }
+        }
+    elif layout_type in ['table_heavy', 'mixed_content'] and UNSTRUCTURED_AVAILABLE:
+        # Medium Path: Layout-aware extraction with unstructured.io
+        logger.info(f"Using layout-aware path for complex document: {pdf_path.name}")
+        return extract_text_with_unstructured(pdf_path)
+    else:
+        # Slow Path: OCR-based extraction for scanned documents
+        logger.info(f"Using OCR path for scanned document: {pdf_path.name}")
+        from .text_extractor import extract_text_pdf
+        text = extract_text_pdf(pdf_path)
+        return {
+            'text': text,
+            'tables': [],
+            'text_elements': [{'type': 'paragraph', 'text': text, 'metadata': {}}],
+            'other_elements': [],
+            'layout_analysis': {
+                'engine_used': 'ocr_fallback_slow_path',
+                'layout_type': layout_type,
+                'processing_time': 0  # Will be measured externally
+            }
+        }
 
 
 def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
@@ -237,7 +425,7 @@ def extract_text_with_fallback_optimized(
 ) -> str:
     """
     Extract text from PDF with fallback to OCR if the PDF is scanned.
-    Optimized version with parallel processing option.
+    Updated to implement document triage with layout-aware processing.
 
     Args:
         pdf_path: Path to the PDF file
@@ -247,21 +435,9 @@ def extract_text_with_fallback_optimized(
     Returns:
         Extracted text from the PDF
     """
-    # First, check if the PDF is scanned
-    if is_pdf_scanned(pdf_path):
-        logger.info(f"PDF appears to be scanned, using OCR: {pdf_path}")
-        if use_parallel:
-            return extract_text_from_scanned_pdf_parallel(
-                pdf_path, max_workers=max_workers
-            )
-        else:
-            return extract_text_from_scanned_pdf(pdf_path)
-    else:
-        logger.info(f"PDF contains native text, using direct extraction: {pdf_path}")
-        # Fall back to the standard text extraction
-        from .text_extractor import extract_text_pdf
-
-        return extract_text_pdf(pdf_path)
+    # Use the new layout-aware extraction system
+    result = extract_text_with_layout_awareness(pdf_path)
+    return result['text']
 
 
 def process_single_pdf_ocr(
@@ -271,7 +447,7 @@ def process_single_pdf_ocr(
     max_workers: int = 4,
 ) -> Tuple[str, str]:
     """
-    Process a single PDF file with OCR if needed.
+    Process a single PDF file with layout-aware extraction if needed.
     Returns tuple of (filename, extracted_text).
 
     Args:
@@ -285,18 +461,15 @@ def process_single_pdf_ocr(
     """
     try:
         start_time = time.time()
-        text = extract_text_with_fallback_optimized(pdf_file, use_parallel, max_workers)
+        text_result = extract_text_with_layout_awareness(pdf_file)
+        text = text_result['text']
         processing_time = time.time() - start_time
 
-        # Record metrics
+        # Record metrics with layout analysis info
         ente = pdf_file.parent.parent.name  # Extract ente from grandparent directory
-        is_scanned = is_pdf_scanned(pdf_file)
-        processing_method = (
-            "ocr_parallel"
-            if is_scanned and use_parallel
-            else ("ocr_sequential" if is_scanned else "standard")
-        )
-        document_type = "scanned_pdf" if is_scanned else "native_pdf"
+        layout_info = text_result.get('layout_analysis', {})
+        processing_method = layout_info.get('engine_used', 'unknown')
+        document_type = layout_info.get('layout_type', 'unknown')
 
         metrics_collector = get_metrics_collector()
         metrics_collector.record_document_processed(
@@ -337,7 +510,7 @@ def batch_extract_text_with_ocr_optimized(
     batch_size: int = 10,
 ) -> Dict[str, str]:
     """
-    Batch extract text from PDFs in a directory, using OCR when necessary.
+    Batch extract text from PDFs in a directory, using layout-aware processing when necessary.
     Optimized version with parallel processing and batching.
 
     Args:
@@ -410,5 +583,6 @@ def test_ocr_optimized_integration():
     print(f"OpenCV available: {cv2_available is not None}")
     print(f"Pytesseract available: {pytesseract_available is not None}")
     print(f"PyMuPDF available: {fitz_available is not None}")
+    print(f"Unstructured.io available: {UNSTRUCTURED_AVAILABLE}")
 
     return cv2_available and pytesseract_available and fitz_available

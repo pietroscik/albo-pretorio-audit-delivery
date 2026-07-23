@@ -95,7 +95,16 @@ class CentralOrchestrator:
     def __init__(self, ente: str = "default", max_workers: int = 4, base_path: Optional[Path] = None, config_manager=None):
         self.ente = ente
         self.max_workers = max_workers
-        self.base_path = base_path or Path.cwd()
+        # Ensure base_path is always a Path object
+        if base_path is None:
+            self.base_path = Path.cwd()
+        elif isinstance(base_path, str):
+            self.base_path = Path(base_path)
+        else:
+            self.base_path = base_path
+            
+        # Resolve to absolute path to avoid issues
+        self.base_path = self.base_path.resolve()
         self.config_manager = config_manager or get_config()
         self.modules = {}
         self.execution_history = []
@@ -109,6 +118,87 @@ class CentralOrchestrator:
             "timeout": 300,  # 5 minutes timeout
             "retry_attempts": 3
         }
+        
+        # Add default parameters for workflow execution
+        self.default_params = {
+            'skip_risk': False,
+            'skip_kpi': False,
+            'skip_ml': False,
+            'skip_audit': False,
+            'skip_scraping': False
+        }
+    
+    def run_workflow(self, workflow_type: str = 'full', ente: str = None, custom_params: dict = None):
+        """
+        Main workflow runner that coordinates all services.
+        
+        Args:
+            workflow_type: Type of workflow ('full', 'minimal', 'analyze_only')
+            ente: Name of the municipality to process
+            custom_params: Custom parameters to override defaults
+        """
+        # Merge custom params with defaults
+        params = self.default_params.copy()
+        if custom_params:
+            params.update(custom_params)
+            
+        # Update worker status
+        metrics_collector.update_worker_status('orchestrator', 1, ente)
+        
+        try:
+            # Log the start of the workflow
+            logger.info(f"Starting {workflow_type} workflow for {ente}")
+            
+            # Different workflow types
+            if workflow_type == 'analyze_only':
+                # Skip scraping, go directly to analysis and other phases
+                self._run_analysis(ente)
+                if not params.get('skip_risk', False):
+                    self._run_risk_assessment(ente)
+                if not params.get('skip_kpi', False):
+                    self._run_management_kpi(ente)
+                if not params.get('skip_ml', False):
+                    self._run_ml_pipeline(ente)
+                if not params.get('skip_audit', False):
+                    self._run_audit(ente)
+            elif workflow_type == 'minimal':
+                # Minimal workflow: basic scraping and essential analysis
+                self._run_scraping(ente)
+                self._run_analysis(ente)  # Essential analysis
+            elif workflow_type == 'full':
+                # Full workflow: all phases
+                if not params.get('skip_scraping', False):
+                    self._run_scraping(ente)
+                
+                # Run analysis
+                self._run_analysis(ente)
+                
+                # Run risk assessment
+                if not params.get('skip_risk', False):
+                    self._run_risk_assessment(ente)
+                
+                # Run management KPI analysis
+                if not params.get('skip_kpi', False):
+                    self._run_management_kpi(ente)
+                
+                # Run ML pipeline
+                if not params.get('skip_ml', False):
+                    self._run_ml_pipeline(ente)
+                
+                # Run audit
+                if not params.get('skip_audit', False):
+                    self._run_audit(ente)
+            else:
+                raise ValueError(f"Unknown workflow type: {workflow_type}")
+                
+            logger.info(f"Workflow completed successfully for {ente}")
+            
+        except Exception as e:
+            logger.error(f"Workflow failed for {ente}: {e}")
+            raise
+        finally:
+            # Update worker status
+            metrics_collector.update_worker_status('orchestrator', 0, ente)
     
     def execute_full_workflow(self, ente: str):
         """
@@ -281,6 +371,17 @@ class CentralOrchestrator:
             # Update worker status
             metrics_collector.update_worker_status('orchestrator', 0, ente)
     
+    def process_downloaded_files(self, download_dir: Path) -> None:
+        """Process downloaded files, especially P7M signature envelopes."""
+        from ..utils.p7m_unwrapper import process_p7m_files_in_directory
+        
+        logger.info(f"Processing downloaded files in {download_dir}")
+        
+        # Process P7M files to extract their content
+        process_p7m_files_in_directory(download_dir / "pdf")
+        
+        logger.info("Completed post-processing of downloaded files")
+
     def run_risk_assessment(self, df, use_cache=True):
         """
         Run risk assessment on a DataFrame.
@@ -353,7 +454,7 @@ class CentralOrchestrator:
     
     def _run_scraping(self, ente: str):
         """Run the scraping phase."""
-        from ..scraping.new_albo_scraper import AlboScraper, build_parser
+        from ..scraping.new_albo_scraper import AlboScraper, build_parser, get_comune_data
         import sys
         from unittest.mock import patch
         
@@ -363,8 +464,21 @@ class CentralOrchestrator:
             args.ente = ente
             args.out = f"data/{ente}/albo_download"
             
-            # Set default values for other required arguments
-            args.start_url = f"https://servizi.comune.{ente}.av.it/openweb/albo/albo_pretorio_full.php"
+            # Get the correct URL from the mapping data
+            comune_data = get_comune_data(ente)
+            url_albo_specifico = comune_data.get('url_albo_pretorio')
+            
+            # Use the specific URL from mapping if available and valid, otherwise generate default
+            if (url_albo_specifico is not None and 
+                pd.notna(url_albo_specifico) and 
+                str(url_albo_specifico).strip() != '' and 
+                str(url_albo_specifico).lower() != 'nan'):
+                
+                args.start_url = str(url_albo_specifico)
+            else:
+                # Generate default OpenWeb URL as fallback
+                args.start_url = f"https://servizi.comune.{ente}.av.it/openweb/albo/albo_pretorio_full.php"
+            
             args.max_pages = 20  # Default number of pages to scrape
             args.delay = 1.0
             args.timeout = 20
@@ -373,39 +487,83 @@ class CentralOrchestrator:
             # Create the scraper instance and run it
             scraper = AlboScraper(args)
             scraper.run()
+            
+            # Process P7M files after scraping to extract their content
+            self._process_p7m_files(ente)
+            
         except Exception as e:
             logger.error(f"Scraping failed for {ente}: {e}")
             raise
+
+    def _process_p7m_files(self, ente: str):
+        """Process P7M files to extract their content."""
+        from ..utils.p7m_unwrapper import process_p7m_files_in_directory
+        from pathlib import Path
+        
+        download_dir = Path(f"data/{ente}/albo_download")
+        pdf_dir = download_dir / "pdf"
+        
+        if pdf_dir.exists():
+            logger.info(f"Processing P7M files in {pdf_dir}")
+            process_p7m_files_in_directory(pdf_dir)
+        else:
+            logger.warning(f"PDF directory does not exist: {pdf_dir}")
     
     def _run_analysis(self, ente: str):
         """Run the analysis phase."""
-        # Execute the analysis module
+        # Execute the analysis phase for {ente}
+        logger.info(f"Starting analysis phase for {ente}")
+        
+        # Prepare the analysis command
         cmd = [
-            sys.executable, 
+            sys.executable,
             "-c",
             f"""
 import sys
+import os
 sys.path.insert(0, '.')
 from delibere_comunali.parsing.analyze_albo import main
 import argparse
 
-# Simulate command line arguments
 class Args:
-    pass
+    def __init__(self):
+        self.ente = "{ente}"
+        self.base = r"{str(self.base_path)}"
 
 args = Args()
-args.ente = "{ente}"
 
-# Execute the main function
-main(args)
+try:
+    # Execute the main function
+    main(args)
+    print("ANALYSIS_COMPLETED_SUCCESSFULLY")
+except Exception as e:
+    print(f"ANALYSIS_ERROR: {{e}}", file=sys.stderr)
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 """
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Execute the command with proper environment and working directory
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=str(self.base_path),
+            env=os.environ.copy()
+        )
         
         if result.returncode != 0:
             logger.error(f"Analysis failed for {ente}: {result.stderr}")
             raise RuntimeError(f"Analysis failed: {result.stderr}")
+        elif "ANALYSIS_ERROR" in result.stderr:
+            logger.error(f"Analysis failed for {ente}: {result.stderr}")
+            raise RuntimeError(f"Analysis failed: {result.stderr}")
+        elif "ANALYSIS_COMPLETED_SUCCESSFULLY" not in result.stdout:
+            logger.error(f"Analysis did not complete successfully for {ente}. stdout: {result.stdout}, stderr: {result.stderr}")
+            raise RuntimeError(f"Analysis failed: Unexpected output")
+        
+        logger.info(f"Analysis completed successfully for {ente}")
     
     def _run_risk_assessment(self, ente: str):
         """Run the risk assessment phase."""

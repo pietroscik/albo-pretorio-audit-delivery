@@ -64,6 +64,8 @@ class EnterpriseOrchestrator:
             return self._run_audit_analysis(params)
         elif workflow_type == "minimal":
             return self._run_minimal_analysis(params)
+        elif workflow_type == "analyze_only":
+            return self._run_analysis_only(params)
         else:
             raise ValueError(f"Tipo di workflow sconosciuto: {workflow_type}")
     
@@ -186,6 +188,23 @@ class EnterpriseOrchestrator:
             'minimal_results': results,
             'workflow_type': 'minimal'
         }
+    
+    def _run_analysis_only(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Esegue solo l'analisi senza altri componenti
+        """
+        try:
+            # Esegui solo l'analisi
+            self.orchestrator.execute_analysis_only(self.ente)
+            
+            return {
+                'timestamp': str(),
+                'analysis_results': 'completed',
+                'workflow_type': 'analyze_only'
+            }
+        except Exception as e:
+            logger.error(f"Analysis-only workflow failed for {self.ente}: {e}")
+            raise
 
 
 def main():

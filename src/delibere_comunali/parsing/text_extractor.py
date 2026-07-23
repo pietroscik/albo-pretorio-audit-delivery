@@ -13,6 +13,8 @@ try:
 except ImportError:
     pytesseract = None
 
+import re
+from typing import Dict, Union, Tuple, Optional
 from ..utils.metrics_collector import get_metrics_collector
 
 logger = get_logger("text_extractor")
@@ -239,3 +241,143 @@ class TextExtractor:
             img = ImageOps.grayscale(img)
             img = ImageEnhance.Contrast(img).enhance(2.0)
             return img
+    
+    def extract_text_enhanced(self, pdf_path: Path) -> Tuple[str, Dict[str, any]]:
+        """Enhanced text extraction with digital signature awareness."""
+        # Import required modules locally to avoid circular imports
+        import fitz  # PyMuPDF
+        from pdfminer.high_level import extract_text
+        from typing import Dict, Union
+    
+        metadata = {
+            'is_signed_only': False,
+            'signature_info_found': False,
+            'page_count': 0,
+            'text_length': 0,
+            'extraction_method': 'enhanced_extraction'
+        }
+    
+        try:
+            # Use PyMuPDF for quick document info
+            doc = fitz.open(pdf_path)
+            metadata['page_count'] = len(doc)
+    
+            full_text = []
+            signature_pages = 0
+    
+            for page_num, page in enumerate(doc):
+                page_text = page.get_text()
+    
+                # Check if page contains mostly signature info
+                if self._is_digital_signature_page(page_text):
+                    signature_pages += 1
+                    metadata['signature_info_found'] = True
+                    # Extract useful info from signature pages anyway
+                    signature_entities = self._extract_signature_entities(page_text)
+                    if signature_entities:
+                        full_text.append(f"[INFO FIRMA: {signature_entities}]")
+                else:
+                    full_text.append(page_text)
+    
+            doc.close()
+    
+            # If almost all pages are signature info, flag as signed-only document
+            if signature_pages > 0 and signature_pages >= len(doc) * 0.8:
+                metadata['is_signed_only'] = True
+    
+            extracted_text = "\n".join(full_text)
+            metadata['text_length'] = len(extracted_text)
+    
+            return extracted_text, metadata
+    
+        except Exception as e:
+            logger.warning(f"Error in PyMuPDF extraction for {pdf_path.name}: {e}")
+    
+            # Fallback to pdfminer
+            try:
+                text = extract_text(str(pdf_path))
+                metadata['text_length'] = len(text)
+                # Note: Getting page count with pdfminer requires parsing pages
+                from pdfminer.pdfpage import PDFPage
+                from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+                from pdfminer.layout import LAParams
+                from pdfminer.converter import TextConverter
+                import io
+    
+                with open(pdf_path, 'rb') as fp:
+                    resource_manager = PDFResourceManager()
+                    fake_file_handle = io.StringIO()
+                    codec = 'utf-8'
+                    laparams = LAParams()
+                    interpreter = PDFPageInterpreter(resource_manager, TextConverter(resource_manager, fake_file_handle, codec=codec, laparams=laparams))
+                    pages = list(PDFPage.get_pages(fp, caching=True, check_extractable=True))
+                    metadata['page_count'] = len(pages)
+    
+                if self._is_digital_signature_page(text):
+                    metadata['is_signed_only'] = True
+                    metadata['signature_info_found'] = True
+    
+                return text, metadata
+            except Exception as e2:
+                logger.error(f"Error in text extraction for {pdf_path.name}: {e2}")
+                return "", {**metadata, 'error': str(e2)}
+    
+    def _is_digital_signature_page(self, text: str) -> bool:
+        """Check if text contains mainly digital signature information."""
+        signature_indicators = [
+            r'firma digitale',
+            r'digital signature',
+            r'signed by',
+            r'firma rilasciata',
+            r'certificate',
+            r'signature',
+            r'hash',
+            r'certificat',
+            r'firma apposta',
+            r'validit.',
+            r'autenticit.',
+            r'integrit.',
+        ]
+    
+        text_lower = text.lower()
+        signature_matches = sum(1 for indicator in signature_indicators 
+                               if re.search(indicator, text_lower, re.IGNORECASE))
+    
+        # Consider a page as signature-only if it has many indicators
+        words = len(text.split())
+        signature_ratio = signature_matches / max(words, 1)
+    
+        # If has many signature indicators and little meaningful text, probably signature-only
+        return signature_matches >= 2 and len(text.strip()) > 50
+    
+    def _extract_signature_entities(self, signature_text: str) -> Dict[str, str]:
+        """Extract useful entities from digital signature pages."""
+        entities = {}
+    
+        # Look for signer names
+        name_patterns = [
+            r'Firmatario[:\s]+([A-Z][A-Za-z\s\.\'’]+)',
+            r'Nome[:\s]+([A-Z][A-Za-z\s\.\'’]+)',
+            r'Cognome[:\s]+([A-Z][A-Za-z\s\.\'’]+)',
+            r'Soggetto[:\s]+([A-Z][A-Za-z\s\.\'’]+)',
+        ]
+    
+        for pattern in name_patterns:
+            matches = re.findall(pattern, signature_text, re.IGNORECASE)
+            for match in matches:
+                if 'signer_name' not in entities:
+                    entities['signer_name'] = match.strip()
+    
+        # Look for dates
+        date_pattern = r'(\d{2}/\d{2}/\d{4}|\d{4}-\d{2}-\d{2})'
+        dates = re.findall(date_pattern, signature_text)
+        if dates:
+            entities['signature_date'] = dates[0]
+    
+        # Look for hashes or identifiers
+        hash_pattern = r'([A-F0-9]{40,})'  # SHA-1 or higher hash
+        hashes = re.findall(hash_pattern, signature_text, re.IGNORECASE)
+        if hashes:
+            entities['document_hash'] = hashes[0][:16] + "..."
+    
+        return entities

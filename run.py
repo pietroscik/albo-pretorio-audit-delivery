@@ -62,50 +62,51 @@ def cli():
 
 
 @cli.command()
-@click.option('--ente', required=True, help='Nome dell\'ente locale da analizzare (es. milano, roma)')
-@click.option('--workflow', default='full', help='Tipo di workflow da eseguire: full, analyze-only, scrape-only')
-@click.option('--config', default='config.yaml', help='Percorso al file di configurazione')
+@click.argument('ente', type=str)
+@click.option('-w', '--workflow', type=click.Choice(['full', 'analyze-only', 'scrape-only']), default='full', 
+              help='Tipo di workflow da eseguire: full (default), analyze-only (solo analisi), scrape-only (solo scraping)')
+@click.option('-c', '--config', type=str, default='default', 
+              help='Nome del file di configurazione da utilizzare')
 def enterprise(ente: str, workflow: str, config: str):
     """
     Esegue il workflow enterprise per un ente specifico.
+    Questo comando coordina tutti i servizi per l'analisi completa.
     """
-    if ConfigManager is None or EnterpriseOrchestrator is None:
-        print("❌ Modulo enterprise non disponibile: dipendenze mancanti")
-        return
+    from src.delibere_comunali.core.orchestrator import CentralOrchestrator
+    from src.delibere_comunali.utils.config import get_config  # Fixed import
     
-    config_path = Path(config)
-    if not config_path.exists():
-        print(f"❌ Configurazione non trovata: {config_path}")
-        return
+    # Load configuration
+    config_obj = get_config()
     
-    config_manager = ConfigManager(config_path)
-    orchestrator = EnterpriseOrchestrator(ente=ente, config_manager=config_manager)
+    # Initialize orchestrator
+    orchestrator = CentralOrchestrator(config_obj)
     
-    try:
-        # Map workflow options to corresponding parameters
-        workflow_mapping = {
-            'full': 'full',
-            'analyze-only': 'full',  # Full analysis without scraping
-            'scrape-only': 'minimal'  # Minimal analysis for scraping only
-        }
-        
-        workflow_type = workflow_mapping.get(workflow, 'full')
-        
-        custom_params = {}
-        if workflow == 'scrape-only':
-            # For scraping only, we might want to skip other analyses
-            custom_params = {'skip_risk': True, 'skip_kpi': True, 'skip_ml': True, 'skip_audit': True}
-        
-        results = orchestrator.run_workflow(
-            workflow_type=workflow_type,
-            custom_params=custom_params
-        )
-        
-        print(f"✅ Workflow completato per l'ente: {ente}")
-        print(f"Tipo workflow: {workflow}")
-        print(f"Risultati: {results}")
-    except Exception as e:
-        print(f"❌ Errore nell'esecuzione del workflow: {e}")
+    # Map workflow options to corresponding parameters
+    workflow_mapping = {
+        'full': 'full',
+        'analyze-only': 'analyze_only',  # Run only analysis without scraping
+        'scrape-only': 'minimal'  # Minimal analysis for scraping only
+    }
+    
+    workflow_type = workflow_mapping.get(workflow, 'full')
+    
+    custom_params = {}
+    if workflow == 'scrape-only':
+        # For scraping only, we might want to skip other analyses
+        custom_params = {'skip_risk': True, 'skip_kpi': True, 'skip_ml': True, 'skip_audit': True}
+    elif workflow == 'analyze-only':
+        # For analysis only, we want to run analysis but not scraping
+        # The orchestrator should handle this appropriately
+        custom_params = {'skip_scraping': True}
+    
+    results = orchestrator.run_workflow(
+        workflow_type=workflow_type,
+        ente=ente,
+        custom_params=custom_params
+    )
+    
+    click.echo(f"Enterprise workflow completed for {ente}")
+    return results
 
 
 @cli.command()

@@ -599,6 +599,40 @@ class AlboScraper:
                 for chunk in r.iter_content(chunk_size=65536):
                     if chunk:
                         f.write(chunk)
+        
+        # Controlla se il file scaricato è un P7M e, se sì, estrai il contenuto
+        if dest.suffix.lower() == '.p7m':
+            from .utils.p7m_unwrapper import unwrap_p7m_file
+            try:
+                # Estrai il PDF dal P7M
+                extracted_pdf_path = unwrap_p7m_file(dest)
+                
+                if extracted_pdf_path and extracted_pdf_path.exists():
+                    # Sostituisci il P7M con il PDF estratto
+                    # Manteniamo il nome del file originale ma con estensione .pdf
+                    original_name = dest.with_suffix('.pdf')
+                    
+                    # Se il nome originale esiste già, aggiungiamo un suffisso
+                    counter = 1
+                    while original_name.exists():
+                        name_part = dest.stem.replace('.p7m', '')  # Rimuove .p7m dal nome
+                        original_name = dest.parent / f"{name_part}_{counter}.pdf"
+                        counter += 1
+                    
+                    extracted_pdf_path.rename(original_name)
+                    self.log(f"Sostituito {dest.name} con {original_name.name} (contenuto estratto)")
+                    
+                    # Archivia il P7M originale
+                    archive_dir = dest.parent / "p7m_archives"
+                    archive_dir.mkdir(exist_ok=True)
+                    archived_p7m = archive_dir / dest.name
+                    dest.rename(archived_p7m)
+                    self.log(f"Archiviato P7M originale: {archived_p7m.name}")
+                else:
+                    self.log(f"Impossibile estrarre contenuto da {dest.name}, mantenuto come originale")
+            except Exception as e:
+                self.log(f"Errore nell'elaborazione P7M {dest.name}: {e}")
+        
         self.downloaded.add(url)
         try:
             self.downloaded_json.write_text(json.dumps(sorted(self.downloaded)), encoding="utf-8")

@@ -106,50 +106,17 @@ class ParsedDocument:
     is_accessible: bool = False
     pdf_version: Optional[float] = None
     compliance_score: int = 0
-    doc_type_feat: Optional[float] = None
-    category_feat: Optional[float] = None
-    subcategory_feat: Optional[float] = None
-    classification_confidence_feat: Optional[float] = None
-    source_feat: Optional[str] = None
-    text_sha256_feat: Optional[float] = None
-    text_chars_feat: Optional[float] = None
-    text_words_feat: Optional[float] = None
-    unique_words_feat: Optional[float] = None
-    euro_mentions_feat: Optional[float] = None
-    cig_feat: Optional[str] = None
-    cup_feat: Optional[str] = None
-    cig_mentions_feat: Optional[float] = None
-    cup_mentions_feat: Optional[float] = None
-    date_mentions_feat: Optional[float] = None
-    years_mentioned_feat: Optional[float] = None
-    importo_max_feat: Optional[float] = None
-    importo_sum_feat: Optional[float] = None
-    importi_count_feat: Optional[float] = None
-    accounting_relevant_feat: Optional[bool] = None
-    missing_amount_expected_feat: Optional[bool] = None
-    importo_lettere_feat: Optional[float] = None
-    piva_beneficiario_feat: Optional[str] = None
-    iban_feat: Optional[str] = None
-    codice_appalti_feat: Optional[str] = None
-    tipo_procedura_feat: Optional[str] = None
-    quadro_economico_feat: Optional[str] = None
-    anomalie_feat: Optional[str] = None
-    extraction_method_feat: Optional[str] = None
-    trace_json_feat: Optional[str] = None
-    beneficiario_raw_feat: Optional[str] = None
-    layout_confidence_feat: Optional[float] = None
-    legal_urn_feat: Optional[str] = None
-    is_signed_feat: Optional[bool] = None
-    is_accessible_feat: Optional[bool] = None
-    pdf_version_feat: Optional[float] = None
-    compliance_score_feat: Optional[int] = None
-    veridicità_score_feat: Optional[float] = None
-    solidità_globale_feat: Optional[float] = None
-    is_personnel_competence_relevant_feat: Optional[bool] = None
-    personnel_competences_feat: Optional[str] = None
-    decree_references_feat: Optional[str] = None
-    solidità_globale_prec: Optional[float] = None
     
+    # Campi per tracciare file problematici
+    is_problematic_file: bool = False
+    problematic_reason: Optional[str] = None
+    
+    # Nuovi campi per dati strutturati e tabelle
+    table_count: int = 0
+    has_financial_tables: bool = False
+    has_budget_tables: bool = False
+    importi_from_tables: Optional[List[float]] = None
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ParsedDocument':
         """

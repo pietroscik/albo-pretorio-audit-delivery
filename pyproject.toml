@@ -78,6 +78,11 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "redis>=5.0.0",
     "sentence-transformers>=3.0.0",
+    # Nuove dipendenze per estrazione di tabelle e dati strutturati
+    "pdfplumber>=0.9.0",
+    "camelot-py[cv]>=0.10.0",
+    "tabula-py>=2.1.0",
+    "unstructured[all-docs]>=0.12.0",
 ]
 
 [project.optional-dependencies]

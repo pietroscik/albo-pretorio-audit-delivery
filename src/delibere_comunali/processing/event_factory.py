@@ -28,19 +28,31 @@ class DigitalTwinEventFactory:
         # 2. Build the list of actors involved
         actors: List[Actor] = []
         if doc.responsabile and doc.responsabile != "NON IDENTIFICATO":
+            # Gestisci il caso in cui responsabile potrebbe essere una lista
+            responsabile_name = doc.responsabile[0] if isinstance(doc.responsabile, list) else doc.responsabile
             actors.append(
                 Actor(
-                    name=doc.responsabile,
+                    name=responsabile_name,
                     actor_type=ActorType.RUP,
                     role=getattr(doc, 'rup_ruolo', None),
                     area=getattr(doc, 'rup_area', None),
                 )
             )
-        if doc.beneficiario and doc.beneficiario not in [
-            "NON IDENTIFICATO",
-            "DIVERSI/NON APPLICABILE",
-        ]:
-            actors.append(Actor(name=doc.beneficiario, actor_type=ActorType.BENEFICIARIO))
+        if doc.beneficiario:
+            # Gestisci il caso in cui beneficiario potrebbe essere una lista
+            beneficiario_name = doc.beneficiario
+            if isinstance(beneficiario_name, list):
+                # Prendi il primo beneficiario o concatena tutti i beneficiari
+                if len(beneficiario_name) > 0:
+                    beneficiario_name = beneficiario_name[0]  # Oppure ", ".join(beneficiario_name)
+                else:
+                    beneficiario_name = None
+            
+            if beneficiario_name and beneficiario_name not in [
+                "NON IDENTIFICATO",
+                "DIVERSI/NON APPLICABILE",
+            ]:
+                actors.append(Actor(name=beneficiario_name, actor_type=ActorType.BENEFICIARIO))
 
         # 3. Create the event object
         event = AdministrativeEvent(

@@ -34,439 +34,59 @@ import sys
 import threading
 import time
 import urllib.parse as up
-from dataclasses import dataclass, asdict, field
-from datetime import date, datetime
+from dataclasses import asdict
 from pathlib import Path
 from typing import Optional, List, Tuple
 
 import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter, Retry
-from urllib.robotparser import RobotFileParser
+
+# Importa le funzionalità dai nuovi moduli
+from delibere_comunali.scraping.models import AlboItem
+from delibere_comunali.scraping.utils import (
+    DEFAULT_DELAY,
+    DEFAULT_MAX_PAGES,
+    DEFAULT_TIMEOUT,
+    DEFAULT_USER_AGENT,
+    ATTACH_EXTS,
+    ATTACH_MIME_EXT,
+    generate_openweb_base_url,
+    slugify,
+    compact_text,
+    url_doc_name,
+    looks_like_attachment,
+    infer_tipologia_from_filename,
+    infer_tipologia_from_oggetto,
+    infer_tipologia_from_url,
+    infer_number,
+    infer_date,
+    metadata_key,
+    encode_query,
+    page_url,
+    extract_csrf,
+    ensure_dir,
+    polite_sleep,
+    parse_date,
+    within_dates,
+    load_robots_allow,
+    can_fetch,
+    guess_next_url,
+    get_comune_data
+)
+from delibere_comunali.scraping.parsers import parse_list_page, parse_detail_page
 
 # Importa la funzione get_tenant_dir per supportare il sistema multi-tenant
 from delibere_comunali.utils.config import get_tenant_dir
 
-# -------------- Config di default --------------
-DEFAULT_DELAY = 1.0
-DEFAULT_MAX_PAGES = 20
-DEFAULT_TIMEOUT = 20
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-OPENWEB_BASE = "https://servizi.comune.avella.av.it/openweb/albo/albo_pretorio_full.php"
+# Importiamo le nuove funzionalità per il rilevamento automatico degli adapter
+from delibere_comunali.utils.adapter_detector import identify_comune_adapter
+from delibere_comunali.utils.comuni_anagrafica import carica_mappatura_esistente
 
-ATTACH_EXTS = (".pdf", ".doc", ".docx", ".rtf", ".zip")
-ATTACH_MIME_EXT = {
-    "application/pdf": ".pdf",
-    "application/msword": ".doc",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-    "application/zip": ".zip",
-}
+# Importiamo pandas per gestire i dati della mappatura
+import pandas as pd
 
-# -------------- Utility --------------
-def slugify(text: str, maxlen: int = 120) -> str:
-    text = re.sub(r"\s+", "_", text.strip())
-    text = re.sub(r"[^\w\-.]+", "", text, flags=re.UNICODE)
-    return text[:maxlen] or "file"
-
-def compact_text(text: str) -> str:
-    return " ".join((text or "").split())
-
-def url_doc_name(url: str) -> str:
-    """Restituisce il nome documento più informativo da path o query string."""
-    pu = up.urlparse(url)
-    qs = up.parse_qs(pu.query, keep_blank_values=True)
-    for key in ("f", "file", "filename", "name"):
-        if qs.get(key):
-            return os.path.basename(qs[key][0])
-    return os.path.basename(pu.path)
-
-def looks_like_attachment(href: str, label: str = "") -> bool:
-    name = url_doc_name(href).lower()
-    text = (label or "").lower()
-    
-    # Controlla se è un'estensione valida
-    has_valid_ext = any(name.endswith(ext) for ext in ATTACH_EXTS)
-    
-    # Se non ha estensione valida, probabilmente non è un allegato
-    if not has_valid_ext:
-        return False
-    
-    # Verifica se il nome del file o l'etichetta suggeriscono che è un file introduttivo anziché un vero allegato
-    intro_keywords = [
-        "introduzione", "descrizione", "copia", "anteprima", "preview", 
-        "dettagli", "dettaglio", "pagina", "scheda", "visualizza", "mostra",
-        "copertina", "frontespizio", "indice", "sommario", "prefazione",
-        "intro", "desc", "dettaglio_atto", "visualizza_atto", "mostra_dettagli"
-    ]
-    if any(keyword in name or keyword in text for keyword in intro_keywords):
-        return False  # Non è un vero allegato
-    
-    # Controlla se contiene indicatori di vero allegato
-    positive_indicators = [
-        "allegato", "documento", "pdf", "download", "vai", "atto", "determina", 
-        "delibera", "progetto", "relazione", "computo", "preventivo", "cronoprogramma",
-        "relazione", "tabelle", "elenco", "quadro", "scheda_tecnica", "capitolato",
-        "disciplinare", "metrico", "economico", "grafico", "foto", "immagine",
-        "pianta", "prospetto", "sezione", "dettaglio_tecnico", "tavola", "modulo",
-        "modello", "schema", "diagramma", "allegato_", "allegato-", "allegato.",
-        "computo_metrico", "quadro_economico", "cronoprogramma", "piano_esecutivo"
-    ]
-    has_positive_indicators = any(indicator in name or indicator in text for indicator in positive_indicators)
-    
-    # Controlla se contiene indicatori di file descrittivo
-    negative_indicators = [
-        "dettaglio", "pagina", "scheda", "visualizza", "mostra", "descrizione",
-        "introduzione", "anteprima", "preview", "info", "informazioni", "copia_"
-    ]
-    has_negative_indicators = any(indicator in name or indicator in text for indicator in negative_indicators)
-    
-    # Se ha indicatori positivi e non negativi, probabilmente è un allegato
-    if has_positive_indicators and not has_negative_indicators:
-        return True
-    elif has_positive_indicators and has_negative_indicators:
-        # Se ha entrambi, diamo priorità agli indicatori positivi ma con cautela
-        return True
-    else:
-        # Se non ha indicatori positivi, non è un allegato
-        return False
-
-# Dizionario per inferire tipologia da filename
-TIPOLOGIA_FROM_FILENAME = {
-    r"Determina": "Determinazione",
-    r"Delibera": "Delibera",
-    r"Ordinanza": "Ordinanza",
-    r"Decreto": "Decreto",
-    r"Avviso": "Avviso",
-    r"Bando": "Bando",
-    r"Attestazione": "AttestazionePubblicazione",
-    r"VistoContabile": "VistoContabile",
-    r"Referendum": "Elettorale",
-    r"Elezioni": "Elettorale",
-    r"Reperibilita": "Personale",
-    r"Disposizione": "Disposizione",
-}
-
-# Dizionario per inferire tipologia da oggetto
-TIPOLOGIA_FROM_OGGETTO = {
-    r"determina": "Determinazione",
-    r"delibera": "Delibera",
-    r"ordinanza": "Ordinanza",
-    r"decreto": "Decreto",
-    r"avviso": "Avviso",
-    r"bando": "Bando",
-    r"attestazione.*pubblicazione": "AttestazionePubblicazione",
-    r"visto.*contabile": "VistoContabile",
-    r"liquidazione": "Determinazione",
-    r"impegno": "Determinazione",
-    r"referendum|elettorale|comizi": "Elettorale",
-    r"reperibilita|personale|uffici": "Servizio",
-    r"leva.*militare": "Servizio",
-    r"manifesto": "Avviso",
-}
-
-def infer_tipologia_from_filename(filename: str) -> Optional[str]:
-    """Inferisce tipologia dal nome del file"""
-    for pattern, tipologia in TIPOLOGIA_FROM_FILENAME.items():
-        if re.search(pattern, filename, re.IGNORECASE):
-            return tipologia
-    return None
-
-def infer_tipologia_from_oggetto(oggetto: str) -> Optional[str]:
-    """Inferisce tipologia dall'oggetto del documento"""
-    if not oggetto:
-        return None
-    oggetto_lower = oggetto.lower()
-    for pattern, tipologia in TIPOLOGIA_FROM_OGGETTO.items():
-        if re.search(pattern, oggetto_lower):
-            return tipologia
-    return None
-
-def infer_tipologia_from_url(url: str) -> Optional[str]:
-    """Inferisce tipologia dall'URL (es. parametri o path)"""
-    if not url: return None
-    if "Determina" in url or "determinazione" in url.lower():
-        return "Determinazione"
-    if "Delibera" in url or "deliberazione" in url.lower():
-        return "Delibera"
-    if "Ordinanza" in url or "ordinanza" in url.lower():
-        return "Ordinanza"
-    return None
-
-def infer_number(text: str) -> Optional[str]:
-    patterns = [
-        r"\b(?:n\.|numero|copia|originale)[_\s-]*(\d{1,6})\b",
-        r"_(\d{1,6})_(?:20\d{2})\b",
-        r"\b(\d{1,6})/(20\d{2})\b",
-    ]
-    for rx in patterns:
-        m = re.search(rx, text or "", re.I)
-        if m:
-            return m.group(1)
-    return None
-
-def infer_date(text: str) -> Optional[str]:
-    m = re.search(r"\b(\d{2}/\d{2}/\d{4}|20\d{2}-\d{2}-\d{2})\b", text or "")
-    if m:
-        return m.group(1)
-    m = re.search(r"\b(20\d{2})\b", text or "")
-    if m:
-        return m.group(1)
-    return None
-
-def metadata_key(it: "AlboItem") -> str:
-    if it.dettaglio_url:
-        return it.dettaglio_url
-    if it.allegati:
-        return it.allegati[0]
-    raw = "|".join([it.titolo or "", it.numero or "", it.data_pubblicazione or "", it.oggetto or ""])
-    # Usa SHA-256 invece di SHA1 per motivi di sicurezza
-    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
-
-def encode_query(query: dict) -> str:
-    return up.urlencode(query, doseq=True, safe="[]")
-
-def page_url(page: int, step: int = 15, csrf: Optional[str] = None) -> str:
-    start = 1 + (max(1, page) - 1) * step
-    q = {"tabella_albo[page]": [str(max(1, page))], "tabella_albo[start]": [str(start)]}
-    if csrf:
-        q = {"CSRF": [csrf], **q}
-    return OPENWEB_BASE + "?" + encode_query(q)
-
-def extract_csrf(html: str, final_url: str = "") -> Optional[str]:
-    for source in (final_url, html or ""):
-        m = re.search(r"CSRF=([A-Za-z0-9]+)", source)
-        if m:
-            return m.group(1)
-    soup = BeautifulSoup(html or "", "html.parser")
-    field = soup.find("input", attrs={"name": "CSRF"})
-    if field and field.get("value"):
-        return field["value"]
-    return None
-
-def ensure_dir(p: Path) -> None:
-    p.mkdir(parents=True, exist_ok=True)
-
-def polite_sleep(delay: float):
-    time.sleep(max(0.1, delay))
-
-def parse_date(s: Optional[str]) -> Optional[date]:
-    if not s:
-        return None
-    s = s.strip()
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%Y"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except Exception:
-            pass
-    return None
-
-def within_dates(d: Optional[str], dfrom: Optional[date], dto: Optional[date]) -> bool:
-    if not (dfrom or dto):
-        return True
-    dd = parse_date(d)
-    if not dd:
-        return False
-    if dfrom and dd < dfrom:
-        return False
-    if dto and dd > dto:
-        return False
-    return True
-
-def load_robots_allow(base_root: str) -> RobotFileParser:
-    robots_url = up.urljoin(base_root, "/robots.txt")
-    rp = RobotFileParser()
-    try:
-        rp.set_url(robots_url)
-        rp.read()
-    except Exception:
-        pass
-    return rp
-
-def can_fetch(rp: RobotFileParser, url: str, user_agent: str) -> bool:
-    try:
-        return rp.can_fetch(user_agent, url)
-    except Exception:
-        return True
-
-def guess_next_url(base_url: str, step_default: int = 15) -> Optional[str]:
-    """Fallback per OpenWeb: incrementa page/start se non troviamo link 'successivo'."""
-    pu = up.urlparse(base_url)
-    qs = up.parse_qs(pu.query, keep_blank_values=True)
-    try:
-        page = int(qs.get('tabella_albo[page]', ['1'])[0])
-        start = int(qs.get('tabella_albo[start]', ['1'])[0])
-    except Exception:
-        # se non presenti, inizializziamo per passare alla pagina 2
-        page, start = 1, 1
-
-    # heuristica del passo: OpenWeb spesso usa 15; se è presente 'start', stimiamo dal valore
-    step = step_default
-    if start > 1:
-        # prova a dedurre dal pattern (start = 1 + (page-1)*step) => step = round((start-1)/(page-1))
-        try:
-            if page > 1:
-                est = int(round((start - 1) / (page - 1)))
-                if 5 <= est <= 50:
-                    step = est
-        except Exception:
-            pass
-
-    page += 1
-    start = 1 + (page - 1) * step
-    qs['tabella_albo[page]'] = [str(page)]
-    qs['tabella_albo[start]'] = [str(start)]
-    new_q = encode_query(qs)
-    return up.urlunparse((pu.scheme, pu.netloc, pu.path, pu.params, new_q, pu.fragment))
-
-# -------------- Data model --------------
-@dataclass
-class AlboItem:
-    page_url: str
-    titolo: str
-    numero: Optional[str]
-    data_pubblicazione: Optional[str]
-    tipologia: Optional[str]
-    ufficio: Optional[str]
-    oggetto: Optional[str]
-    dettaglio_url: Optional[str]
-    allegati: List[str] = field(default_factory=list)
-
-# -------------- Parser pagina elenco/dettaglio --------------
-TIPO_RX = re.compile(r"\b(delibera|determinazione|ordinanza|avviso|bando)\b", re.I)
-NUM_RX = re.compile(r"\b(n\.|numero)\s*[:\s]*([0-9/]+)", re.I)
-DATA_RX = re.compile(r"\b(pubblicazione|affissione|dal|data)\s*[:\s]*([0-9]{2}/[0-9]{2}/[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})", re.I)
-
-def parse_list_page(html: str, base_url: str) -> Tuple[List[AlboItem], Optional[str]]:
-    soup = BeautifulSoup(html, "html.parser")
-    items: List[AlboItem] = []
-
-    rows = soup.select("table tr")
-    if not rows:
-        rows = soup.select("div.risultato, div.elenco, li")
-
-    for r in rows:
-        a = r.find("a", href=True)
-        if not a:
-            continue
-        href = up.urljoin(base_url, a["href"])
-        
-        # Scorporiamo la riga nelle sue celle (<td>)
-        tds = r.find_all("td")
-        
-        titolo_val = ""
-        oggetto_val = ""
-        ufficio_val = ""
-        numero_val = None
-        data_val = None
-        tipologia_val = None
-
-        if len(tds) >= 4:
-            # Estraiamo il testo pulito da ogni colonna
-            colonne = [td.get_text(separator=" ", strip=True) for td in tds]
-            row_text = " ".join(colonne)
-            
-            # 1. L'Oggetto è quasi sempre la colonna con più testo
-            oggetto_val = max(colonne, key=len)
-            titolo_val = oggetto_val[:150] + ("..." if len(oggetto_val) > 150 else "")
-            
-            # 2. Pulizia dell'Ufficio
-            for col in colonne:
-                if "Ufficio" in col or "Area" in col or "Settore" in col:
-                    ufficio_val = col.replace("|", "").strip()
-                    break
-                    
-            # 3. Estrazione Data (cerchiamo formato GG/MM/AAAA)
-            m_data = DATA_RX.search(row_text) or re.search(r"\b(\d{2}/\d{2}/\d{4})\b", row_text)
-            if m_data:
-                data_val = m_data.group(1) if len(m_data.groups()) == 1 else m_data.group(2)
-                
-            # 4. Estrazione Numero (cerchiamo es. "123 / 2025" o "N. 123")
-            m_num = re.search(r"\b(\d+)\s*/\s*20\d{2}\b", row_text) or NUM_RX.search(row_text)
-            if m_num:
-                numero_val = m_num.group(1) if len(m_num.groups()) == 1 else m_num.group(2)
-                
-            # 5. Tipologia
-            tipologia_val = infer_tipologia_from_url(href)
-            if not tipologia_val:
-                m_tip = TIPO_RX.search(row_text)
-                if m_tip:
-                    tip_val = m_tip.group(1).capitalize()
-                    tipologia_val = "Determinazione" if tip_val == "Determina" else tip_val
-        else:
-            # Fallback per righe anomale senza colonne standard
-            row_text = " ".join((r.get_text(separator=" | ") or "").split())
-            oggetto_val = re.sub(r"\bVai\b", "", row_text, flags=re.I).strip(" |")
-            titolo_val = oggetto_val[:150]
-
-        # Creiamo il record pulito
-        item = AlboItem(
-            page_url=base_url,
-            titolo=titolo_val if titolo_val else "Senza titolo",
-            numero=numero_val,
-            data_pubblicazione=data_val,
-            tipologia=tipologia_val,
-            ufficio=ufficio_val,
-            oggetto=oggetto_val,
-            dettaglio_url=href,
-        )
-        items.append(item)
-
-    # Link "successivo" per la paginazione
-    a_next = soup.find("a", rel=lambda v: v and "next" in v.lower())
-    if a_next and a_next.get("href"):
-        return items, up.urljoin(base_url, a_next["href"])
-
-    for c in soup.find_all("a", string=re.compile(r"(successiva|successivo|pagina successiva|avanti|>)", re.I)):
-        if c.get("href"):
-            return items, up.urljoin(base_url, c["href"])
-
-    for a in soup.select("a"):
-        txt = (a.get_text() or "").strip()
-        if txt in (">", "»", ">>") and a.get("href"):
-            return items, up.urljoin(base_url, a["href"])
-
-    return items, guess_next_url(base_url)
-
-def parse_detail_page(html: str, base_url: str) -> Tuple[Optional[str], Optional[str], List[str]]:
-    soup = BeautifulSoup(html, "html.parser")
-    text = compact_text(soup.get_text(separator=" | "))
-
-    ogg = None
-    m_ogg = re.search(
-        r"\b(?:oggetto|titolo)\b\s*[:|]\s*(.+?)(?=\s*\|\s*(?:ufficio|settore|area|allegati?|pubblicazione|numero)\b|\s*$)",
-        text,
-        re.I,
-    )
-    if m_ogg:
-        ogg = m_ogg.group(1).strip(" :-|")
-
-    uff = None
-    m_uff = re.search(
-        r"\b(?:ufficio|settore|area)\b\s*[:|]\s*(.+?)(?=\s*\|\s*(?:oggetto|titolo|allegati?|pubblicazione|numero)\b|\s*$)",
-        text,
-        re.I,
-    )
-    if m_uff:
-        uff = m_uff.group(1).strip(" :-|")
-
-    allegati = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        label = compact_text(a.get_text(" "))
-        if looks_like_attachment(href, label):
-            allegati.append(up.urljoin(base_url, href))
-
-    if not allegati and base_url.lower().endswith(".pdf"):
-        allegati.append(base_url)
-
-    # dedup
-    seen = {}
-    out = []
-    for u in allegati:
-        if u not in seen:
-            seen[u] = 1
-            out.append(u)
-    return ogg, uff, out
+OPENWEB_BASE_DEFAULT = "https://servizi.comune.avella.av.it/openweb/albo/albo_pretorio_full.php"
 
 # -------------- Scraper --------------
 class AlboScraper:
@@ -510,7 +130,24 @@ class AlboScraper:
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
         self.session.headers.update({"User-Agent": args.user_agent or DEFAULT_USER_AGENT})
 
-        parsed = up.urlparse(args.start_url) if args.start_url else up.urlparse(OPENWEB_BASE)
+        # Usa l'URL fornito o genera dinamicamente l'URL in base all'ente
+        if args.start_url:
+            parsed = up.urlparse(args.start_url)
+        else:
+            # Cerca prima l'URL specifico nella mappatura
+            comune_data = get_comune_data(args.ente)
+            url_albo_specifico = comune_data.get('url_albo_pretorio')
+            
+            # Usa l'URL specifico dalla mappatura se disponibile e valido
+            if (url_albo_specifico is not None and 
+                pd.notna(url_albo_specifico) and 
+                str(url_albo_specifico).strip() != '' and 
+                str(url_albo_specifico).lower() != 'nan'):
+                
+                parsed = up.urlparse(str(url_albo_specifico))
+            else:
+                generated_url = generate_openweb_base_url(args.ente)
+                parsed = up.urlparse(generated_url)
         self.base_root = f"{parsed.scheme}://{parsed.netloc}"
         self.rp = load_robots_allow(self.base_root)
 
@@ -519,7 +156,38 @@ class AlboScraper:
             page = max(1, args.page_from)
             step = args.page_step or 15
             csrf = self.bootstrap_csrf()
-            self.current_url = page_url(page, step=step, csrf=csrf)
+            
+            # Se abbiamo un URL specifico che non è nel formato OpenWeb standard, dobbiamo gestirlo diversamente
+            comune_data = get_comune_data(args.ente)
+            url_albo_specifico = comune_data.get('url_albo_pretorio')
+            
+            if (url_albo_specifico is not None and 
+                pd.notna(url_albo_specifico) and 
+                str(url_albo_specifico).strip() != '' and 
+                str(url_albo_specifico).lower() != 'nan'):
+                
+                # Se abbiamo un URL specifico, potrebbe non essere nel formato OpenWeb standard
+                # Quindi usiamo l'URL trovato direttamente, rimuovendo eventuali parametri e mantenendo solo la base
+                parsed_url = up.urlparse(str(url_albo_specifico))
+                base_url_specifico = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                
+                # Se l'URL contiene già parametri di paginazione, li manteniamo; altrimenti generiamo la pagina OpenWeb standard
+                if 'page' in parsed_url.query or 'start' in parsed_url.query:
+                    # Se contiene già parametri di paginazione, usiamo l'URL cosi com'è
+                    self.current_url = str(url_albo_specifico)
+                else:
+                    # Altrimenti generiamo la pagina OpenWeb standard usando l'URL trovato come base
+                    # Ma solo se l'URL trovato sembra essere nel formato OpenWeb
+                    if 'openweb' in str(url_albo_specifico).lower() or 'mc_p_ricerca' in str(url_albo_specifico).lower():
+                        # L'URL trovato è già nel formato corretto, lo usiamo così com'è
+                        self.current_url = str(url_albo_specifico)
+                    else:
+                        # Come fallback, proviamo a generare un URL OpenWeb standard usando l'host trovato
+                        self.current_url = page_url(page, step=step, csrf=csrf, base_url=f"{parsed_url.scheme}://{parsed_url.netloc}/openweb/albo/albo_pretorio_full.php")
+            else:
+                # Se non abbiamo un URL specifico, usiamo il comportamento standard
+                self.current_url = page_url(page, step=step, csrf=csrf, base_url=self.base_root + "/openweb/albo/albo_pretorio_full.php")
+            
             # forza max_pages = page_to - page + 1 se specificato
             if args.page_to is not None and args.page_to >= page:
                 self.max_pages = args.page_to - page + 1
@@ -595,18 +263,152 @@ class AlboScraper:
     def bootstrap_csrf(self) -> Optional[str]:
         """Apre la pagina base per ottenere eventuale token CSRF richiesto da OpenWeb."""
         try:
-            if not can_fetch(self.rp, OPENWEB_BASE, self.args.user_agent or DEFAULT_USER_AGENT):
+            # Cerca prima l'URL specifico nella mappatura
+            comune_data = get_comune_data(self.args.ente)
+            url_albo_specifico = comune_data.get('url_albo_pretorio')
+            
+            # Usa l'URL specifico dalla mappatura se disponibile e valido
+            if (url_albo_specifico is not None and 
+                pd.notna(url_albo_specifico) and 
+                str(url_albo_specifico).strip() != '' and 
+                str(url_albo_specifico).lower() != 'nan'):
+                
+                base_url = str(url_albo_specifico)
+                self.log(f"[sessione] Usando URL specifico dalla mappatura: {base_url}")
+            else:
+                # Altrimenti usa l'URL generato dinamicamente in base all'ente
+                base_url = generate_openweb_base_url(self.args.ente)
+                self.log(f"[sessione] Usando URL generato dinamicamente: {base_url}")
+            
+            # Prova prima con l'URL disponibile
+            if not can_fetch(self.rp, base_url, self.args.user_agent or DEFAULT_USER_AGENT):
+                self.log(f"[sessione] Accesso vietato da robots.txt: {base_url}")
+            
+            try:
+                r = self.session.get(base_url, timeout=self.args.timeout)
+                r.raise_for_status()
+                r.encoding = r.apparent_encoding or r.encoding
+                csrf = extract_csrf(r.text, r.url)
+                if csrf:
+                    self.log("[sessione] CSRF recuperato dalla pagina base")
+                return csrf
+            except requests.exceptions.RequestException as e:
+                # Se l'URL non funziona, prova con altre strategie
+                self.log(f"[sessione] Errore con URL ({base_url}): {e}")
+                
+                # Se stiamo usando l'URL generato e non quello specifico, proviamo anche la homepage
+                if 'generate_openweb_base_url' in base_url or self.args.ente.lower() in base_url:
+                    homepage_url = f"https://www.comune.{self.args.ente.lower()}.{self.infer_provincia_from_ente(self.args.ente)}.it"
+                    try:
+                        self.log(f"[sessione] Tentativo con homepage: {homepage_url}")
+                        r_home = self.session.get(homepage_url, timeout=self.args.timeout)
+                        r_home.raise_for_status()
+                        
+                        # Cerca link all'albo pretorio nella homepage
+                        soup = BeautifulSoup(r_home.text, 'html.parser')
+                        albo_links = soup.find_all('a', href=True)
+                        
+                        # Cerca parole chiave che potrebbero indicare l'albo pretorio
+                        keywords = ['albo', 'albopretorio', 'trasparenza', 'atti', 'pubblicazioni']
+                        for link in albo_links:
+                            href = link['href']
+                            text = link.get_text().lower()
+                            
+                            if any(keyword in text or keyword in href.lower() for keyword in keywords):
+                                full_url = up.urljoin(homepage_url, href)
+                                self.log(f"[sessione] Trovato possibile link albo: {full_url}")
+                                
+                                # Prova questo URL
+                                r_albo = self.session.get(full_url, timeout=self.args.timeout)
+                                r_albo.raise_for_status()
+                                
+                                csrf = extract_csrf(r_albo.text, r_albo.url)
+                                if csrf:
+                                    self.log(f"[sessione] CSRF recuperato da: {r_albo.url}")
+                                    return csrf
+                                    
+                    except requests.exceptions.RequestException:
+                        self.log(f"[sessione] Impossibile accedere alla homepage: {homepage_url}")
+                
                 return None
-            r = self.session.get(OPENWEB_BASE, timeout=self.args.timeout)
-            r.raise_for_status()
-            r.encoding = r.apparent_encoding or r.encoding
-            csrf = extract_csrf(r.text, r.url)
-            if csrf:
-                self.log("[sessione] CSRF recuperato dalla pagina base")
-            return csrf
         except Exception as e:
             self.log(f"[sessione] impossibile recuperare CSRF dalla pagina base: {e}")
             return None
+
+    def infer_provincia_from_ente(self, ente: str) -> str:
+        """Inferisce la provincia dal nome dell'ente, usando la mappatura esistente."""
+        # Questa è una versione semplificata - idealmente dovrebbe usare la mappatura completa
+        ente_lower = ente.lower()
+        
+        # Province campana
+        if any(x in ente_lower for x in ['avellino', 'av', 'baiano', 'tufino', 'summonte', 'santangelo', 'solofra']):
+            return 'av'
+        elif any(x in ente_lower for x in ['napoli', 'na', 'pozzuoli', 'ercolano', 'torreannunziata', 'torredelgreco', 'meta', 'castellammare', 'acerra', 'afragola']):
+            return 'na'
+        elif any(x in ente_lower for x in ['salerno', 'sa', 'eboli', 'battipaglia', 'scafati', 'nocera', 'pagani']):
+            return 'sa'
+        elif any(x in ente_lower for x in ['benevento', 'bn']):
+            return 'bn'
+        elif any(x in ente_lower for x in ['caserta', 'ce']):
+            return 'ce'
+        
+        # Province lazio
+        elif any(x in ente_lower for x in ['roma', 'rm', 'frosinone', 'fr', 'latina', 'lt', 'rieti', 'ri', 'viterbo', 'vt']):
+            return 'rm'  # Per Roma usiamo rm come esempio
+        
+        # Province emilia-romagna
+        elif any(x in ente_lower for x in ['bologna', 'bo', 'modena', 'mo', 'parma', 'pr', 'piacenza', 'pc']):
+            return 'bo'
+        
+        # Province lombardia
+        elif any(x in ente_lower for x in ['milano', 'mi', 'bergamo', 'bg', 'brescia', 'bs', 'como', 'co']):
+            return 'mi'
+        
+        # Province veneto
+        elif any(x in ente_lower for x in ['venezia', 've', 'verona', 'vr', 'vicenza', 'vi', 'treviso', 'tv']):
+            return 've'
+        
+        # Province piemonte
+        elif any(x in ente_lower for x in ['torino', 'to', 'novara', 'no', 'asti', 'at']):
+            return 'to'
+        
+        # Di default, tentativo con abbreviazione standard
+        province_mapping = {
+            'av': 'av', 'ba': 'ba', 'bn': 'bn', 'ce': 'ce', 'fi': 'fi', 'ge': 'ge', 
+            'mi': 'mi', 'na': 'na', 'pd': 'pd', 'rm': 'rm', 'to': 'to', 've': 've',
+            'al': 'al', 'ao': 'ao', 'ar': 'ar', 'at': 'at', 'bg': 'bg', 'bi': 'bi',
+            'bl': 'bl', 'bn': 'bn', 'bo': 'bo', 'br': 'br', 'bs': 'bs', 'bz': 'bz',
+            'ca': 'ca', 'cb': 'cb', 'ce': 'ce', 'ch': 'ch', 'ci': 'ci', 'cl': 'cl',
+            'cn': 'cn', 'co': 'co', 'cr': 'cr', 'cs': 'cs', 'ct': 'ct', 'cz': 'cz',
+            'en': 'en', 'fc': 'fc', 'fe': 'fe', 'fg': 'fg', 'fi': 'fi', 'fm': 'fm',
+            'fr': 'fr', 'ge': 'ge', 'go': 'go', 'gr': 'gr', 'im': 'im', 'is': 'is',
+            'kr': 'kr', 'lc': 'lc', 'le': 'le', 'li': 'li', 'lo': 'lo', 'lt': 'lt',
+            'lu': 'lu', 'mb': 'mb', 'mc': 'mc', 'me': 'me', 'mi': 'mi', 'mn': 'mn',
+            'mo': 'mo', 'ms': 'ms', 'mt': 'mt', 'na': 'na', 'no': 'no', 'nu': 'nu',
+            'og': 'og', 'or': 'or', 'ot': 'ot', 'pa': 'pa', 'pc': 'pc', 'pd': 'pd',
+            'pe': 'pe', 'pg': 'pg', 'pi': 'pi', 'pn': 'pn', 'po': 'po', 'pr': 'pr',
+            'pt': 'pt', 'pu': 'pu', 'pv': 'pv', 'pz': 'pz', 'ra': 'ra', 'rc': 'rc',
+            're': 're', 'rg': 'rg', 'ri': 'ri', 'rm': 'rm', 'rn': 'rn', 'ro': 'ro',
+            'sa': 'sa', 'si': 'si', 'so': 'so', 'sp': 'sp', 'sr': 'sr', 'ss': 'ss',
+            'sv': 'sv', 'ta': 'ta', 'te': 'te', 'tn': 'tn', 'to': 'to', 'tp': 'tp',
+            'tr': 'tr', 'ts': 'ts', 'tv': 'tv', 'ud': 'ud', 'va': 'va', 'vb': 'vb',
+            'vc': 'vc', 've': 've', 'vi': 'vi', 'vr': 'vr', 'vs': 'vs', 'vt': 'vt',
+            'vv': 'vv'
+        }
+        
+        # Se il nome dell'ente contiene una sigla di provincia, usala
+        for sigla in province_mapping.keys():
+            if sigla in ente_lower:
+                return sigla
+        
+        # Di default, prova con 'rm' per Roma e 'mi' per Milano come esempi comuni
+        if 'roma' in ente_lower:
+            return 'rm'
+        elif 'milano' in ente_lower:
+            return 'mi'
+        
+        # Altrimenti, prova 'rm' come default
+        return 'rm'
 
     def log(self, msg: str):
         line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
@@ -618,70 +420,56 @@ class AlboScraper:
             pass
 
     def fetch(self, url: str) -> Optional[str]:
-        if not can_fetch(self.rp, url, self.args.user_agent or DEFAULT_USER_AGENT):
-            self.log(f"[robots] Vietato da robots.txt: {url}")
-            return None
-        polite_sleep(self.delay)
-        r = self.session.get(url, timeout=self.timeout)
-        r.raise_for_status()
-        r.encoding = r.apparent_encoding or r.encoding
-        return r.text
-
-    def download_file(self, url: str, dest: Path):
-        if url in self.downloaded:
-            return
-        if not can_fetch(self.rp, url, self.args.user_agent or DEFAULT_USER_AGENT):
-            self.log(f"[robots] Vietato da robots.txt: {url}")
-            return
-        polite_sleep(self.delay)
-        with self.session.get(url, stream=True, timeout=self.timeout) as r:
-            r.raise_for_status()
-            real_ext = self.extension_for_response(url, r)
-            if real_ext and dest.suffix.lower() != real_ext:
-                dest = dest.with_suffix(real_ext)
-            with open(dest, "wb") as f:
-                for chunk in r.iter_content(chunk_size=65536):
-                    if chunk:
-                        f.write(chunk)
-        self.downloaded.add(url)
-        try:
-            self.downloaded_json.write_text(json.dumps(sorted(self.downloaded)), encoding="utf-8")
-        except Exception:
-            pass
-
-    def extension_for_response(self, url: str, response: requests.Response) -> str:
-        ctype = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-        if ctype in ATTACH_MIME_EXT:
-            return ATTACH_MIME_EXT[ctype]
-        guessed = mimetypes.guess_extension(ctype) if ctype else None
-        if guessed:
-            return guessed
-        name = url_doc_name(url)
-        ext = os.path.splitext(name)[1].lower()
-        return ext if ext else ".bin"
-
-    def enrich_item(self, it: AlboItem) -> None:
-        source = " ".join([it.titolo or "", it.oggetto or "", " ".join(url_doc_name(u) for u in it.allegati)])
-        # Fallback finale per la tipologia (gerarchia complessa)
-        if not it.tipologia or it.tipologia in ("Altro", "| Ufficio", "N.D.", "Non specificato"):
-            # 1. Da filename allegati
-            for u in it.allegati:
-                inferred = infer_tipologia_from_filename(url_doc_name(u))
-                if inferred:
-                    it.tipologia = inferred
-                    break
-            
-            # 2. Da oggetto
-            if not it.tipologia or it.tipologia in ("Altro", "| Ufficio", "N.D.", "Non specificato"):
-                inferred = infer_tipologia_from_oggetto(it.oggetto or it.titolo)
-                it.tipologia = inferred if inferred else "Altro"
-
-        if not it.numero:
-            it.numero = infer_number(source)
-        if not it.data_pubblicazione:
-            it.data_pubblicazione = infer_date(source)
-        if (not it.titolo or it.titolo.lower() == "vai") and it.oggetto:
-            it.titolo = it.oggetto[:180]
+        # Controlla se l'URL è un documento pubblico istituzionale che dovrebbe essere accessibile
+        url_lower = url.lower()
+        
+        # Percorsi tipici di documenti pubblici
+        public_paths = ['/albo', '/albopretorio', '/trasparenza', '/atti', '/deliberazioni', 
+                       '/determinazioni', '/pubblicazioni', '/documenti', '/openweb', '/mc/']
+        is_public_path = any(path in url_lower for path in public_paths)
+        
+        # Specifiche pagine di download documenti pubblici
+        public_endpoints = ['getDoc.php', 'download', 'allegato', 'documento', 'mc_p_ricerca.php']
+        is_public_endpoint = any(endpoint in url_lower for endpoint in public_endpoints)
+        
+        # Se è una pagina pubblica istituzionale, bypassa robots.txt come richiesto dalle normative
+        if is_public_path or is_public_endpoint:
+            # Effettua la richiesta direttamente senza controllare robots.txt
+            polite_sleep(self.delay)
+            try:
+                # Aumentiamo il timeout per i siti governativi che possono essere più lenti
+                extended_timeout = max(self.timeout, 30)  # minimo 30 secondi per siti pubblici
+                r = self.session.get(url, timeout=extended_timeout)
+                r.raise_for_status()
+                r.encoding = r.apparent_encoding or r.encoding
+                return r.text
+            except Exception as e:
+                # Logghiamo l'errore ma continuiamo comunque
+                self.log(f"[warning] Errore durante il recupero di pagina pubblica (bypass robots.txt): {url} - {e}")
+                # Ritentiamo con un timeout ancora maggiore per i siti governativi problematici
+                try:
+                    extended_timeout = max(self.timeout, 60)  # fino a 60 secondi per siti pubblici
+                    r = self.session.get(url, timeout=extended_timeout)
+                    r.raise_for_status()
+                    r.encoding = r.apparent_encoding or r.encoding
+                    return r.text
+                except Exception as e2:
+                    self.log(f"[error] Impossibile accedere a pagina pubblica dopo ritentativo: {url} - {e2}")
+                    return None
+        else:
+            # Per altri URL, controlla robots.txt normalmente
+            if not can_fetch(self.rp, url, self.args.user_agent or DEFAULT_USER_AGENT):
+                self.log(f"[robots] Vietato da robots.txt: {url}")
+                return None
+            polite_sleep(self.delay)
+            try:
+                r = self.session.get(url, timeout=self.timeout)
+                r.raise_for_status()
+                r.encoding = r.apparent_encoding or r.encoding
+                return r.text
+            except Exception as e:
+                self.log(f"[error] Errore durante il recupero di: {url} - {e}")
+                return None
 
     def write_metadata_once(self, it: AlboItem) -> bool:
         key = metadata_key(it)
@@ -689,7 +477,7 @@ class AlboScraper:
             if key in self.seen_metadata:
                 return False
             with open(self.csv_path, "a", encoding="utf-8", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()))
+                w = csv.DictWriter(f, fieldnames=list(asdict(it)).keys())
                 w.writerow(asdict(it))
             self.seen_metadata.add(key)
             if it.dettaglio_url:
@@ -713,6 +501,35 @@ class AlboScraper:
         if self.title_rx and not self.title_rx.search(txt):
             return False
         return True
+
+    def enrich_item(self, it: AlboItem):
+        """Arricchisce l'item con dati aggiuntivi come geolocalizzazione, categorie derivate, ecc."""
+        # In questa implementazione di base, possiamo arricchire con informazioni 
+        # derivate dai dati esistenti o con dati del comune
+        if not it.provincia and self.args.ente:
+            # Cerca di determinare la provincia dal nome dell'ente
+            comune_data = get_comune_data(self.args.ente)
+            if comune_data and 'provincia' in comune_data:
+                it.provincia = comune_data['provincia']
+                
+        # Arricchimento con dati derivati
+        if it.oggetto and not it.titolo:
+            # Se abbiamo l'oggetto ma non il titolo, usiamo i primi 150 caratteri dell'oggetto
+            it.titolo = it.oggetto[:150] + ("..." if len(it.oggetto) > 150 else "")
+            
+        # Normalizzazione dei dati
+        if it.titolo:
+            it.titolo = it.titolo.strip()
+        if it.oggetto:
+            it.oggetto = it.oggetto.strip()
+        if it.tipologia:
+            it.tipologia = it.tipologia.strip().title()  # Capitalize first letter of each word
+            
+        # Aggiungi eventuali logiche di arricchimento specifiche per l'ente o per il tipo di atto
+        # Qui possiamo aggiungere logiche specifiche per Halley, OpenWeb, ecc.
+        if hasattr(self, 'ente_details') and self.ente_details:
+            it.ente_nome = self.ente_details.get('nome_comune', '')
+            it.ente_codice_istat = self.ente_details.get('codice_istat', '')
 
     def run(self):
         current_url = self.current_url
@@ -827,12 +644,39 @@ def build_parser():
 def main():
     args = build_parser().parse_args()
 
-    # Se --ente è "avella" e non è specificato né --start-url né --page-from, 
-    # impostiamo automaticamente l'URL di partenza per Avella
-    if args.ente == "avella" and not args.start_url and args.page_from is None:
-        args.start_url = "https://servizi.comune.avella.av.it/openweb/albo/albo_pretorio_full.php"
+    # Ottieni i dati del comune dalla mappatura
+    comune_data = get_comune_data(args.ente)
+    
+    # Se --ente è specificato ma non --start-url né --page-from, 
+    # usiamo l'URL specifico dalla mappatura o generiamo automaticamente
+    if not args.start_url and args.page_from is None:
+        # Se abbiamo un URL specifico per l'albo pretorio, usalo
+        url_albo = comune_data.get('url_albo_pretorio')
+        print(f"DEBUG: URL albo trovato nella mappatura: {url_albo}")
+        print(f"DEBUG: Tipo di URL albo: {type(url_albo)}")
+        print(f"DEBUG: URL albo is not None: {url_albo is not None}")
+        print(f"DEBUG: pd.notna(url_albo): {pd.notna(url_albo) if url_albo is not None else False}")
+        print(f"DEBUG: str(url_albo).strip() != '': {str(url_albo).strip() != '' if url_albo is not None else False}")
+        print(f"DEBUG: str(url_albo).lower() != 'nan': {str(url_albo).lower() != 'nan' if url_albo is not None else False}")
+        
+        # Controlla se l'URL esiste ed è valido (non NaN, non vuoto, non 'nan')
+        condition_result = (
+            url_albo is not None and 
+            pd.notna(url_albo) and 
+            str(url_albo).strip() != '' and 
+            str(url_albo).lower() != 'nan'
+        )
+        print(f"DEBUG: Condizione finale: {condition_result}")
+        
+        if condition_result:
+            args.start_url = str(url_albo)  # Assicuriamoci che sia una stringa
+            print(f"DEBUG: Usando URL specifico per l'albo pretorio di '{args.ente}' dalla mappatura: {args.start_url}")
+        else:
+            # Altrimenti genera l'URL in base al nome ente
+            args.start_url = generate_openweb_base_url(args.ente)
+            print(f"DEBUG: Usando URL generato automaticamente per l'ente '{args.ente}': {args.start_url}")
 
-    # Precondizioni minime
+    # Precondizioni minme
     if args.page_from is None and not args.start_url:
         print("Errore: specifica --start-url oppure --page-from/--page-to.", file=sys.stderr)
         sys.exit(2)

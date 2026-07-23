@@ -109,15 +109,30 @@ metrics = get_metrics_collector()
 
 # Configurazione Tesseract dinamica tramite AppConfig
 if pytesseract:
-    if config.ocr.tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = config.ocr.tesseract_cmd
-        logger.info(f"Tesseract configurato: {config.ocr.tesseract_cmd}")
+    # Check if config has ocr attribute, otherwise use direct access
+    tesseract_cmd = None
+    if hasattr(config, 'ocr') and hasattr(config.ocr, 'tesseract_cmd'):
+        tesseract_cmd = config.ocr.tesseract_cmd
+    else:
+        # Try to get from config using get method
+        tesseract_cmd = config.get('TESSERACT_CMD', None)
+    
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        logger.info(f"Tesseract configurato: {tesseract_cmd}")
     else:
         logger.warning("Tesseract non trovato o non configurato. L'OCR potrebbe non funzionare.")
 
 # Imposta automaticamente TESSDATA_PREFIX se necessario
-    if config.ocr.tesseract_cmd and os.path.exists(config.ocr.tesseract_cmd):
-        tessdata_path = os.path.join(os.path.dirname(config.ocr.tesseract_cmd), "tessdata")
+    tesseract_cmd = None
+    if hasattr(config, 'ocr') and hasattr(config.ocr, 'tesseract_cmd'):
+        tesseract_cmd = config.ocr.tesseract_cmd
+    else:
+        # Try to get from config using get method
+        tesseract_cmd = config.get('TESSERACT_CMD', None)
+    
+    if tesseract_cmd and os.path.exists(tesseract_cmd):
+        tessdata_path = os.path.join(os.path.dirname(tesseract_cmd), "tessdata")
         if "TESSDATA_PREFIX" not in os.environ and os.path.exists(tessdata_path):
             os.environ["TESSDATA_PREFIX"] = tessdata_path
 
@@ -538,6 +553,7 @@ def extract_date_from_text(text: str) -> List[str]:
         r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # DD/MM/YYYY
         r'\b\d{1,2}-\d{1,2}-\d{4}\b',  # DD-MM-YYYY
         r'\b\d{4}-\d{1,2}-\d{1,2}\b',  # YYYY-MM-DD
+        r'\b\d{4}/\d{1,2}/\d{1,2}\b',  # YYYY/MM/DD
         r'\b\d{1,2}\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}\b',  # DD MMMM YYYY
         # Nuovi pattern aggiunti per migliorare la copertura in documenti amministrativi
         r"(?i)(?:il\s+|del\s+|data\s+del\s+)(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})",
@@ -724,8 +740,8 @@ def is_personnel_competence_relevant_extended(text: str) -> bool:
     
     return found_personnel or found_competence_patterns
 
-def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[DocumentClassifier] = None, entity_extractor: Optional[EntityExtractor] = None, feature_extractor: Optional[TextFeatureExtractor] = None, ente_nome=None, text_dir=None) -> ParsedDocument:
-    """Estrae testo e cattura campi principali da un PDF (testuale -> OCR fallback)."""
+def extract_from_pdf(pdf_file: Path, use_llm=False, classifier=None, entity_extractor=None, feature_extractor=None, ente_nome=None, text_dir=None):
+    """Estrae testo e cattura campi principali da un PDF (testuale -> OCR fallback) con integrazione di dati strutturati."""
     
     # Gestione preliminare dei file .p7m
     is_p7m = pdf_file.name.lower().endswith(".p7m")
@@ -738,7 +754,6 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
         path_for_parsing = pdf_content_bytes # Questo non è più usato direttamente qui
     else:
         path_for_parsing = str(pdf_file)
-
 
     out = {
         "pdf_name": pdf_file.name,
@@ -753,7 +768,7 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
         "data_atto": None,
         "numero_registro": None,
         "data_registro": None,
-        "importi_raw": [],
+        "importi_raw": [],  # Inizializzato come lista vuota
         "importo_max": None,
         "importo_sum": None,
         "importi_count": 0,
@@ -786,20 +801,44 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
         "decree_references": "[]"
     }
 
-    # 1. Estrazione unificata del testo (gestisce PDF, HTML, OCR)
+    # 1. Estrazione unificata del testo (gestisce PDF, HTML, OCR) con gestione firma digitale
     text_file_path = text_dir / f"{pdf_file.stem}.txt" if text_dir else None
     if text_file_path and text_file_path.exists():
         text_one = text_file_path.read_text(encoding="utf-8", errors="ignore")
         source = "pre_extracted_text"
     else:
-        text_one, source = text_extractor.extract(pdf_file, content_bytes=pdf_content_bytes)
+        # Usiamo la nuova funzione con gestione firma digitale
+        if pdf_file.suffix.lower() in ['.pdf', '.html'] and not is_p7m:
+            text_one, extraction_metadata = text_extractor.extract_text_enhanced(pdf_file)
+            source = extraction_metadata.get('extraction_method', 'enhanced_extraction')
+            
+            # Se il file contiene solo informazioni di firma, registriamo questa condizione
+            if extraction_metadata.get('is_signed_only', False):
+                out["source"] = "digital_signature_info"
+                out["is_problematic_file"] = True
+                out["problematic_reason"] = "signed_document_content_limited"
+        else:
+            text_one, source = text_extractor.extract(pdf_file, content_bytes=pdf_content_bytes)
     
     out["source"] = source
 
     # 2. Normalizzazione e arricchimento del testo
     text_one = remove_boilerplate(text_one)
     text_one = normalize_text_for_ml(text_one)
-    out["text_sha256"] = hashlib.sha256(text_one.encode("utf-8", errors="ignore")).hexdigest()
+    
+    # Calcola l'hash solo se il testo non è un segnaposto speciale per file problematici
+    if source in ["empty_file", "small_file", "problematic_file", "access_error"]:
+        # Per file problematici, usiamo un hash basato sul nome del file e sul tipo di problema
+        # per evitare duplicati falsi tra file diversi ma entrambi problematici
+        problematic_identifier = f"{pdf_file.name}_{source}"
+        out["text_sha256"] = hashlib.sha256(problematic_identifier.encode("utf-8", errors="ignore")).hexdigest()
+        # Inoltre, aggiungiamo un campo per identificare i file problematici
+        out["is_problematic_file"] = True
+        out["problematic_reason"] = source
+    else:
+        out["text_sha256"] = hashlib.sha256(text_one.encode("utf-8", errors="ignore")).hexdigest()
+        out["is_problematic_file"] = False
+        out["problematic_reason"] = None
 
     if feature_extractor:
         out.update(feature_extractor.extract(text_one))
@@ -810,6 +849,62 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
         out["text_path"] = str(text_dir / text_name)
     out["text_preview"] = text_one[:1200]
 
+    # --- Estrazione di dati strutturati (tabelle, quadri economici, ecc.) ---
+    try:
+        from .tabular_extractor import TabularExtractor
+        tabular_extractor = TabularExtractor()
+        
+        # Estrai dati strutturati dal documento
+        layout_result = tabular_extractor.extract_structured_data(pdf_path=pdf_file)
+        
+        # Salva i dati strutturati se presenti
+        if layout_result.table_elements:
+            # Aggiorna i dati del documento con informazioni sulle tabelle trovate
+            out["table_count"] = len(layout_result.table_elements)
+            out["has_financial_tables"] = any(table.table_type == 'financial' for table in layout_result.table_elements)
+            out["has_budget_tables"] = any(table.table_type == 'budget' for table in layout_result.table_elements)
+            
+            # Seleziona e memorizza i dati finanziari dalle tabelle
+            financial_tables = [table for table in layout_result.table_elements if table.table_type in ['financial', 'budget']]
+            if financial_tables:
+                # Estrai potenziali importi dalle tabelle finanziarie
+                financial_amounts = []
+                for table in financial_tables:
+                    for row in table.data:
+                        for cell in row:
+                            if cell and isinstance(cell, (int, float)):
+                                financial_amounts.append(float(cell))
+                            elif cell and isinstance(cell, str):
+                                # Estrai importi da celle di testo
+                                importi = lettere_to_numero(cell)
+                                if importi:
+                                    financial_amounts.append(importi)
+                
+                if financial_amounts:
+                    out["importi_from_tables"] = financial_amounts
+                    # Aggiungi gli importi dalle tabelle alla lista esistente
+                    out["importi_raw"] = financial_amounts  # I dati dalle tabelle hanno priorità
+                    out["importo_max"] = max(financial_amounts)
+                    out["importo_sum"] = sum(financial_amounts)
+            else:
+                out["importi_from_tables"] = None
+        else:
+            out["table_count"] = 0
+            out["has_financial_tables"] = False
+            out["has_budget_tables"] = False
+            out["importi_from_tables"] = None
+    except ImportError:
+        logger.warning("TabularExtractor non disponibile, saltando estrazione tabelle")
+        out["table_count"] = 0
+        out["has_financial_tables"] = False
+        out["has_budget_tables"] = False
+        out["importi_from_tables"] = None
+    except Exception as e:
+        logger.error(f"Errore nell'estrazione dati strutturati da {pdf_file}: {e}")
+        out["table_count"] = 0
+        out["has_financial_tables"] = False
+        out["has_budget_tables"] = False
+        out["importi_from_tables"] = None
     # --- Competenze Personale ---
     out["is_personnel_competence_relevant"] = is_personnel_competence_relevant(text_one)
     out["personnel_competences"] = json.dumps([c.__dict__ for c in extract_personnel_competences(text_one)], ensure_ascii=False)
@@ -828,10 +923,24 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
 
         # --- Estrazione Entità (Regex, LLM, Advanced) ---
         if entity_extractor:
-            entities = entity_extractor.extract_all(text_one, out["doc_type"], subcategory, use_llm)
+            entities = entity_extractor.extract_all(text_one, out["doc_type"], subcategory, use_llm, pdf_path=pdf_file)
+            
+            # Aggiorna con le entità estratte, mantenendo la priorità ai dati dalle tabelle
+            # Prima salviamo i dati dalle tabelle se presenti
+            table_importi_raw = out.get('importi_raw', [])
+            table_importo_max = out.get('importo_max')
+            table_importo_sum = out.get('importo_sum')
+            
+            # Poi aggiorniamo con le entità estratte
             out.update(entities)
-    else:
-        out["classification_confidence"] = "no_classifier"
+            
+            # Infine, se abbiamo dati dalle tabelle, li manteniamo con priorità
+            if table_importi_raw and len(str(table_importi_raw)) > 2:  # Se non è solo "[]"
+                out['importi_raw'] = table_importi_raw
+                out['importo_max'] = table_importo_max
+                out['importo_sum'] = table_importo_sum
+        else:
+            out["classification_confidence"] = "no_classifier"
 
     out["accounting_relevant"] = is_accounting_relevant(text_one, out["doc_type"], out["category"])
     out["missing_amount_expected"] = bool(out["accounting_relevant"] and out["doc_type"] != "VistoContabile" and not out.get("importi_raw"))
@@ -856,7 +965,7 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier: Optional[Documen
     filtered_out = {k: v for k, v in out.items() if k in known_fields}
     
     # Aggiungi il testo estratto a text_preview se presente
-    if 'text_preview' in known_fields and '_text' in locals():
+    if 'text_preview' in known_fields and 'text_one' in locals():
         filtered_out['text_preview'] = text_one
     
     return ParsedDocument(**filtered_out)
@@ -917,7 +1026,8 @@ def main(args=None):
             args.no_corpus = False
 
     from ..utils.config import get_tenant_dir
-    base = get_tenant_dir(args.ente)
+    # Use args.base if provided, otherwise default to get_tenant_dir
+    base = Path(args.base) if args.base else get_tenant_dir(args.ente)
 
     csv_path = Path(args.csv) if args.csv else base / "albo_metadati.csv"
     pdf_dir = Path(args.pdf_dir) if args.pdf_dir else base / "pdf"
@@ -999,7 +1109,12 @@ def main(args=None):
             )
 
             text_hash = doc.text_sha256
-            if text_hash and text_hash in seen_hashes:
+            # Solo per i documenti non problematici, applichiamo la deduplicazione basata sull'hash del contenuto
+            # Per i file problematici, permettiamo l'inclusione poiché ogni file ha un hash basato sul nome
+            if text_hash and text_hash in seen_hashes and not doc.is_problematic_file:
+                continue
+            # Per file problematici, vogliamo comunque evitare duplicati esatti dello stesso file
+            elif doc.is_problematic_file and text_hash and text_hash in seen_hashes:
                 continue
             seen_hashes.add(text_hash)
 

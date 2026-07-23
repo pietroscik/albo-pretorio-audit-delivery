@@ -1,0 +1,22 @@
+nome_comune,provincia,regione,homepage_url,albo_pretorio_url,provider_detected,status_code,error,success
+Aiello del Sabato,AV,Campania,https://www.comune.aiellodelsabato.av.it,https://www.comune.aiellodelsabato.av.it/amministrazione/trasparenza/trasparenza.html,unknown,200.0,,True
+Altavilla Irpina,AV,Campania,https://www.comune.altavillairpina.av.it,https://www.halleyweb.com/c064002/mc/mc_p_ricerca.php,halley_adapter,200.0,,True
+Andretta,AV,Campania,https://www.comune.andretta.av.it,https://servizionline.hspromilaprod.hypersicapp.net/cmsandretta/portale/trasparenza/trasparenzaamministrativa.aspx,sian_adapter,200.0,,True
+Airola,BN,Campania,https://www.comune.airola.bn.it,,unknown,200.0,,True
+Amorosi,BN,Campania,https://www.comune.amorosi.bn.it,https://www.comune.amorosi.bn.it/albo-pretorio/,unknown,200.0,,True
+Apice,BN,Campania,https://www.comune.apice.bn.it,https://www.comune.apice.bn.it/amministrazione/trasparenza/trasparenza.html,halley_adapter,200.0,,True
+Ailano,CE,Campania,https://www.comune.ailano.ce.it,https://www.comune.ailano.ce.it/mc/mc_p_ricerca.php,halley_adapter,200.0,,True
+Alife,CE,Campania,https://www.comune.alife.ce.it,,unknown,200.0,,True
+Alvignano,CE,Campania,https://www.comune.alvignano.ce.it,https://amministrazionetrasparente.comune.alvignano.ce.it/zf/index.php/trasparenza/index/index?servizio=1,halley_adapter,200.0,,True
+Affile,RM,Lazio,https://www.comune.affile.rm.it,https://www.comune.affile.rm.it/amministrazione/trasparenza/trasparenza.html,unknown,200.0,,True
+Agosta,RM,Lazio,https://www.comune.agosta.rm.it,,unknown,,Cannot connect to host www.comune.agosta.rm.it:443 ssl:default [getaddrinfo failed],False
+Albano Laziale,RM,Lazio,https://www.comune.albanolaziale.rm.it,https://servizionline.comune.albanolaziale.rm.it/urbi/progs/urp/ur1UR033.sto?DB_NAME=wt00034460,unknown,200.0,,True
+Abbiategrasso,MI,Lombardia,https://www.comune.abbiategrasso.mi.it,https://abbiategrasso.trasparenza-valutazione-merito.it/web/trasparenza/trasparenza,maggioli_adapter,200.0,,True
+Albairate,MI,Lombardia,https://www.comune.albairate.mi.it,https://www.comune.albairate.mi.it/c015005/mc/mc_p_ricerca.php,halley_adapter,200.0,,True
+Arconate,MI,Lombardia,https://www.comune.arconate.mi.it,https://dgegovpa.it/arconate/albo/albo,unknown,200.0,,True
+Agliè,TO,Piemonte,https://www.comune.agliè.to.it,,unknown,,Cannot connect to host www.comune.xn--agli-8oa.to.it:443 ssl:default [getaddrinfo failed],False
+Airasca,TO,Piemonte,https://www.comune.airasca.to.it,https://www.comune.airasca.to.it/servizi/amministrazione-trasparente,unknown,200.0,,True
+Ala di Stura,TO,Piemonte,https://www.comune.aladistura.to.it,https://www.comune.aladistura.to.it/amministrazione/trasparenza/trasparenza.html,maggioli_adapter,200.0,,True
+Annone Veneto,VE,Veneto,https://www.comune.annoneveneto.ve.it,https://annoneveneto.trasparenza-valutazione-merito.it/web/trasparenza/menu-trasparenza,maggioli_adapter,200.0,,True
+Campagna Lupia,VE,Veneto,https://www.comune.campagnalupia.ve.it,https://servizionline.comune.campagnalupia.ve.it/c027002/mc/mc_p_ricerca.php,halley_adapter,200.0,,True
+Campolongo Maggiore,VE,Veneto,https://www.comune.campolongomaggiore.ve.it,,unknown,,Cannot connect to host www.comune.campolongomaggiore.ve.it:443 ssl:default [getaddrinfo failed],False
