@@ -1,3 +1,0 @@
-// Aggiungere manualmente queste righe dopo l'import get_tenant_dir:
-from delibere_comunali.utils.comuni_anagrafica import carica_mappatura_esistente
-import pandas as pd
