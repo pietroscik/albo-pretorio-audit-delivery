@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script to run the complete audit pipeline for all entities found in the data directory
+Script to run the complete audit pipeline for all three entities:
+
 """
 
 import subprocess
@@ -37,26 +38,9 @@ def run_audit_for_entity(ente):
 
 def main():
     """
-    Main function to run audit for all entities found in the data directory
+    Main function to run audit for all entities
     """
-    # Get list of entities from the data directory
-    data_dir = Path("./data")
-    if not data_dir.exists():
-        print(f"Error: Data directory {data_dir} does not exist")
-        return 1
-    
-    # Find all subdirectories in the data directory (these are our entities)
-    entities = []
-    for item in data_dir.iterdir():
-        if item.is_dir():
-            # Check if this directory contains the expected albo_download subdirectory
-            albo_dir = item / "albo_download"
-            if albo_dir.exists() and albo_dir.is_dir():
-                entities.append(item.name)
-    
-    if not entities:
-        print("No entities found in data directory with albo_download subdirectory")
-        return 1
+    entities = ['avella', 'baiano', 'quadrelle']
     
     print("Starting audit pipeline for all entities...")
     print(f"Entities to process: {', '.join(entities)}")
