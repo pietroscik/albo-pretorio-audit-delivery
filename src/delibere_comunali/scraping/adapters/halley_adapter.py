@@ -15,15 +15,16 @@ try:
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
-import requests
+from .base_adapter import BaseAdapter
 from bs4 import BeautifulSoup
 import urllib.parse as up
 
 from ..models import AlboItem
 from ..utils import looks_like_attachment, url_doc_name
+from ..utils import looks_like_attachment, url_doc_name
 
 
-class HalleyAdapter:
+class HalleyAdapter(BaseAdapter):
     """
     Adattatore intelligente per Halleyweb che implementa:
     - Fase 1: Ricerca metadati con requests
@@ -33,7 +34,7 @@ class HalleyAdapter:
     """
     
     def __init__(self, timeout: int = 30000, max_concurrent_downloads: int = 1):
-        self.timeout = timeout
+        super().__init__(timeout=timeout, max_retries=3)
         self.max_concurrent_downloads = max_concurrent_downloads
         self.browser_instance = None
         self.browser_context = None

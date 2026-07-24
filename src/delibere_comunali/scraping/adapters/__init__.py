@@ -2,6 +2,7 @@
 Package per gli adapter di scraping specifici per provider.
 
 Adapter disponibili:
+- base_adapter: Classe base per tutti gli adapter (contiene logica comune)
 - halley_adapter: Per siti Halleyweb/OpenWeb
 - maggioli_adapter: Per siti Maggioli/SIAP
 - asmel_adapter: Per siti Asmel/AsmelNet
@@ -11,6 +12,7 @@ Adapter disponibili:
 
 Utilizzo:
     from delibere_comunali.scraping.adapters import (
+        BaseAdapter,
         HalleyAdapter,
         MaggioliAdapter,
         AsmelAdapter,
@@ -36,6 +38,7 @@ Utilizzo:
     adapter = AdapterClass()
 """
 
+from .base_adapter import BaseAdapter
 from .halley_adapter import HalleyAdapter
 from .maggioli_adapter import MaggioliAdapter
 from .asmel_adapter import AsmelAdapter
@@ -44,6 +47,7 @@ from .sian_adapter import SianAdapter
 from .generic_adapter import GenericAdapter
 
 __all__ = [
+    'BaseAdapter',
     'HalleyAdapter',
     'MaggioliAdapter',
     'AsmelAdapter',
