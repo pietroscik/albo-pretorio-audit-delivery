@@ -10,6 +10,7 @@ from ..patterns.albo_patterns import (
 )
 from ..rag.llm_factory import get_llm_client
 from ..utils.logger import get_logger
+from .document_segmenter import DocumentSegmenter, WeightedEntityExtractor, SectionType
 from ..utils.config import get_config
 
 logger = get_logger(__name__)
@@ -181,6 +182,42 @@ class EntityExtractor:
         final_results = self._post_process(final_results, text)
         
         return final_results
+
+    def extract_entities_with_segmentation(self, text: str, doc_type: str = None, **kwargs) -> Dict[str, Any]:
+        segmenter = DocumentSegmenter()
+        sections = segmenter.segment(text)
+        extractor = WeightedEntityExtractor(segmenter)
+        weighted_entities = {}
+        for section in sections:
+            section_text = section.text
+            if not section_text.strip():
+                continue
+            section_entities = self.extract_entities(section_text, doc_type, **kwargs)
+            weight = extractor.SECTION_WEIGHTS.get(section.section_type, 0.5)
+            for entity_type, entity_list in section_entities.items():
+                if entity_type not in weighted_entities:
+                    weighted_entities[entity_type] = []
+                # Normalizza entity_list in lista (se è una stringa o altro)
+                if isinstance(entity_list, (str, int, float)):
+                    entity_list = [entity_list]
+                elif not isinstance(entity_list, list):
+                    entity_list = [entity_list]
+                for entity in entity_list:
+                    weighted_entities[entity_type].append({
+                        'value': entity,
+                        'weight': weight,
+                        'section': section.section_type.value,
+                        'confidence': section.confidence
+                    })
+        return weighted_entities
+
+    def get_high_confidence_entities(self, weighted_entities: Dict[str, list], min_weight: float = 0.7) -> Dict[str, List]:
+        high_confidence = {}
+        for entity_type, entities in weighted_entities.items():
+            high_confidence[entity_type] = [
+                e['value'] for e in entities if e['weight'] >= min_weight
+            ]
+        return high_confidence
 
     def _extract_with_llm(self, text: str, doc_type: str = None) -> Dict[str, Any]:
         """Extract entities using LLM."""
