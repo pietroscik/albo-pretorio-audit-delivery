@@ -47,6 +47,18 @@ from typing import Optional, List, Tuple
 
 import requests
 from bs4 import BeautifulSoup
+
+# Importa gli adapter
+from delibere_comunali.scraping.adapters import (
+    HalleyAdapter,
+    MaggioliAdapter,
+    AsmelAdapter,
+    KibernetesAdapter,
+    SianAdapter,
+    GenericAdapter
+)
+from delibere_comunali.utils.adapter_detector import identify_comune_adapter
+
 from requests.adapters import HTTPAdapter, Retry
 from urllib.robotparser import RobotFileParser
 
@@ -300,7 +312,26 @@ TIPO_RX = re.compile(r"\b(delibera|determinazione|ordinanza|avviso|bando)\b", re
 NUM_RX = re.compile(r"\b(n\.|numero)\s*[:\s]*([0-9/]+)", re.I)
 DATA_RX = re.compile(r"\b(pubblicazione|affissione|dal|data)\s*[:\s]*([0-9]{2}/[0-9]{2}/[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})", re.I)
 
-def parse_list_page(html: str, base_url: str) -> Tuple[List[AlboItem], Optional[str]]:
+def parse_list_page(html: str, base_url: str, use_adapter: bool = True) -> Tuple[List[AlboItem], Optional[str]]:
+    # Prova a usare l'adapter se richiesto
+    if use_adapter:
+        adapter_info = identify_comune_adapter("", url_albo=base_url)
+        adapter_map = {
+            'halley_adapter': HalleyAdapter,
+            'maggioli_adapter': MaggioliAdapter,
+            'asmel_adapter': AsmelAdapter,
+            'kibernetes_adapter': KibernetesAdapter,
+            'sian_adapter': SianAdapter,
+        }
+        AdapterClass = adapter_map.get(adapter_info['adapter_principale'], GenericAdapter)
+        adapter = AdapterClass()
+        
+        # Usa l'adapter per lo scraping
+        items, next_url = adapter.scrape_metadata(base_url)
+        if items or next_url:
+            return items, next_url
+    
+    # Fallback al parser originale
     soup = BeautifulSoup(html, "html.parser")
     items: List[AlboItem] = []
 

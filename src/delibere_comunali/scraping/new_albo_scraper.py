@@ -93,6 +93,16 @@ import pandas as pd
 
 # Import JavaScript scraper for Halleyweb and other JS-heavy sites
 from delibere_comunali.scraping.js_scraper import should_use_js_scraper, sync_scrape_page
+# Importa tutti gli adapter disponibili
+from delibere_comunali.scraping.adapters import (
+    HalleyAdapter,
+    MaggioliAdapter,
+    AsmelAdapter,
+    KibernetesAdapter,
+    SianAdapter,
+    GenericAdapter
+)
+
 
 OPENWEB_BASE_DEFAULT = "https://servizi.comune.avella.av.it/openweb/albo/albo_pretorio_full.php"
 
@@ -228,6 +238,22 @@ class AlboScraper:
                     dettaglio = (row.get("dettaglio_url") or "").strip()
                     if dettaglio:
                         seen.add(dettaglio)
+                    # Aggiungi anche l'hash dei metadati per una deduplicazione più robusta
+                    try:
+                        it = AlboItem(
+                            page_url=row.get("page_url", ""),
+                            titolo=row.get("titolo", ""),
+                            numero=row.get("numero"),
+                            data_pubblicazione=row.get("data_pubblicazione"),
+                            tipologia=row.get("tipologia"),
+                            ufficio=row.get("ufficio", ""),
+                            oggetto=row.get("oggetto", ""),
+                            dettaglio_url=row.get("dettaglio_url", ""),
+                        )
+                        metadata_hash = self._generate_metadata_hash(it)
+                        seen.add(f"hash:{metadata_hash}")
+                    except Exception:
+                        pass
         except Exception:
             pass
         return seen
@@ -537,7 +563,14 @@ class AlboScraper:
             if not html:
                 break
 
-            items, next_url = parse_list_page(html, current_url)
+            # Usa l'adapter selezionato per lo scraping
+            adapter = self._get_adapter()
+            items, next_url = adapter.scrape_metadata(current_url)
+            
+            # Se l'adapter non ha trovato nulla, prova con il parser generico
+            if not items and not next_url:
+                items, next_url = parse_list_page(html, current_url)
+
             if not items:
                 self.log("[stop] nessun atto trovato nella pagina corrente")
                 break
@@ -547,7 +580,8 @@ class AlboScraper:
                     # Salta l'atto se è già stato scaricato e indicizzato in precedenza
                     # MA SOLO SE anche i file PDF esistono fisicamente
                     skip_item = False
-                    if it.dettaglio_url and it.dettaglio_url in self.seen_metadata:
+                    metadata_hash = self._generate_metadata_hash(it)
+                    if it.dettaglio_url and (it.dettaglio_url in self.seen_metadata or f"hash:{metadata_hash}" in self.seen_metadata):
                         # Verifichiamo se esistono file PDF associati a questo documento
                         pdf_exists = False
                         
@@ -663,15 +697,21 @@ class AlboScraper:
                                         self.downloaded.add(url_doc_name(downloaded_file))
                                         self.log(f"  [download] File scaricato via Playwright: {Path(downloaded_file).name}")
                                 else:
-                                    # If Playwright download didn't work, fall back to regular download
-                                    dest = self.download(url)
-                                    if dest:
-                                        self.downloaded.add(url_doc_name(str(dest)))
+                                    # If Playwright download didn't work, fall back to adapter download
+                                    adapter = self._get_adapter()
+                                    downloaded_files = adapter.download_attachment(url, str(self.out_dir / "pdf"))
+                                    if downloaded_files:
+                                        for file_path in downloaded_files:
+                                            self.downloaded.add(url_doc_name(file_path))
+                                            self.log(f"  [download] File scaricato via adapter: {Path(file_path).name}")
                             else:
-                                # Regular download for non-JavaScript sites
-                                dest = self.download(url)
-                                if dest:
-                                    self.downloaded.add(url_doc_name(str(dest)))
+                                # Use adapter for regular download
+                                adapter = self._get_adapter()
+                                downloaded_files = adapter.download_attachment(url, str(self.out_dir / "pdf"))
+                                if downloaded_files:
+                                    for file_path in downloaded_files:
+                                        self.downloaded.add(url_doc_name(file_path))
+                                        self.log(f"  [download] File scaricato via adapter: {Path(file_path).name}")
                         except Exception as e:
                             self.log(f"[error] Impossibile scaricare {url}: {e}")
 
@@ -729,6 +769,33 @@ class AlboScraper:
 
 
 # -------------- CLI --------------
+
+    def _get_adapter(self):
+        """
+        Seleziona l'adapter appropriato in base al provider del comune.
+        """
+        # Rileva l'adapter in base all'URL
+        adapter_info = identify_comune_adapter(
+            nome_comune=self.args.ente,
+            url_istituzionale="",
+            url_albo=self.current_url
+        )
+        
+        adapter_name = adapter_info['adapter_principale']
+        
+        # Mappa dei nomi adapter alle classi
+        adapter_map = {
+            'halley_adapter': HalleyAdapter,
+            'maggioli_adapter': MaggioliAdapter,
+            'asmel_adapter': AsmelAdapter,
+            'kibernetes_adapter': KibernetesAdapter,
+            'sian_adapter': SianAdapter,
+        }
+        
+        # Seleziona l'adapter o usa GenericAdapter come fallback
+        AdapterClass = adapter_map.get(adapter_name, GenericAdapter)
+        return AdapterClass(timeout=self.timeout * 1000, max_retries=3)
+
 def build_parser():
     ap = argparse.ArgumentParser(description="Scraper Albo Pretorio (OpenWeb)")
     ap.add_argument("--ente", default="avella", help="Nome dell'ente per gestire cartelle separate (es. avella, tufino).")

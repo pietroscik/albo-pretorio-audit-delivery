@@ -39,6 +39,67 @@ albo-pretorio-audit-delivery/
 └── README.md                               # Documentazione principale
 ```
 
+## Provider Supportati
+## Provider Supportati
+
+Il sistema supporta automaticamente i seguenti provider di albi pretori comunali:
+
+| Provider | Adapter | Pattern URL | Pattern HTML | Rilevamento Automatico |
+|----------|---------|-------------|--------------|----------------------|
+| **Halleyweb** | `HalleyAdapter` | `openweb`, `halley`, `halleyinformatica` | `Halley Informatica`, `Portale Comunale` | ✅ Sì |
+| **Maggioli** | `MaggioliAdapter` | `maggioli`, `siap`, `webgis` | `Maggioli S.p.A.`, `Software House` | ✅ Sì |
+| **Asmel** | `AsmelAdapter` | `asmel`, `asmelnet`, `websoft` | `Asmel`, `AsmelNet`, `WebSoft` | ✅ Sì |
+| **Kibernetes** | `KibernetesAdapter` | `kibernetes`, `kibernet`, `kibe` | `Kibernetes`, `Sistemi Telematici` | ✅ Sì |
+| **SIAN** | `SianAdapter` | `sian`, `system`, `sysmap` | `SIAN`, `System Engineering`, `SysMap` | ✅ Sì |
+| **Altri** | `GenericAdapter` | - | - | ✅ Fallback |
+
+### Come Aggiungere un Nuovo Provider
+
+1. **Crea un nuovo adapter** in `src/delibere_comunali/scraping/adapters/`:
+   ```python
+   class NuovoAdapter:
+       def __init__(self, timeout=30000, max_retries=3):
+           self.timeout = timeout
+           self.max_retries = max_retries
+           self.session = requests.Session()
+       
+       def is_nuovo_url(self, url: str) -> bool:
+           # Verifica se l'URL appartiene al nuovo provider
+           return 'nuovo_provider' in url.lower()
+       
+       def scrape_metadata(self, url: str) -> Tuple[List[AlboItem], Optional[str]]:
+           # Implementa lo scraping dei metadati
+           pass
+       
+       def download_attachment(self, url: str, download_dir: str) -> List[str]:
+           # Implementa il download degli allegati
+           pass
+   ```
+
+2. **Aggiungi il pattern** in `src/delibere_comunali/utils/adapter_detector.py`:
+   ```python
+   'nuovo_adapter': {
+       'urls': [r'nuovo_provider', r'pattern2'],
+       'html_patterns': [r'Nuovo Provider', r'Pattern HTML'],
+       'meta_tags': [{'name': 'generator', 'content': r'Nuovo Provider'}]
+   }
+   ```
+
+3. **Importa l'adapter** in `src/delibere_comunali/scraping/adapters/__init__.py`:
+   ```python
+   from .nuovo_adapter import NuovoAdapter
+   __all__.append('NuovoAdapter')
+   ```
+
+4. **Aggiorna la mappa** in `new_albo_scraper.py` e `scraper.py`:
+   ```python
+   adapter_map = {
+       ...,
+       'nuovo_adapter': NuovoAdapter
+   }
+   ```
+
+
 ## Flusso dei Dati
 
 ### 1. Fase di Scraping
