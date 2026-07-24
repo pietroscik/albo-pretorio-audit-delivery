@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script to run the complete audit pipeline for all three entities:
-
+Script to run the complete audit pipeline for all entities found in the data directory
 """
 
 import subprocess
@@ -38,11 +37,28 @@ def run_audit_for_entity(ente):
 
 def main():
     """
-    Main function to run audit for all entities
+    Main function to run audit for all entities found in the data directory
     """
-    entities = ['avella', 'baiano', 'quadrelle']
+    # Dynamically discover entities in the data directory
+    data_dir = Path("./data")
+    if not data_dir.exists():
+        print(f"❌ Data directory '{data_dir}' does not exist!")
+        return 1
     
-    print("Starting audit pipeline for all entities...")
+    # Get all subdirectories in the data directory (these are our entities)
+    entities = []
+    for item in data_dir.iterdir():
+        if item.is_dir():
+            # Check if this directory contains the expected albo_download subdirectory
+            albo_dir = item / "albo_download"
+            if albo_dir.exists():
+                entities.append(item.name)
+    
+    if not entities:
+        print("❌ No entities with albo_download directories found in data directory!")
+        return 1
+    
+    print("Starting audit pipeline for all discovered entities...")
     print(f"Entities to process: {', '.join(entities)}")
     
     all_success = True
@@ -54,7 +70,7 @@ def main():
     
     print(f"\n{'='*60}")
     if all_success:
-        print("🎉 ALL ENTITIES PROCESSED SUCCESSFULLY!")
+        print("🎉 ALL DISCOVERED ENTITIES PROCESSED SUCCESSFULLY!")
         print("Audit reports should be available in:")
         for entity in entities:
             print(f"  - data/{entity}/albo_download/report/")
