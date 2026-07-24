@@ -79,6 +79,15 @@ python run.py build-kg --ente=baiano
 python run.py analyze-topology --ente=baiano
 ```
 
+### Training del Modello di Classificazione
+```bash
+# Training del modello di classificazione
+python run.py train-classifier --ente=baiano
+
+# Training supervisionato
+python run.py supervised-training --ente=baiano
+```
+
 ### Post-Elaborazione Classificazioni
 ```bash
 # Post-process delle classificazioni OCR
@@ -189,6 +198,13 @@ python run.py control-room
 python run.py ui
 python run.py dashboard
 ```
+
+## Workflow Enterprise Opzioni
+
+Il comando `enterprise` supporta diverse opzioni di workflow:
+- `--workflow=full` (predefinito): Esegue tutti i moduli disponibili
+- `--workflow=analyze-only`: Esegue solo l'analisi senza scraping
+- `--workflow=scrape-only`: Esegue solo lo scraping senza analisi
 
 ## Opzioni Comuni
 

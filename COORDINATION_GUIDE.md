@@ -84,22 +84,20 @@ Esegue workflow enterprise con parametri configurabili:
 python run.py enterprise --ente=comune_di_esempio --workflow=full
 ```
 
-Tipi di workflow:
-- `full`: Esegue tutti i moduli
-- `risk_only`: Esegue solo il risk assessment
-- `kpi_only`: Esegue solo il calcolo KPI
-- `ml_only`: Esegue solo l'analisi ML
-- `audit_only`: Esegue solo l'audit
-- `minimal`: Esegue un'analisi minimale per test rapidi
+Tipi di workflow disponibili:
+- `full` (predefinito): Esegue tutti i moduli disponibili
+- `analyze-only`: Esegue solo l'analisi senza scraping
+- `scrape-only`: Esegue solo lo scraping senza analisi
 
 Opzioni:
+- `--workflow`: Tipo di workflow da eseguire (full, analyze-only, scrape-only)
 - `--base-path`: Percorso base per i dati
 - `--load-data`: Percorso specifico per i dati parsati
 - `--skip-risk`: Salta l'esecuzione del risk assessment
 - `--skip-kpi`: Salta l'esecuzione del calcolo KPI
 - `--skip-ml`: Salta l'esecuzione dell'analisi ML
 - `--skip-audit`: Salta l'esecuzione dell'audit
-- `--config-file`: File di configurazione da caricare
+- `--config`: Nome del file di configurazione da utilizzare
 - `--dry-run`: Esegue una simulazione senza salvare risultati
 - `--save-results`: Salva i risultati in formato strutturato
 - `--verbose`: Modalità verbosa

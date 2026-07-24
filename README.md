@@ -23,21 +23,22 @@ Il sistema dispone di due modalità di utilizzo:
 Questa è l'interfaccia moderna e preferita, accessibile direttamente con `python run.py <comando>`:
 
 #### Comandi Base
-- `enterprise`: Esegue il workflow enterprise per un ente specifico
-- `audit`: Esegue l'audit antifrode sugli atti comunali
-- `build-kg`: Costruisce il knowledge graph relazionale
-- `post-process-classification`: Applica post-elaborazione alle classificazioni dei documenti con OCR
-- `analyze-topology`: Analizza la topologia del knowledge graph
-- `supervised-training`: Esegue il riaddestramento supervisionato con feedback umano
+- `enterprise`: Esegue il workflow enterprise per un ente specifico (opzioni: --ente, --workflow [full, analyze-only, scrape-only], --config)
+- `audit`: Esegue l'audit antifrode sugli atti comunali (opzioni: --base, --ente, --use-llm, --llm-provider, --llm-model)
+- `build-kg`: Costruisce il knowledge graph relazionale (opzioni: --base, --ente)
+- `post-process-classification`: Applica post-elaborazione alle classificazioni dei documenti con OCR (opzioni: --input, --output)
+- `analyze-topology`: Analizza la topologia del knowledge graph (opzioni: --base, --ente)
+- `supervised-training`: Esegue il riaddestramento supervisionato con feedback umano (opzioni: --base, --ente)
+- `train-classifier`: Addestra il modello di classificazione con ottimizzazione degli iperparametri (opzioni: --ente)
 - `metrics-exporter`: Avvia il server per l'esportazione delle metriche e il monitoraggio
-- `gdpr-delete`: Implementa il diritto all'oblio (GDPR Art. 17)
-- `privacy-report`: Genera un report di conformità GDPR per un ente specifico
+- `gdpr-delete`: Implementa il diritto all'oblio (GDPR Art. 17) (opzioni: --user-identifier, --data-path)
+- `privacy-report`: Genera un report di conformità GDPR per un ente specifico (opzioni: --ente)
 - `control-room`: Avvia la dashboard di controllo (Streamlit app)
 - `dashboard`: Alias per avviare la dashboard di controllo
 - `ui`: Alias per avviare l'interfaccia utente
 
 ### 2. Sistema di Comandi Legacy
-Accessibile tramite il sistema di mapping comandi per compatibilità con versioni precedenti:
+Accessibile tramite il sistema di mapping comandi per compatibilità con versioni precedenti. Tutti questi comandi sono accessibili come `python run.py <comando>`:
 
 #### Comandi Principali
 - `scrape`: Estrazione dati dall'albo pretorio
@@ -60,15 +61,18 @@ Accessibile tramite il sistema di mapping comandi per compatibilità con version
 - `rag`: Interfaccia RAG per ricerca semantica
 - `apply-corrections`: Applicazione delle correzioni manuali
 
+#### Altri Comandi Legacy
+- `detect-anomalies`, `export-linkeddata`, `validate-output`, `clean-texts`, `sync-texts`, `generate-groundtruth`, `visualize-graph`, `explore`, `reconcile`, `validate-fase0`, `validate-ground`, `verify-output`, `update-preview`, `finance-validate`, `random-forest`, `train`, `run-pipeline`, `scraper`
+
 ## Utilizzo
 
 ### Esecuzione della pipeline completa
 ```bash
 # Utilizzando l'interfaccia moderna (consigliata)
-python run.py pipeline --ente=comune_di_esempio
+python run.py enterprise --ente=comune_di_esempio --workflow=full
 
 # Con opzioni avanzate
-python run.py pipeline --ente=comune_di_esempio --limit 10
+python run.py enterprise --ente=comune_di_esempio --workflow=full --config=default
 ```
 
 ### Esecuzione con parametri enterprise
@@ -76,11 +80,14 @@ python run.py pipeline --ente=comune_di_esempio --limit 10
 # Esecuzione workflow enterprise completo
 python run.py enterprise --ente=comune_di_esempio --workflow=full
 
-# Esecuzione solo del risk assessment
-python run.py enterprise --ente=comune_di_esempio --workflow=risk_only
+# Esecuzione solo del analysis (senza scraping)
+python run.py enterprise --ente=comune_di_esempio --workflow=analyze-only
+
+# Esecuzione solo dello scraping (senza analysis)
+python run.py enterprise --ente=comune_di_esempio --workflow=scrape-only
 
 # Esecuzione con configurazione personalizzata
-python run.py enterprise --ente=comune_di_esempio --workflow=full --config-file=/path/to/config.json
+python run.py enterprise --ente=comune_di_esempio --workflow=full --config=config_personalizzato
 ```
 
 ### Esecuzione di singoli moduli
@@ -93,6 +100,9 @@ python run.py build-kg --ente=baiano
 
 # Analisi della topologia
 python run.py analyze-topology --ente=baiano
+
+# Training del modello di classificazione
+python run.py train-classifier --ente=baiano
 
 # Post-process delle classificazioni
 python run.py post-process-classification --input=data/input.csv --output=data/output.csv
