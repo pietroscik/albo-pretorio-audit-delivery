@@ -5891,6 +5891,8 @@ codice_istat,nome_comune,provincia,regione,codice_belfiore,url_istituzionale,url
 61104,San Marco Evangelista,CE,Campania,F043,,,unknown,True,
 62001,Airola,BN,Campania,A110,,,unknown,True,https://www.comune.airola.bn.it
 62002,Amorosi,BN,Campania,A265,,https://www.comune.amorosi.bn.it/albo-pretorio/,unknown,True,https://www.comune.amorosi.bn.it
+64103,Sperone,AV,Campania,I893,https://comune.sperone.av.it/,https://halleyweb.com/c064103/mc/mc_p_ricerca.php,halleyweb_adapter,True,https://comune.sperone.av.it/
+
 62003,Apice,BN,Campania,A328,,https://www.comune.apice.bn.it/amministrazione/trasparenza/trasparenza.html,halley_adapter,True,https://www.comune.apice.bn.it
 62004,Apollosa,BN,Campania,A330,,,unknown,True,
 62005,Arpaia,BN,Campania,A431,,,unknown,True,

@@ -55,7 +55,7 @@ from ..patterns.albo_patterns import (
     get_patterns_by_category,
     ACCOUNTING_PATTERNS as EXTENDED_ACCOUNTING_PATTERNS,
     PERSONNEL_PATTERNS,
-    DETERMINAZIONE_PATTERNS,
+    DETERMINATION_PATTERNS,
     DELIBERA_PATTERNS,
     ORDINANZA_PATTERNS,
     NUMERARIA_PATTERNS,
@@ -915,7 +915,25 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier=None, entity_extr
 
     # --- Classificazione ---
     if classifier:
-        category, subcategory, confidence, terms = classifier.classify(out["oggetto"], text_one)
+        # Extract oggetto from the output dictionary if it exists
+        oggetto = out.get("oggetto", "")
+        # Ensure that oggetto and text_one are proper strings and not sparse matrices
+        safe_oggetto = oggetto if isinstance(oggetto, str) else (str(oggetto) if oggetto is not None else "")
+        safe_text = text_one if isinstance(text_one, str) else (str(text_one) if text_one is not None else "")
+        
+        # Double-check that we're not passing sparse matrices - extra safety
+        if hasattr(safe_oggetto, 'toarray') or hasattr(safe_oggetto, 'todense') or hasattr(safe_oggetto, 'shape'):
+            safe_oggetto = str(safe_oggetto) if safe_oggetto is not None and not isinstance(safe_oggetto, (type(None), type(np.nan))) else ""
+        if hasattr(safe_text, 'toarray') or hasattr(safe_text, 'todense') or hasattr(safe_text, 'shape'):
+            safe_text = str(safe_text) if safe_text is not None and not isinstance(safe_text, (type(None), type(np.nan))) else ""
+        
+        # Final check - if either is still not a string, convert it
+        if not isinstance(safe_oggetto, str):
+            safe_oggetto = ""
+        if not isinstance(safe_text, str):
+            safe_text = ""
+            
+        category, subcategory, confidence, terms = classifier.classify(safe_oggetto, safe_text)
         out["category"] = category
         out["subcategory"] = subcategory
         out["classification_confidence"] = confidence
@@ -923,7 +941,7 @@ def extract_from_pdf(pdf_file: Path, use_llm=False, classifier=None, entity_extr
 
         # --- Estrazione Entità (Regex, LLM, Advanced) ---
         if entity_extractor:
-            entities = entity_extractor.extract_all(text_one, out["doc_type"], subcategory, use_llm, pdf_path=pdf_file)
+            entities = entity_extractor.extract_all(safe_text, out["doc_type"], subcategory, use_llm, pdf_path=pdf_file)
             
             # Aggiorna con le entità estratte, mantenendo la priorità ai dati dalle tabelle
             # Prima salviamo i dati dalle tabelle se presenti
@@ -1098,37 +1116,62 @@ def main(args=None):
                 parsed_docs.append(ParsedDocument.from_dict(info))
                 continue
 
-            doc = extract_from_pdf(
-                pdf_file,
-                use_llm=args.use_llm,
-                classifier=classifier,
-                entity_extractor=entity_extractor,
-                feature_extractor=feature_extractor,
-                ente_nome=args.ente,
-                text_dir=text_dir
-            )
+            # Check if PDF is valid before processing
+            try:
+                # Attempt to read the PDF to check if it's valid
+                with open(pdf_file, 'rb') as f:
+                    # Verify PDF has proper structure
+                    header = f.read(1024)
+                    if b'%PDF-' not in header:
+                        logger.warning(f"File {pdf_file.name} non sembra un PDF valido, saltando...")
+                        continue
+                    
+                    # Try to create a PdfDocument to check for corruption
+                    try:
+                        pdf_doc = pdfium.PdfDocument(str(pdf_file))
+                        # Check for EOF marker or other corruption
+                        if len(pdf_doc) == 0:
+                            logger.warning(f"PDF {pdf_file.name} sembra corrotto (nessuna pagina), saltando...")
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Impossibile leggere il PDF {pdf_file.name}: {str(e)}, saltando...")
+                        continue
 
-            text_hash = doc.text_sha256
-            # Solo per i documenti non problematici, applichiamo la deduplicazione basata sull'hash del contenuto
-            # Per i file problematici, permettiamo l'inclusione poiché ogni file ha un hash basato sul nome
-            if text_hash and text_hash in seen_hashes and not doc.is_problematic_file:
-                continue
-            # Per file problematici, vogliamo comunque evitare duplicati esatti dello stesso file
-            elif doc.is_problematic_file and text_hash and text_hash in seen_hashes:
-                continue
-            seen_hashes.add(text_hash)
+                doc = extract_from_pdf(
+                    pdf_file,
+                    use_llm=args.use_llm,
+                    classifier=classifier,
+                    entity_extractor=entity_extractor,
+                    feature_extractor=feature_extractor,
+                    ente_nome=args.ente,
+                    text_dir=text_dir
+                )
 
-            parsed_docs.append(doc)
+                text_hash = doc.text_sha256
+                # Solo per i documenti non problematici, applichiamo la deduplicazione basata sull'hash del contenuto
+                # Per i file problematici, permettiamo l'inclusione poiché ogni file ha un hash basato sul nome
+                if text_hash and text_hash in seen_hashes and not doc.is_problematic_file:
+                    continue
+                # Per file problematici, vogliamo comunque evitare duplicati esatti dello stesso file
+                elif doc.is_problematic_file and text_hash and text_hash in seen_hashes:
+                    continue
+                seen_hashes.add(text_hash)
 
-            if event_factory and doc.text_preview:
-                event = event_factory.create_event(doc)
-                procedure_builder.add_event(event)
+                parsed_docs.append(doc)
 
-            if not args.no_corpus:
-                import dataclasses
-                corpus_row = dataclasses.asdict(doc)
-                corpus_row["text"] = doc.text_preview
-                corpus_rows.append(corpus_row)
+                if event_factory and doc.text_preview:
+                    event = event_factory.create_event(doc)
+                    procedure_builder.add_event(event)
+
+                if not args.no_corpus:
+                    import dataclasses
+                    corpus_row = dataclasses.asdict(doc)
+                    corpus_row["text"] = doc.text_preview
+                    corpus_rows.append(corpus_row)
+
+            except Exception as e:
+                logger.error(f"Errore nell'analizzare il contenuto di {pdf_file}: {str(e)}")
+                continue  # Skip to next file if there's an error
 
         op.set_items_processed(len(files))
 
@@ -1205,7 +1248,7 @@ def main(args=None):
 
     logger.info("Salvataggio Excel...")
     try:
-        with pd.ExcelWriter(out_xlsx, engine="xlsxwriter") as xl:
+        with pd.ExcelWriter(out_csv_allegati.parent / "albo_analisi.xlsx", engine="xlsxwriter") as xl:
             dfp.to_excel(xl, index=False, sheet_name="pdf_analisi")
             if 'df_atti' in locals():
                 df_atti.to_excel(xl, index=False, sheet_name="atti_estratti")
@@ -1214,7 +1257,7 @@ def main(args=None):
     except Exception as e:
         logger.warning(f"Errore salvataggio Excel con xlsxwriter: {e}")
 
-    logger.info(f"Salvati:\n- {out_csv_allegati}\n- {out_csv_atti}\n- {out_csv_features}\n- {out_corpus_jsonl if not args.no_corpus else '(corpus disattivato)'}\n- {out_xlsx} (se riuscito)")
+    logger.info(f"Salvati:\n- {out_csv_allegati}\n- {out_csv_atti}\n- {out_csv_features}\n- {out_corpus_jsonl if not args.no_corpus else '(corpus disattivato)'}\n- {out_csv_allegati.parent / 'albo_analisi.xlsx'} (se riuscito)")
 
     metrics.export_to_file(str((base / "metrics_analyze_albo.json").resolve()))
 

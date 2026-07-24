@@ -73,6 +73,21 @@ def get_llm_client(prompt: str, model_priority: List[str] = None):
                 return None
     config = get_config()
     
+    # Check if config has llm attribute, otherwise create a default
+    if not config or not hasattr(config, 'llm'):
+        # Create a simple object with default values
+        class DefaultLlmConfig:
+            model_priority = ["gemini-1.5-flash"]
+            api_key = os.getenv("GOOGLE_API_KEY")
+            mistral_api_key = os.getenv("MISTRAL_API_KEY")
+        config = type('ConfigWithLlm', (), {'llm': DefaultLlmConfig()})()
+    elif not hasattr(config.llm, 'model_priority'):
+        config.llm.model_priority = ["gemini-1.5-flash"]
+    if not hasattr(config.llm, 'api_key'):
+        config.llm.api_key = os.getenv("GOOGLE_API_KEY")
+    if not hasattr(config.llm, 'mistral_api_key'):
+        config.llm.mistral_api_key = os.getenv("MISTRAL_API_KEY")
+    
     priority = model_priority or config.llm.model_priority
     
     gemini = None
@@ -117,33 +132,36 @@ def mistral_ocr(file_path: str) -> str:
                 return None
     config = get_config()
     
-    if not config.llm.mistral_api_key:
+    # Check if config has llm attribute with mistral_api_key
+    if not config or not hasattr(config, 'llm') or not hasattr(config.llm, 'mistral_api_key'):
+        mistral_api_key = os.getenv("MISTRAL_API_KEY")
+    else:
+        mistral_api_key = config.llm.mistral_api_key
+    
+    if not mistral_api_key:
         logger.warning("MISTRAL_API_KEY non configurata per OCR")
         return ""
         
     try:
         from mistralai import Mistral
-        client = Mistral(api_key=config.llm.mistral_api_key)
+        client = Mistral(api_key=mistral_api_key)
         
         # Throttling preventivo
         time.sleep(1.0)
         
         # Iniziamo il processo di OCR
         # Usiamo l'endpoint document_understanding se disponibile o l'ocr specializzato
-        with open(file_path, "rb") as f:
-            # Mistral OCR richiede spesso l'upload o il processing diretto via SDK
-            # Utilizziamo la sintassi document_understanding che è lo standard Mistral per OCR AI
-            # Nota: mistral-ocr-latest è il modello specifico
+        # Nota: mistral-ocr-latest è il modello specifico
             
-            # Caricamento file (se necessario dall'SDK)
-            # ocr_response = client.ocr.process(model="mistral-ocr-latest", document={"type": "path", "path": file_path})
+        # Caricamento file (se necessario dall'SDK)
+        # ocr_response = client.ocr.process(model="mistral-ocr-latest", document={"type": "path", "path": file_path})
             
-            # Per ora manteniamo una logica di logging per debug finché non verifichiamo l'abilitazione dell'account
-            logger.info(f"Avvio Mistral OCR su {file_path}...")
+        # Per ora manteniamo una logica di logging per debug finché non verifichiamo l'abilitazione dell'account
+        logger.info(f"Avvio Mistral OCR su {file_path}...")
             
-            # Implementazione basata su API REST se l'SDK non è aggiornato
-            # In un ambiente reale, qui chiameremmo l'endpoint ufficiale
-            return f"[MISTRAL_OCR_PENDING] Integrità documentale verificata per {file_path}. In attesa di attivazione credenziali OCR specifiche."
+        # Implementazione basata su API REST se l'SDK non è aggiornato
+        # In un ambiente reale, qui chiameremmo l'endpoint ufficiale
+        return f"[MISTRAL_OCR_PENDING] Integrità documentale verificata per {file_path}. In attesa di attivazione credenziali OCR specifiche."
             
     except Exception as e:
         logger.error(f"Errore Mistral OCR: {e}")

@@ -289,6 +289,9 @@ DETERMINAZIONE_PATTERNS: Dict[str, Pattern] = {
     ),
 }
 
+# Alias for compatibility with imports expecting 'DETERMINATION_PATTERNS'
+DETERMINATION_PATTERNS = DETERMINAZIONE_PATTERNS
+
 # Pattern per DELIBERE (99 documenti)
 DELIBERA_PATTERNS: Dict[str, Pattern] = {
     'delibera_piano_personale': re.compile(

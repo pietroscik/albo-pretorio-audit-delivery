@@ -78,43 +78,152 @@ Assicurarsi che il deployment rispetti:
 - Configurare sistemi di monitoraggio
 - Applicare aggiornamenti di sicurezza tempestivamente
 
-## Deployment con Docker (Consigliato)
+## Guida al Deployment Docker
 
-### 1. Build dell'immagine
-```dockerfile
-FROM python:3.11-slim
+Questa guida illustra come eseguire il sistema di audit degli albi pretori comunali utilizzando Docker e Docker Compose.
 
-WORKDIR /app
+### Prerequisiti
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+- Docker Engine (versione 20.10 o superiore)
+- Docker Compose (versione 2.0 o superiore)
+- Almeno 4 GB di RAM disponibile per l'esecuzione completa
 
-COPY . .
+### Build dell'Immagine Docker
 
-CMD ["python", "run.py"]
+```bash
+# Nella directory principale del progetto
+docker build -t albo-pretorio-audit .
 ```
 
-### 2. Compose file
+### Esecuzione con Docker Compose
+
+Per avviare l'intero sistema con tutti i servizi:
+
+```bash
+# Avvia tutti i servizi in background
+docker-compose up -d
+
+# Controlla lo stato dei servizi
+docker-compose ps
+
+# Visualizza i log in tempo reale
+docker-compose logs -f
+```
+
+### Servizi Disponibili
+
+Dopo l'avvio, saranno disponibili i seguenti servizi:
+
+- **Scraper** (interno): Esegue lo scraping degli albi pretori
+- **Control Room**: `http://localhost:8501` - Dashboard di controllo principale
+- **RAG App**: `http://localhost:8504` - Interfaccia per il RAG semantico
+- **Web Dashboard**: `http://localhost:8503` - Dashboard web generale
+
+### Esecuzione di Operazioni Specifiche
+
+#### Solo scraping di un comune specifico:
+
+```bash
+# Esegui uno scraping diretto
+docker run --rm -v $(pwd)/data:/app/data albo-pretorio-audit python -m src.delibere_comunali.scraping.new_albo_scraper --ente sperone --max-pages 5
+```
+
+#### Esecuzione di un audit completo:
+
+```bash
+# Esegui un audit completo
+docker run --rm -v $(pwd)/data:/app/data albo-pretorio-audit python run.py audit --ente sperone --workflow full
+```
+
+### Gestione dei Dati
+
+I dati vengono memorizzati nei volumi Docker:
+
+- `/data`: Metadati e documenti scaricati
+- `/logs`: Log delle operazioni
+
+I volumi sono montati come bind mounts per persistenza locale.
+
+### Monitoraggio e Logging
+
+#### Controllare i log di un servizio specifico:
+
+```bash
+docker-compose logs scraper
+docker-compose logs control-room
+```
+
+#### Verificare lo stato di salute:
+
+```bash
+docker-compose ps
+docker stats
+```
+
+### Esecuzione in Produzione
+
+Per un deployment in produzione, è consigliabile:
+
+1. Utilizzare un registry Docker privato
+2. Configurare un reverse proxy (es. nginx) con SSL/TLS
+3. Implementare backup automatici dei volumi dati
+4. Configurare alerting e monitoraggio esterni
+
+#### Esempio di configurazione per produzione:
+
 ```yaml
+# docker-compose.prod.yml
 version: '3.8'
 
 services:
-  albo-pretorio:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - DATABASE_URL=${DATABASE_URL}
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-    restart: unless-stopped
+  scraper:
+    # ... configurazione base ...
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    restart: always
 ```
 
-### 3. Avvio del servizio
+### Risoluzione dei Problemi
+
+#### Se i servizi non partono correttamente:
+
 ```bash
-docker-compose up -d
+# Controlla i log dettagliati
+docker-compose logs --tail=50 <service_name>
+
+# Ricrea un servizio specifico
+docker-compose up --force-recreate <service_name>
+```
+
+#### Se Playwright non riesce ad avviare il browser:
+
+Controllare che le dipendenze di sistema siano installate correttamente nell'immagine. L'immagine ufficiale Playwright dovrebbe già includerle tutte.
+
+### Sicurezza
+
+- Tutti i servizi girano con utente non-root
+- Le porte sono esposte solo localmente per default
+- Nessun dato sensibile è hard-coded nell'immagine
+
+### Aggiornamento del Sistema
+
+Per aggiornare il sistema:
+
+```bash
+# Aggiorna il codice
+git pull origin main
+
+# Ricostruisci l'immagine
+docker-compose build --no-cache
+
+# Riavvia i servizi
+docker-compose down && docker-compose up -d
 ```
 
 ## Configurazione del servizio di sistema (Linux)

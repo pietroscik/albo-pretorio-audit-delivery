@@ -1,82 +1,52 @@
-# Esempi di Utilizzo
+# Esempi di Utilizzo del Sistema
+## Panoramica
 
-Questa guida mostra come utilizzare i vari comandi del sistema Albo Pretorio Audit Delivery con esempi pratici e completi.
+Questa guida mostra come utilizzare il sistema per eseguire audit e analisi sugli albi pretori comunali, con particolare attenzione ai comandi ufficialmente supportati.
 
-## Due Sistemi di Comando
+## Modalità Enterprise (Consigliata)
 
-Il sistema dispone di due modalità di utilizzo:
-
-1. **Interfaccia Click-based (Consigliata)** - Comandi disponibili direttamente con `python run.py <comando>`
-2. **Sistema Legacy** - Comandi accessibili tramite il sistema di mapping per compatibilità
-
-## Esecuzione della Pipeline Completa
-
-### Pipeline Standard (Modalità Moderna)
+### Esecuzione Completa (Scraping + Analisi)
 ```bash
-# Esecuzione della pipeline completa per un ente specifico
-python run.py pipeline --ente=baiano
+# Esempio con il Comune di Sperone
+python run.py enterprise --ente sperone --workflow full
 
-# Con opzioni avanzate
-python run.py pipeline --ente=baiano --limit 5
+# Esempio con un altro comune
+python run.py enterprise --ente avella --workflow full
 ```
 
-### Pipeline Enterprise
+### Solo Fase di Scraping
 ```bash
-# Esecuzione workflow enterprise completo
-python run.py enterprise --ente=comune_di_esempio --workflow=full
-
-# Esecuzione workflow solo analisi
-python run.py enterprise --ente=comune_di_esempio --workflow=analyze-only
-
-# Esecuzione workflow solo scraping
-python run.py enterprise --ente=comune_di_esempio --workflow=scrape-only
-
-# Con file di configurazione personalizzato
-python run.py enterprise --ente=comune_di_esempio --config=config/personalizzato.yaml
+# Solo raccolta dati e download documenti
+python run.py enterprise --ente sperone --workflow scrape-only
 ```
 
-## Esecuzione di Singoli Moduli (Modalità Moderna)
-
-### Estrazione Dati (Scraping)
+### Solo Fase di Analisi
 ```bash
-# Estrazione dati per un ente specifico (se disponibile)
-python run.py scrape --ente=baiano
-
-# Estrazione con date specifiche (solo se il modulo è disponibile)
-python run.py scrape --ente=baiano --date-from 2023-01-01 --date-to 2023-01-31
+# Solo analisi dei dati già scaricati
+python run.py enterprise --ente sperone --workflow analyze-only
 ```
 
-### Analisi e Parsing
+## Utilizzo Diretto dei Moduli (Per Debugging)
+
+### Solo Scraping
 ```bash
-# Analisi dei documenti scaricati
-python run.py analyze --ente=baiano
+# Esegui solo lo scraper per un ente specifico
+python -m src.delibere_comunali.scraping.new_albo_scraper --ente sperone --max-pages 5 --delay 2
 
-# Analisi con utilizzo di LLM
-python run.py analyze --ente=baiano --use-llm
-
-# Analisi con provider LLM specifico
-python run.py analyze --ente=baiano --use-llm --llm-provider=openai --llm-model=gpt-4
+# Esegui senza scaricare documenti (solo metadati)
+python -m src.delibere_comunali.scraping.new_albo_scraper --ente sperone --max-pages 5 --no-download
 ```
 
-### Audit Antifrode
+### Solo Analisi
 ```bash
-# Esecuzione audit standard
-python run.py audit --ente=baiano
-
-# Esecuzione audit con LLM
-python run.py audit --ente=baiano --use-llm
-
-# Esecuzione audit con provider e modello specifici
-python run.py audit --ente=baiano --use-llm --llm-provider=gemini --llm-model=gemini-pro
+# Esegui solo l'analisi sui dati esistenti
+python -m src.delibere_comunali.parsing.analyze_albo --ente sperone
 ```
 
-### Knowledge Graph
+### Costruzione del Knowledge Graph
 ```bash
-# Costruzione del knowledge graph
-python run.py build-kg --ente=baiano
-
-# Analisi della topologia del knowledge graph
-python run.py analyze-topology --ente=baiano
+# Genera il grafo della conoscenza per un ente
+python run.py build-kg --ente sperone
 ```
 
 ### Training del Modello di Classificazione
@@ -94,36 +64,32 @@ python run.py supervised-training --ente=baiano
 python run.py post-process-classification --input=data/input.csv --output=data/output.csv
 ```
 
-## Dashboard e Interfacce (Modalità Moderna)
+## Esempi Specifici per Halleyweb/AgID
 
-### Control Room
+### Comune di Sperone (Nuova Infrastruttura Halleyweb)
 ```bash
-# Avvio della dashboard di controllo
-python run.py control-room
+# Esecuzione completa
+python run.py enterprise --ente sperone --workflow full
 
-# Alternativamente
-python run.py ui
-python run.py dashboard
+# Solo scraping (utilizza Playwright per gestire JavaScript)
+python run.py enterprise --ente sperone --workflow scrape-only
+
+# Dettagli avanzati per Halleyweb
+python -m src.delibere_comunali.scraping.new_albo_scraper --ente sperone --max-pages 1 --delay 2
 ```
 
-## Machine Learning e Analisi Avanzate (Modalità Moderna)
+## Parametri Comuni
 
-### Training Modelli
+### Controllo del Numero di Pagine
 ```bash
-# Training del modello ML
-python run.py train --ente=baiano
-
-# Training supervisionato
-python run.py supervised-training --ente=baiano
+# Limita lo scraping a un certo numero di pagine
+python run.py enterprise --ente sperone --workflow scrape-only --max-pages 3
 ```
 
-### Analisi del Rischio
+### Controllo del Rate Limit
 ```bash
-# Esecuzione risk assessment
-python run.py risk-assessment --ente=baiano
-
-# Con opzioni specifiche
-python run.py risk-assessment --ente=baiano --base=data/baiano/albo_download
+# Imposta ritardo tra le richieste per essere più gentili col server
+python -m src.delibere_comunali.scraping.new_albo_scraper --ente sperone --delay 3
 ```
 
 ### KPI di Gestione
@@ -138,66 +104,53 @@ python run.py management-kpi --ente=baiano
 python run.py actuarial-analysis --ente=baiano
 ```
 
-## Operazioni di Manutenzione (Modalità Moderna)
+## Esempi di Output Attesi
 
-### Validazione Dati
+Dopo un'esecuzione completa, dovrebbero essere presenti i seguenti file:
+
+### In `data/{ente}/albo_download/`:
+- `albo_metadati.csv` - Metadati estratti dagli atti
+- `allegati_parsed.csv` - Allegati strutturati
+- `pdf/` - Documenti PDF scaricati
+- `report/` - Report di analisi
+- `texts/` - Testi estratti dai documenti
+
+### File Globali:
+- `data/report_globali/alert_antifrode.md` - Alert antifrode aggregati
+- `knowledge_graph/knowledge_graph.gexf` - Grafo della conoscenza
+- `executive_summary.md` - Sommario esecutivo
+
+## Comandi di Utilità
+
+### Controllo Stato
 ```bash
-# Validazione output
-python run.py validate-output --ente=baiano
-
-# Validazione CSV
-python run.py validate-csv --ente=baiano
+# Controlla lo stato di un ente
+python run.py status --ente sperone
 ```
 
-### Pulizia Dati
+### Validazione
 ```bash
-# Pulizia testi
-python run.py clean-texts --ente=baiano
-
-# Sincronizzazione testi
-python run.py sync-texts --ente=baiano
+# Valida l'output generato
+python run.py validate --ente sperone
 ```
 
-## Privacy e GDPR (Modalità Moderna)
-
-### Report di Conformità GDPR
+### Esplorazione Dati
 ```bash
-# Generazione report di conformità GDPR
-python run.py privacy-report --ente=baiano
+# Esplora i dati disponibili
+python run.py explore --ente sperone
 ```
 
-### Diritto all'Oblio
-```bash
-# Cancellazione dati utente (diritto all'oblio)
-python run.py gdpr-delete --user-identifier=CF12345678901
+## Note di Utilizzo
 
-# Con percorso dati specifico
-python run.py gdpr-delete --user-identifier=CF12345678901 --data-path=data/custom_path/
-```
+1. **Prima esecuzione**: Per un nuovo ente, iniziare sempre con `--workflow scrape-only` per raccogliere i dati.
 
-## Sistema Legacy (Per Compatibilità)
+2. **Esecuzioni successive**: Usare `--workflow analyze-only` per rieseguire l'analisi sui dati esistenti senza nuovo scraping.
 
-Il sistema supporta anche il sistema legacy di comandi per compatibilità con versioni precedenti:
+3. **Halleyweb**: I siti basati su Halleyweb (come Sperone) richiedono Playwright e potrebbero impiegare più tempo per l'elaborazione.
 
-### Comandi Base
-```bash
-# Esecuzione della pipeline completa (modalità legacy)
-python run.py pipeline --ente=baiano
+4. **Supporto P7M**: I file firmati digitalmente (.p7m) vengono automaticamente estratti al contenuto PDF.
 
-# Estrazione dati (modalità legacy)
-python run.py scrape --ente=baiano
-
-# Analisi dati (modalità legacy)
-python run.py analyze --ente=baiano
-```
-
-### Dashboard e UI (Modalità Legacy)
-```bash
-# Avvio della dashboard (modalità legacy)
-python run.py control-room
-python run.py ui
-python run.py dashboard
-```
+5. **Conformità AgID**: Il sistema è conforme agli standard AgID e gestisce correttamente i nuovi siti basati su Bootstrap Italia.
 
 ## Workflow Enterprise Opzioni
 

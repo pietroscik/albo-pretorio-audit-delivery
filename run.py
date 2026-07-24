@@ -144,7 +144,7 @@ def audit(base: str, ente: str, use_llm: bool, llm_provider: str, llm_model: str
 
 
 @cli.command()
-@click.option('--base', default='data/baiano/albo_download', help='Cartella base dei dati.')
+@click.option('--base', default=None, help='Cartella base dei dati.')
 @click.option('--ente', default=None, help='Identificativo ente (opzionale)')
 def build_kg(base: str, ente: str):
     """
@@ -153,6 +153,13 @@ def build_kg(base: str, ente: str):
     original_argv = sys.argv
     try:
         from delibere_comunali.knowledge_graph.builder import main as builder_main
+
+        # If base is not provided but ente is, construct the base path from ente
+        if base is None and ente is not None:
+            base = f"data/{ente}/albo_download"
+        elif base is None:
+            # Default to baiano if neither base nor ente is provided
+            base = 'data/baiano/albo_download'
 
         # Simula gli argomenti a riga di comando
         sys.argv = ['builder.py', '--base', base]

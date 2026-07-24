@@ -10,6 +10,7 @@ from ..patterns.albo_patterns import (
 )
 from ..rag.llm_factory import get_llm_client
 from ..utils.logger import get_logger
+from ..utils.config import get_config
 
 logger = get_logger(__name__)
 
@@ -123,7 +124,16 @@ class EntityExtractor:
     """
     
     def __init__(self, config=None, advanced_extractor=None):
-        self.config = config or {}
+        self.config = config or get_config()  # Use get_config() as fallback
+        
+        # Check if config has llm attribute, otherwise create a default
+        if not hasattr(self.config, 'llm'):
+            # Create a simple object with default values
+            class DefaultLlmConfig:
+                model_priority = ["gemini-1.5-flash"]
+                api_key = None
+                mistral_api_key = None
+            self.config.llm = DefaultLlmConfig()
         
         # Import llm client function but don't call it yet - we'll use it when needed
         try:
@@ -174,7 +184,7 @@ class EntityExtractor:
 
     def _extract_with_llm(self, text: str, doc_type: str = None) -> Dict[str, Any]:
         """Extract entities using LLM."""
-        if not self.get_llm_client_func:
+        if not self.get_llm_client_func or not self.config.llm.api_key:
             return {}
             
         try:

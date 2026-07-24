@@ -447,7 +447,7 @@ class AlboScraper:
         self.csv_path = self.out_dir / "albo_metadati.csv"
         if not self.csv_path.exists():
             with open(self.csv_path, "w", encoding="utf-8", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=list(asdict(AlboItem("", "", "", "", "", "", "", "", [])).keys()))
+                w = csv.DictWriter(f, fieldnames=list(asdict(AlboItem("", "", "", "", "", "", "", "", [])).keys()), quoting=csv.QUOTE_MINIMAL)
                 w.writeheader()
         self.seen_metadata = self._load_seen_metadata()
         # registro URL scaricati (opzionale)
@@ -678,7 +678,7 @@ class AlboScraper:
         if key in self.seen_metadata:
             return False
         with open(self.csv_path, "a", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()))
+            w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()), quoting=csv.QUOTE_MINIMAL)
             w.writerow(asdict(it))
         self.seen_metadata.add(key)
         if it.dettaglio_url:
@@ -732,8 +732,36 @@ class AlboScraper:
 
             for it in items:
                 try:
-                    # Salta l'atto se è già stato scaricato e indicizzato in precedenza
+                    # Check if the item's detail URL exists in metadata but check if PDFs actually exist
+                    should_skip = False
                     if it.dettaglio_url and it.dettaglio_url in self.seen_metadata:
+                        # Check if any of the attachments for this item actually exist as files
+                        item_has_existing_files = False
+                        # We need to check if we have record of the attachments for this item
+                        # Get the attachments for this detail URL from the CSV if they exist
+                        if it.allegati:  # If we already have allegati from this instance
+                            for allegato_url in it.allegati:
+                                # Create the expected file name based on the logic in the download section
+                                doc_name = os.path.splitext(url_doc_name(allegato_url))[0]
+                                stem = slugify(f"{it.tipologia or 'atto'}_{it.numero or ''}_{it.data_pubblicazione or ''}_{doc_name or it.titolo}")[:100]
+                                ext = os.path.splitext(url_doc_name(allegato_url))[1] or ".pdf"
+                                expected_dest = self.out_dir / "pdf" / f"{stem}_1{ext}"
+                                
+                                # Check if files with this pattern exist
+                                pattern_prefix = f"{stem}_"
+                                for file_path in (self.out_dir / "pdf").glob(f"{pattern_prefix}.*"):
+                                    if file_path.exists():
+                                        item_has_existing_files = True
+                                        break
+                        
+                        # Only skip if we have evidence that the files actually exist
+                        if item_has_existing_files:
+                            should_skip = True
+                        else:
+                            # Even though metadata exists, the files might not exist, so don't skip
+                            should_skip = False
+                    
+                    if should_skip:
                         self.log(f"  [skip] Già in archivio: {it.dettaglio_url}")
                         continue
 

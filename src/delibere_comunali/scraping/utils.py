@@ -234,11 +234,35 @@ def looks_like_attachment(href: str, label: str = "") -> bool:
     name = url_doc_name(href).lower()
     text = (label or "").lower()
     
+    # Special handling for Halleyweb domains
+    is_halleyweb = 'halleyweb' in href.lower() or 'halleyweb' in text.lower()
+    
+    # For Halleyweb, we need to be more permissive since documents may be accessed through JS handlers
+    if is_halleyweb:
+        # Check if the label contains indicators of a document/attachment regardless of extension
+        positive_indicators = [
+            "documento", "allegato", "pdf", "download", "vai", "atto", "determina", 
+            "delibera", "provvedimento", "determinazione", "deliberazione", "ordinanza",
+            "avviso", "bando", "file", "scarica"
+        ]
+        has_positive_indicators = any(indicator in text.lower() for indicator in positive_indicators)
+        
+        if has_positive_indicators:
+            # Check for negative indicators that would exclude it
+            negative_indicators = [
+                "pagina", "scheda", "visualizza", "mostra", "descrizione",
+                "introduzione", "anteprima", "preview", "info", "informazioni"
+            ]
+            has_negative_indicators = any(indicator in text.lower() for indicator in negative_indicators)
+            
+            return has_positive_indicators and not has_negative_indicators
+    
+    # Original logic for non-Halleyweb sites
     # Controlla se è un'estensione valida
     has_valid_ext = any(name.endswith(ext) for ext in ATTACH_EXTS)
     
-    # Se non ha estensione valida, probabilmente non è un allegato
-    if not has_valid_ext:
+    # Per siti non Halleyweb, se non ha estensione valida, probabilmente non è un allegato
+    if not has_valid_ext and not is_halleyweb:
         return False
     
     # Verifica se il nome del file o l'etichetta suggeriscono che è un file introduttivo anziché un vero allegato
@@ -277,7 +301,9 @@ def looks_like_attachment(href: str, label: str = "") -> bool:
         # Se ha entrambi, diamo priorità agli indicatori positivi ma con cautela
         return True
     else:
-        # Se non ha indicatori positivi, non è un allegato
+        # Se non ha indicatori positivi, non è un allegato (a meno che non sia Halleyweb)
+        if is_halleyweb and has_positive_indicators:
+            return True
         return False
 
 def infer_tipologia_from_filename(filename: str) -> Optional[str]:

@@ -1,177 +1,110 @@
 # Albo Pretorio Audit Delivery
 
-Sistema di analisi, audit e compliance per albi pretori comunali. Il progetto implementa un motore di rilevazione frodi, ottimizzazione dei processi amministrativi e controllo antifrode basato su tecnologie AI/ML.
+Sistema per l'analisi e l'audit degli albi pretori comunali italiani, con particolare focus sulla conformità AgID e sull'integrazione con sistemi Halleyweb.
 
-## Architettura del Sistema
+## Compatibilità Ambiente
 
-Il sistema si compone di diversi moduli interagenti:
+Il sistema è progettato per funzionare in diversi ambienti, ma alcune funzionalità richiedono considerazioni specifiche:
 
-- **Scraping**: Estrazione dati dagli albi pretori
-- **Parsing**: Analisi e estrazione delle informazioni dai documenti
-- **Classificazione**: Classificazione automatica dei documenti in categorie specifiche
-- **Risk Assessment**: Valutazione del rischio associato ai documenti
-- **Knowledge Graph**: Costruzione di un grafo semantico delle entità
-- **RAG (Retrieval Augmented Generation)**: Sistema di ricerca e generazione di risposte basato su documenti
-- **Dashboard**: Interfaccia di controllo per la supervisione delle analisi
-- **Enterprise Orchestration**: Sistema di coordinamento avanzato tra i vari moduli
+- **Windows con Python 3.13**: Funzionalità di scraping JavaScript (necessarie per Halleyweb) limitate a causa di un problema noto con Playwright su questa combinazione. Lo scraping dei metadati funziona regolarmente, ma il download degli allegati potrebbe non funzionare.
+- **Linux/macOS o Docker**: Consigliato per il pieno funzionamento delle funzionalità, inclusi lo scraping JavaScript e il download degli allegati da siti Halleyweb.
+- **Docker**: Disponibile un'immagine specifica `mcr.microsoft.com/playwright/python` per garantire compatibilità completa.
 
-## Comandi Principali
+## Installazione e Setup
 
-Il sistema dispone di due modalità di utilizzo:
+### Metodo 1: Installazione Locale
 
-### 1. Interfaccia Click-based (Consigliata)
-Questa è l'interfaccia moderna e preferita, accessibile direttamente con `python run.py <comando>`:
-
-#### Comandi Base
-- `enterprise`: Esegue il workflow enterprise per un ente specifico (opzioni: --ente, --workflow [full, analyze-only, scrape-only], --config)
-- `audit`: Esegue l'audit antifrode sugli atti comunali (opzioni: --base, --ente, --use-llm, --llm-provider, --llm-model)
-- `build-kg`: Costruisce il knowledge graph relazionale (opzioni: --base, --ente)
-- `post-process-classification`: Applica post-elaborazione alle classificazioni dei documenti con OCR (opzioni: --input, --output)
-- `analyze-topology`: Analizza la topologia del knowledge graph (opzioni: --base, --ente)
-- `supervised-training`: Esegue il riaddestramento supervisionato con feedback umano (opzioni: --base, --ente)
-- `train-classifier`: Addestra il modello di classificazione con ottimizzazione degli iperparametri (opzioni: --ente)
-- `metrics-exporter`: Avvia il server per l'esportazione delle metriche e il monitoraggio
-- `gdpr-delete`: Implementa il diritto all'oblio (GDPR Art. 17) (opzioni: --user-identifier, --data-path)
-- `privacy-report`: Genera un report di conformità GDPR per un ente specifico (opzioni: --ente)
-- `control-room`: Avvia la dashboard di controllo (Streamlit app)
-- `dashboard`: Alias per avviare la dashboard di controllo
-- `ui`: Alias per avviare l'interfaccia utente
-
-### 2. Sistema di Comandi Legacy
-Accessibile tramite il sistema di mapping comandi per compatibilità con versioni precedenti. Tutti questi comandi sono accessibili come `python run.py <comando>`:
-
-#### Comandi Principali
-- `scrape`: Estrazione dati dall'albo pretorio
-- `analyze`: Analisi e parsing dei documenti
-- `pipeline`: Esecuzione della pipeline completa
-- `validate-csv`: Validazione dei file CSV prodotti
-
-#### Comandi Enterprise
-- `orchestrate`: Esecuzione della pipeline completa di coordinamento tra tutti i moduli avanzati (Risk Assessment, KPI, ML, Audit)
-- `data-coord`: Interfaccia per il coordinatore dati centralizzato
-- `config-mgmt`: Gestione della configurazione enterprise
-
-#### Comandi ML e Analytics
-- `risk-assessment`: Esecuzione dell'analisi del rischio
-- `management-kpi`: Calcolo dei KPI di gestione
-- `actuarial-analysis`: Analisi attuariale e provisioning
-
-#### Comandi UI e RAG
-- `control-room`: Dashboard di controllo (alias: `ui`, `dashboard`)
-- `rag`: Interfaccia RAG per ricerca semantica
-- `apply-corrections`: Applicazione delle correzioni manuali
-
-#### Altri Comandi Legacy
-- `detect-anomalies`, `export-linkeddata`, `validate-output`, `clean-texts`, `sync-texts`, `generate-groundtruth`, `visualize-graph`, `explore`, `reconcile`, `validate-fase0`, `validate-ground`, `verify-output`, `update-preview`, `finance-validate`, `random-forest`, `train`, `run-pipeline`, `scraper`
-
-## Utilizzo
-
-### Esecuzione della pipeline completa
 ```bash
-# Utilizzando l'interfaccia moderna (consigliata)
-python run.py enterprise --ente=comune_di_esempio --workflow=full
+# Clona il repository
+git clone <repository_url>
+cd albo-pretorio-audit-delivery
 
-# Con opzioni avanzate
-python run.py enterprise --ente=comune_di_esempio --workflow=full --config=default
+# Crea un ambiente virtuale
+python -m venv .venv
+source .venv/bin/activate  # Su Windows: .venv\Scripts\activate
+
+# Installa le dipendenze
+pip install -r requirements.txt
+
+# Installa Playwright e i browser necessari
+pip install playwright
+playwright install chromium
 ```
 
-### Esecuzione con parametri enterprise
+### Metodo 2: Docker Deployment (Consigliato)
+
+Per garantire il pieno funzionamento su tutti i sistemi, inclusi Windows con Python 3.13:
+
 ```bash
-# Esecuzione workflow enterprise completo
-python run.py enterprise --ente=comune_di_esempio --workflow=full
+# Avvia l'intero sistema con Docker Compose
+docker-compose up -d
 
-# Esecuzione solo del analysis (senza scraping)
-python run.py enterprise --ente=comune_di_esempio --workflow=analyze-only
-
-# Esecuzione solo dello scraping (senza analysis)
-python run.py enterprise --ente=comune_di_esempio --workflow=scrape-only
-
-# Esecuzione con configurazione personalizzata
-python run.py enterprise --ente=comune_di_esempio --workflow=full --config=config_personalizzato
+# I servizi saranno disponibili su:
+# - Control Room: http://localhost:8501
+# - RAG App: http://localhost:8504
+# - Web Dashboard: http://localhost:8503
 ```
 
-### Esecuzione di singoli moduli
+## Quick Start
+
+### Modalità Completa (Scraping + Analisi)
 ```bash
-# Esecuzione dell'audit
-python run.py audit --ente=baiano --use-llm
+# Esegui l'intero workflow per un comune (in ambiente locale)
+python run.py enterprise --ente sperone --workflow full
 
-# Costruzione del knowledge graph
-python run.py build-kg --ente=baiano
+# Esegui solo la fase di scraping
+python run.py enterprise --ente sperone --workflow scrape-only
 
-# Analisi della topologia
-python run.py analyze-topology --ente=baiano
-
-# Training del modello di classificazione
-python run.py train-classifier --ente=baiano
-
-# Post-process delle classificazioni
-python run.py post-process-classification --input=data/input.csv --output=data/output.csv
+# Esegui solo la fase di analisi
+python run.py enterprise --ente sperone --workflow analyze-only
 ```
 
-### Avvio della dashboard di controllo
+### Comandi Docker (Se utilizzato il deployment Docker)
 ```bash
-# Modalità moderna (consigliata)
-python run.py control-room
+# Esegui un workflow completo per un comune
+docker-compose exec app python run.py enterprise --ente sperone --workflow full
 
-# Modalità legacy
-python run.py control-room
+# Esegui solo lo scraping
+docker-compose exec app python run.py enterprise --ente sperone --workflow scrape-only
+
+# Esegui solo l'analisi
+docker-compose exec app python run.py enterprise --ente sperone --workflow analyze-only
+
+# Accedi alla shell del container
+docker-compose exec app bash
 ```
 
-### Gestione privacy e GDPR
+### Comandi Specifici
 ```bash
-# Genera report di conformità GDPR per un ente
-python run.py privacy-report --ente=baiano
+# Esegui solo lo scraping
+python -m src.delibere_comunali.scraping.new_albo_scraper --ente sperone --max-pages 5
 
-# Cancella dati utente (diritto all'oblio)
-python run.py gdpr-delete --user-identifier=CF12345678901
+# Esegui solo l'analisi
+python -m src.delibere_comunali.parsing.analyze_albo --ente sperone
+
+# Costruisci il knowledge graph
+python run.py build-kg --ente sperone
 ```
 
 ## Struttura del Progetto
 
-```
-albo-pretorio-audit-delivery/
-├── src/
-│   ├── delibere_comunali/           # Codice sorgente principale
-│   │   ├── cli/                    # Interfacce a riga di comando
-│   │   ├── core/                   # Funzionalità principali
-│   │   ├── parsing/                # Moduli di parsing e analisi
-│   │   ├── processing/             # Elaborazione dati
-│   │   ├── analysis/               # Analisi e valutazioni
-│   │   ├── ml/                     # Machine learning
-│   │   ├── knowledge_graph/        # Gestione knowledge graph
-│   │   ├── rag/                    # RAG (Retrieval Augmented Generation)
-│   │   ├── web/                    # Interfacce web
-│   │   └── utils/                  # Utilità varie
-│   ├── scripts/                    # Script di utilità
-│   └── tests/                      # Test
-├── data/                           # Dati scaricati e output
-│   └── {ente}/                     # Dati specifici per ente
-│       ├── albo_download/          # Dati grezzi scaricati
-│       ├── parsed_data/            # Dati parsati
-│       └── reports/                # Report generati
-├── config/                         # File di configurazione
-├── docs/                           # Documentazione
-├── run.py                          # Entry point principale
-└── scripts/                        # Script di utilità
-    ├── run_pipeline.sh             # Script pipeline completo
-    └── daily_run.sh                # Script esecuzione quotidiana
-```
+Per una panoramica dettagliata dell'architettura, vedere [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-## Configurazione
+## Output del Sistema
 
-Il sistema può essere configurato attraverso:
+Dopo un'esecuzione completa, il sistema genera:
 
-1. **File di configurazione YAML** (vedi la directory [config/](config/))
-2. **Variabili d'ambiente**
-3. **Parametri a riga di comando**
+- **Metadati**: `data/{ente}/albo_download/albo_metadati.csv`
+- **Documenti**: `data/{ente}/albo_download/pdf/`
+- **Report di Analisi**: `data/{ente}/albo_download/report/`
+- **CSV Strutturati**: `allegati_parsed.csv`, `atti_parsed.csv`
+- **Knowledge Graph**: `knowledge_graph.gexf`, `knowledge_graph.html`
+- **Report Testuali**: `procedural_analysis_report.md`, `alert_antifrode.md`
 
-## Monitoraggio e Sicurezza
+## Comandi Disponibili
 
-- **Metrics Exporter**: Sistema di raccolta e visualizzazione metriche
-- **Privacy Guard**: Implementazione del GDPR con tracciamento dei dati sensibili
-- **Audit Trail**: Tracciamento completo delle operazioni
-- **Role-Based Access Control**: Controllo degli accessi basato sui ruoli
+Per una lista completa dei comandi disponibili, vedere [docs/CURRENT_COMMANDS.md](./docs/CURRENT_COMMANDS.md).
 
 ## Licenza
 
-GPL-3.0 license
+Questo software è fornito come è, senza alcuna garanzia. Vedi il file LICENSE per maggiori dettagli.

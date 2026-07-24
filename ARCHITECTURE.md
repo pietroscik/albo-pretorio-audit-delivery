@@ -1,3 +1,116 @@
+# Architettura del Sistema di Audit per Albi Pretori Civici
+
+## Panoramica
+
+Il sistema è progettato per effettuare scraping, analisi e creazione di grafi della conoscenza per gli albi pretori comunali italiani, con particolare attenzione alle nuove infrastrutture conformi agli standard AgID (Designers Italia) e ai sistemi Halleyweb.
+
+## Struttura delle Directory
+
+```
+albo-pretorio-audit-delivery/
+├── src/
+│   └── delibere_comunali/
+│       ├── scraping/
+│       │   ├── new_albo_scraper.py          # Scraper principale con supporto Halleyweb/JS
+│       │   ├── scraper.py                   # Classe base dello scraper
+│       │   ├── adapters/                    # Adattatori specifici per provider
+│       │   ├── models.py                    # Modelli dati per le entità
+│       │   └── utils.py                     # Utilità di scraping
+│       ├── parsing/
+│       │   ├── analyze_albo.py              # Analisi principale degli albi
+│       │   ├── entity_extractor.py          # Estrazione entità nominate
+│       │   ├── document_classifier.py       # Classificazione documenti
+│       │   └── patterns/                    # Pattern per l'estrazione
+│       ├── rag/                             # Moduli RAG (Retrieval Augmented Generation)
+│       └── utils/                           # Utilità generali
+├── data/
+│   └── {ente}/                              # Dati specifici per ogni ente
+│       └── albo_download/
+│           ├── albo_metadati.csv           # Metadati estratti dagli albi
+│           ├── pdf/                        # Documenti PDF scaricati
+│           ├── html/                       # HTML salvati per debug (se --save-html)
+│           ├── allegati_parsed.csv         # Allegati estratti e strutturati
+│           ├── report/                     # Report di analisi
+│           └── texts/                      # Testi estratti dai documenti
+├── docs/                                   # Documentazione
+├── scripts/                                # Script di utilità
+├── mappatura_comuni_integrata.csv          # Mappatura completa dei comuni
+├── run.py                                  # Entry point principale del sistema
+└── README.md                               # Documentazione principale
+```
+
+## Flusso dei Dati
+
+### 1. Fase di Scraping
+1. **Identificazione del Provider**: Il sistema identifica automaticamente il provider dell'albo (OpenWeb, Halleyweb, ecc.) tramite `utils.adapter_detector.identify_comune_adapter()`
+2. **Accesso all'Albo**: Basato sulla mappatura in `mappatura_comuni_integrata.csv`
+3. **Estrazione Metadati**: Parsing delle liste di atti e dettagli
+4. **Download Documenti**: I PDF e allegati vengono scaricati con logica anti-duplicazione
+5. **Output**: `albo_metadati.csv` e documenti in `pdf/`
+
+### 2. Fase di Parsing e Analisi
+1. **Elaborazione Testo**: Estrazione del contenuto dai PDF
+2. **Estrazione Entità**: Nomi, date, importi, protocolli, responsabili (RUP)
+3. **Classificazione Tematica**: Categorizzazione degli atti
+4. **Output**: CSV strutturati e report di qualità
+
+### 3. Fase RAG e Knowledge Graph
+1. **Ingestione Vettoriale**: I documenti vengono convertiti in embeddings
+2. **Costruzione Grafo**: Creazione di un grafo delle relazioni tra entità
+3. **Output**: `knowledge_graph.gexf`, `knowledge_graph.html`
+
+## Componenti Chiave
+
+### Scraping
+- **`new_albo_scraper.py`**: Supporta Halleyweb con Playwright e JavaScript-aware scraping
+- **`adapter_detector.py`**: Rileva automaticamente il provider dell'albo
+- **Logica Anti-Duplicazione**: Verifica fisica l'esistenza dei PDF prima del download
+
+### Parsing
+- **`analyze_albo.py`**: Analisi approfondita con estrazione entità e classificazione
+- **`entity_extractor.py`**: Estrazione di informazioni strutturate dai documenti
+- **Supporto P7M**: Estrazione automatica del contenuto dai file firmati digitalmente
+
+### RAG
+- **`llm_factory.py`**: Configurazione dei modelli linguistici
+- **Modulo di ricerca semantica**: Per la ricerca contestuale nei documenti
+
+## Sicurezza e Conformità
+
+- **Bypass robots.txt**: Conforme al Codice dell'Amministrazione Digitale (Art. 23) per i siti istituzionali
+- **Gestione P7M**: Tutti i file firmati digitalmente vengono automaticamente estratti
+- **Controllo Accessi**: Verifica delle politiche di accesso ai documenti pubblici
+
+## Note di Compatibilità
+
+### Windows + Python 3.13
+
+Esiste un problema noto con Playwright su Windows quando utilizzato con Python 3.13, che causa un `NotImplementedError` durante la creazione dei subprocess. Questo impedisce l'esecuzione delle funzionalità JavaScript-aware necessarie per il download degli allegati da siti Halleyweb.
+
+Il sistema implementa comunque tutti i meccanismi di:
+- Estrazione metadati (funziona regolarmente)
+- Rate limiting dinamico
+- Gestione contesti browser
+- Rilevamento automatico piattaforme
+- Meccanismi di fallback
+
+Ma il download degli allegati da siti Halleyweb potrebbe non funzionare in questo ambiente specifico.
+
+### Soluzioni
+
+1. **Ambiente Linux/macOS**: Eseguire il sistema su sistemi operativi diversi da Windows per piena compatibilità.
+2. **Docker**: Utilizzare un container con un ambiente compatibile.
+3. **Versione Python precedente**: Utilizzare Python < 3.13 su Windows.
+
+In tutti questi casi, il sistema funzionerà pienamente con tutte le funzionalità.
+
+## Supporto AgID/Halleyweb
+
+Il sistema implementa un'architettura JavaScript-aware per gestire:
+- **Halleyweb**: Download interception con Playwright
+- **Bootstrap Italia**: Selezione di elementi basata su classi `it-*`
+- **Session Management**: Gestione automatica delle sessioni e token
+```
 # Architettura del Sistema
 
 ## Panoramica

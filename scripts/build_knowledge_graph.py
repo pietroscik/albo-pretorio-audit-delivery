@@ -118,63 +118,6 @@ def main():
             if capitolo and str(capitolo).upper() not in ["NON IDENTIFICATO", "NONE", "NAN"]:
                 G.add_node(capitolo, type="Capitolo", label=str(capitolo))
                 G.add_edge(atto_id, capitolo, relation="GRAVA_SU")
-    
-    # Costruzione grafo
-    G = nx.DiGraph()
-    
-    # Per il grafo multi-ente, usiamo pdf_name o atto_group come ID
-    for _, row in df_atti.iterrows():
-        atto_id = clean_node(row.get('pdf_name'))
-        if not atto_id: continue
-        
-        doc_type = clean_node(row.get('doc_type')) or "unknown"
-        importo = float(row.get('importo_max', 0)) if pd.notna(row.get('importo_max')) else 0.0
-        # Evitiamo importi folli boilerplate nel grafo
-        if importo > 5000000: importo = 0 
-        
-        data_atto = str(row['data_parsed'].date()) if pd.notna(row['data_parsed']) else ""
-        
-        # Nodo Atto - puliamo gli attributi da valori None
-        node_attrs = clean_attributes({
-            'type': 'Atto', 
-            'doc_type': doc_type, 
-            'importo': importo, 
-            'data': data_atto
-        })
-        G.add_node(atto_id, **node_attrs)
-        
-        # Nodo RUP
-        rup = clean_node(row.get('responsabile'))
-        if rup and rup != "NON IDENTIFICATO":
-            # Arricchiamo il nodo RUP con i nuovi attributi, se non esiste già
-            if not G.has_node(rup):
-                rup_attrs = clean_attributes({
-                    'type': 'RUP', 
-                    'area': row.get('rup_area'), 
-                    'ruolo': row.get('rup_ruolo')
-                })
-                G.add_node(rup, **rup_attrs)
-            G.add_edge(rup, atto_id, relation="FIRMA_O_GESTISCE")
-                
-        # Nodo Beneficiario
-        ben = clean_node(row.get('beneficiario'))
-        if ben and ben != "NON IDENTIFICATO":
-            G.add_node(ben, type="Beneficiario")
-            rel = "LIQUIDA" if doc_type in ["Determinazione", "VistoContabile"] else "AFFIDA"
-            edge_attrs = clean_attributes({'relation': rel, 'importo': importo})
-            G.add_edge(atto_id, ben, **edge_attrs)
-                
-        # Nodo CIG
-        cig = clean_node(row.get('cig'))
-        if cig:
-            G.add_node(cig, type="CIG")
-            G.add_edge(atto_id, cig, relation="RIFERISCE_A")
-            
-        # Nodo Capitolo
-        capitolo = clean_node(row.get('capitolo'))
-        if capitolo and str(capitolo).upper() not in ["NON IDENTIFICATO", "NONE", "NAN"]:
-            G.add_node(capitolo, type="Capitolo", label=str(capitolo))
-            G.add_edge(atto_id, capitolo, relation="GRAVA_SU")
 
     # Esportazione
     report_dir = base / "report"

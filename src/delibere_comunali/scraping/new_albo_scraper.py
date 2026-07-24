@@ -42,6 +42,11 @@ import requests
 from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter, Retry
 
+# Fix per il problema "I/O operation on closed pipe" di Playwright su Windows
+import asyncio
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 # Importa le funzionalità dai nuovi moduli
 from delibere_comunali.scraping.models import AlboItem
 from delibere_comunali.scraping.utils import (
@@ -86,6 +91,9 @@ from delibere_comunali.utils.comuni_anagrafica import carica_mappatura_esistente
 # Importiamo pandas per gestire i dati della mappatura
 import pandas as pd
 
+# Import JavaScript scraper for Halleyweb and other JS-heavy sites
+from delibere_comunali.scraping.js_scraper import should_use_js_scraper, sync_scrape_page
+
 OPENWEB_BASE_DEFAULT = "https://servizi.comune.avella.av.it/openweb/albo/albo_pretorio_full.php"
 
 # -------------- Scraper --------------
@@ -111,7 +119,7 @@ class AlboScraper:
         self._csv_lock = threading.Lock()
         if not self.csv_path.exists():
             with open(self.csv_path, "w", encoding="utf-8", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=list(asdict(AlboItem("", "", "", "", "", "", "", "", [])).keys()))
+                w = csv.DictWriter(f, fieldnames=list(asdict(AlboItem("", "", "", "", "", "", "", "", [])).keys()), quoting=csv.QUOTE_MINIMAL)
                 w.writeheader()
         self.seen_metadata = self._load_seen_metadata()
         # registro URL scaricati (opzionale)
@@ -420,56 +428,32 @@ class AlboScraper:
             pass
 
     def fetch(self, url: str) -> Optional[str]:
-        # Controlla se l'URL è un documento pubblico istituzionale che dovrebbe essere accessibile
-        url_lower = url.lower()
-        
-        # Percorsi tipici di documenti pubblici
-        public_paths = ['/albo', '/albopretorio', '/trasparenza', '/atti', '/deliberazioni', 
-                       '/determinazioni', '/pubblicazioni', '/documenti', '/openweb', '/mc/']
-        is_public_path = any(path in url_lower for path in public_paths)
-        
-        # Specifiche pagine di download documenti pubblici
-        public_endpoints = ['getDoc.php', 'download', 'allegato', 'documento', 'mc_p_ricerca.php']
-        is_public_endpoint = any(endpoint in url_lower for endpoint in public_endpoints)
-        
-        # Se è una pagina pubblica istituzionale, bypassa robots.txt come richiesto dalle normative
-        if is_public_path or is_public_endpoint:
-            # Effettua la richiesta direttamente senza controllare robots.txt
-            polite_sleep(self.delay)
-            try:
-                # Aumentiamo il timeout per i siti governativi che possono essere più lenti
-                extended_timeout = max(self.timeout, 30)  # minimo 30 secondi per siti pubblici
-                r = self.session.get(url, timeout=extended_timeout)
+        """Recupera HTML da URL con gestione errori/retry."""
+        try:
+            # Check if this is a JavaScript-heavy site that requires special handling
+            if should_use_js_scraper(url):
+                print(f"DEBUG: Using JavaScript-aware scraper for {url}")
+                js_result = sync_scrape_page(url)
+                if js_result:
+                    # Combine static URLs extracted via JS with the HTML content
+                    # Return the fully rendered HTML
+                    return js_result.html_content
+                else:
+                    print(f"WARNING: JavaScript scraper failed for {url}, falling back to requests")
+            
+            # Fallback to regular requests
+            with self.session.get(url, timeout=self.timeout) as r:
                 r.raise_for_status()
-                r.encoding = r.apparent_encoding or r.encoding
-                return r.text
-            except Exception as e:
-                # Logghiamo l'errore ma continuiamo comunque
-                self.log(f"[warning] Errore durante il recupero di pagina pubblica (bypass robots.txt): {url} - {e}")
-                # Ritentiamo con un timeout ancora maggiore per i siti governativi problematici
-                try:
-                    extended_timeout = max(self.timeout, 60)  # fino a 60 secondi per siti pubblici
-                    r = self.session.get(url, timeout=extended_timeout)
-                    r.raise_for_status()
-                    r.encoding = r.apparent_encoding or r.encoding
-                    return r.text
-                except Exception as e2:
-                    self.log(f"[error] Impossibile accedere a pagina pubblica dopo ritentativo: {url} - {e2}")
-                    return None
-        else:
-            # Per altri URL, controlla robots.txt normalmente
-            if not can_fetch(self.rp, url, self.args.user_agent or DEFAULT_USER_AGENT):
-                self.log(f"[robots] Vietato da robots.txt: {url}")
-                return None
-            polite_sleep(self.delay)
-            try:
-                r = self.session.get(url, timeout=self.timeout)
-                r.raise_for_status()
-                r.encoding = r.apparent_encoding or r.encoding
-                return r.text
-            except Exception as e:
-                self.log(f"[error] Errore durante il recupero di: {url} - {e}")
-                return None
+                # Prova diversi encoding
+                for enc in (r.apparent_encoding, "utf-8", "iso-8859-1"):
+                    try:
+                        return r.text.encode().decode(enc or "utf-8")
+                    except (UnicodeDecodeError, LookupError):
+                        continue
+                return r.text  # fallback
+        except Exception as e:
+            self.log(f"[error] fetch: {url} - {e}")
+            return None
 
     def write_metadata_once(self, it: AlboItem) -> bool:
         key = metadata_key(it)
@@ -477,7 +461,7 @@ class AlboScraper:
             if key in self.seen_metadata:
                 return False
             with open(self.csv_path, "a", encoding="utf-8", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()))
+                w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()), quoting=csv.QUOTE_MINIMAL)
                 w.writerow(asdict(it))
             self.seen_metadata.add(key)
             if it.dettaglio_url:
@@ -560,7 +544,7 @@ class AlboScraper:
 
             for it in items:
                 try:
-                                        # Salta l'atto se è già stato scaricato e indicizzato in precedenza
+                    # Salta l'atto se è già stato scaricato e indicizzato in precedenza
                     # MA SOLO SE anche i file PDF esistono fisicamente
                     skip_item = False
                     if it.dettaglio_url and it.dettaglio_url in self.seen_metadata:
@@ -571,9 +555,19 @@ class AlboScraper:
                         for allegato_url in it.allegati or []:
                             filename = up.urlparse(allegato_url).path.split('/')[-1]
                             if filename:  # Assicuriamoci che il filename non sia vuoto
-                                pdf_path = self.out_dir / "pdf" / filename
-                                if pdf_path.exists():
-                                    pdf_exists = True
+                                # Costruiamo il nome del file come verrebbe generato dallo scraper
+                                doc_name = os.path.splitext(filename)[0]
+                                stem = slugify(f"{it.tipologia or 'atto'}_{it.numero or ''}_{it.data_pubblicazione or ''}_{doc_name or it.titolo}")[:100]
+                                ext = os.path.splitext(filename)[1] or ".pdf"
+                                expected_pdf_path = self.out_dir / "pdf" / f"{stem}_1{ext}"
+                                
+                                # Controlliamo anche per nomi simili con numeri diversi (se ci sono più allegati)
+                                for i in range(1, 10):  # Controlliamo fino a 9 allegati
+                                    numbered_pdf_path = self.out_dir / "pdf" / f"{stem}_{i}{ext}"
+                                    if numbered_pdf_path.exists():
+                                        pdf_exists = True
+                                        break
+                                if pdf_exists:
                                     break
                         
                         # Se non abbiamo ancora verificato con allegati, controlliamo comunque
@@ -630,19 +624,56 @@ class AlboScraper:
                     # salva metadati
                     self.write_metadata_once(it)
 
-                    # scarica allegati
-                    if not self.args.no_download:
-                        to_dl = it.allegati
-                        if self.args.max_attachments_per_item is not None:
-                            to_dl = to_dl[: max(0, int(self.args.max_attachments_per_item))]
-                        for idx, url in enumerate(to_dl, 1):
-                            doc_name = os.path.splitext(url_doc_name(url))[0]
-                            stem = slugify(f"{it.tipologia or 'atto'}_{it.numero or ''}_{it.data_pubblicazione or ''}_{doc_name or it.titolo}")[:100]
-                            ext = os.path.splitext(url_doc_name(url))[1] or ".pdf"
-                            dest = self.out_dir / "pdf" / f"{stem}_{idx}{ext}"
-                            if not dest.exists():
-                                self.log(f"  ↳ allegato: {url}")
-                                self.download_file(url, dest)
+                    # Scarica allegati
+                    for i, url in enumerate(allegati):
+                        if args.no_download:
+                            break
+                        if args.max_attachments_per_item and i >= args.max_attachments_per_item:
+                            break
+
+                        # Gestisci duplicati
+                        url_key = url_doc_name(url)
+                        if url_key in self.downloaded:
+                            self.log(f"  [skip] Già scaricato: {url_key}")
+                            continue
+
+                        # Gestisci rate limiting
+                        polite_sleep(self.delay)
+
+                        try:
+                            # Check if this is a javascript_handler (special case for Halleyweb)
+                            if url.startswith('javascript_handler:'):
+                                # This indicates an element that needs to be clicked via Playwright
+                                if should_use_js_scraper(it.dettaglio_url):  # Use the detail page URL to determine if it's Halleyweb
+                                    from .js_scraper import download_attachments_sync
+                                    # Download attachments from the detail page itself (where the element exists)
+                                    downloaded_files = download_attachments_sync(it.dettaglio_url, str(self.out_dir / "pdf"))
+                                    if downloaded_files:
+                                        for downloaded_file in downloaded_files:
+                                            self.downloaded.add(url_doc_name(downloaded_file))
+                                            self.log(f"  [download] File scaricato via Playwright click: {Path(downloaded_file).name}")
+                                    else:
+                                        self.log(f"  [warning] No attachments downloaded from detail page: {it.dettaglio_url}")
+                            # Check if this is a Halleyweb site and use download interception
+                            elif should_use_js_scraper(url):
+                                from .js_scraper import download_attachments_sync
+                                downloaded_files = download_attachments_sync(url, str(self.out_dir / "pdf"))
+                                if downloaded_files:
+                                    for downloaded_file in downloaded_files:
+                                        self.downloaded.add(url_doc_name(downloaded_file))
+                                        self.log(f"  [download] File scaricato via Playwright: {Path(downloaded_file).name}")
+                                else:
+                                    # If Playwright download didn't work, fall back to regular download
+                                    dest = self.download(url)
+                                    if dest:
+                                        self.downloaded.add(url_doc_name(str(dest)))
+                            else:
+                                # Regular download for non-JavaScript sites
+                                dest = self.download(url)
+                                if dest:
+                                    self.downloaded.add(url_doc_name(str(dest)))
+                        except Exception as e:
+                            self.log(f"[error] Impossibile scaricare {url}: {e}")
 
                 except KeyboardInterrupt:
                     self.log("Interrotto dall'utente.")
@@ -695,6 +726,8 @@ class AlboScraper:
             
         except Exception as e:
             self.log(f"[error] Impossibile scaricare {url}: {e}")
+
+
 # -------------- CLI --------------
 def build_parser():
     ap = argparse.ArgumentParser(description="Scraper Albo Pretorio (OpenWeb)")

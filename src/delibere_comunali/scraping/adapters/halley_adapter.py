@@ -1,67 +1,431 @@
-from __future__ import annotations
-import argparse
-import hashlib
-import json
-from datetime import datetime
-from typing import Iterable, Dict, Any, Optional
-from delibere_comunali.scraping.adapter import Adapter, validate_record
+"""
+Adattatore per il sistema Halleyweb (AgID-compliant).
+Implementa un'architettura ibrida per ottimizzare prestazioni e scalabilità.
+"""
+import asyncio
+import re
+from typing import Optional, List, Dict, Any, Tuple
+from pathlib import Path
+import tempfile
+import time
+
+try:
+    from playwright.async_api import async_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
+import requests
+from bs4 import BeautifulSoup
+import urllib.parse as up
+
+from ..models import AlboItem
+from ..utils import looks_like_attachment, url_doc_name
 
 
-class HalleyAdapter(Adapter):
+class HalleyAdapter:
     """
-    Esempio minimale: costruisce record normalizzati per il provider "halley".
-    Sostituire `fetch_*` con logica reale (requests / playwright / scrapy).
+    Adattatore intelligente per Halleyweb che implementa:
+    - Fase 1: Ricerca metadati con requests
+    - Fase 2: Download mirato con Playwright
+    - Gestione contesti browser ottimizzata
+    - Sniffing della rete invece di DOM clicking
     """
+    
+    def __init__(self, timeout: int = 30000, max_concurrent_downloads: int = 1):
+        self.timeout = timeout
+        self.max_concurrent_downloads = max_concurrent_downloads
+        self.browser_instance = None
+        self.browser_context = None
+        self.download_count = 0
+        self.max_downloads_per_session = 50  # Reset browser ogni 50 download
+        
+        # Cache per rilevamento automatico
+        self.platform_cache: Dict[str, bool] = {}
+        
+    async def initialize_browser(self):
+        """Inizializza l'istanza del browser una sola volta"""
+        if not PLAYWRIGHT_AVAILABLE:
+            raise RuntimeError("Playwright è richiesto per Halleyweb")
+            
+        if self.browser_instance is None:
+            self.playwright = await async_playwright().start()
+            self.browser_instance = await self.playwright.chromium.launch(headless=True)
+        
+        if self.browser_context is None:
+            self.browser_context = await self.browser_instance.new_context(accept_downloads=True)
+    
+    async def cleanup_browser(self):
+        """Pulisce le risorse del browser"""
+        if self.browser_context:
+            await self.browser_context.close()
+            self.browser_context = None
+        # Non chiudiamo il browser qui, lo teniamo vivo per riutilizzo
+        
+    async def reset_browser_if_needed(self):
+        """Resetta il browser se abbiamo superato il limite di download"""
+        self.download_count += 1
+        if self.download_count >= self.max_downloads_per_session:
+            if self.browser_context:
+                await self.browser_context.close()
+            if self.browser_instance:
+                await self.browser_instance.close()
+            self.browser_instance = None
+            self.browser_context = None
+            self.download_count = 0
+            await self.initialize_browser()
+    
+    def is_halleyweb_url(self, url: str) -> bool:
+        """Rileva automaticamente se un URL appartiene a Halleyweb"""
+        cache_key = url.split('/')[2]  # Dominio
+        if cache_key in self.platform_cache:
+            return self.platform_cache[cache_key]
+        
+        # Ricerca pattern comuni di Halleyweb
+        is_halley = 'halleyweb' in url.lower() or any(pattern in url.lower() for pattern in [
+            '/mc/', '/halley/', 'c064103', 'halleyweb.com'
+        ])
+        
+        # Ricerca anche nell'HTML della homepage per caratteristiche Halleyweb
+        if not is_halley:
+            try:
+                response = requests.head(url, timeout=min(self.timeout//1000, 10))
+                # Cerca header o contenuti che indicano Halleyweb
+                server_header = response.headers.get('Server', '').lower()
+                if 'halley' in server_header:
+                    is_halley = True
+                else:
+                    # Fai una breve richiesta GET per cercare caratteristiche Halleyweb
+                    response = requests.get(url, timeout=min(self.timeout//1000, 5))
+                    content_lower = response.text.lower()[:5000]  # Solo primi 5KB per velocità
+                    halley_indicators = [
+                        'halleyweb', 'halley informatica', 'c064103',
+                        'mc_p_ricerca', 'mc_p_dettaglio', 'getdoc'
+                    ]
+                    is_halley = any(indicator in content_lower for indicator in halley_indicators)
+            except:
+                # Se fallisce, torna a pattern URL
+                pass
+        
+        self.platform_cache[cache_key] = is_halley
+        return is_halley
+    
+    def scrape_metadata_with_requests(self, url: str) -> Tuple[List[AlboItem], Optional[str]]:
+        """
+        Fase 1: Ricerca metadati usando requests (molto più veloce)
+        """
+        try:
+            response = requests.get(url, timeout=self.timeout//1000)
+            response.raise_for_status()
+            html = response.text
+            
+            # Parsing simile a quello standard ma ottimizzato per Halleyweb
+            soup = BeautifulSoup(html, "html.parser")
+            items = []
+            
+            # Cerca tabelle o div con elementi di albo pretorio
+            rows = soup.select("table tr")
+            if not rows:
+                rows = soup.select("div.risultato, div.elenco, li")
+            
+            for r in rows:
+                a = r.find("a", href=True)
+                if not a:
+                    continue
+                href = up.urljoin(url, a["href"])
+                
+                # Estrai testo dalle celle
+                tds = r.find_all("td")
+                
+                titolo_val = ""
+                oggetto_val = ""
+                ufficio_val = ""
+                numero_val = None
+                data_val = None
+                tipologia_val = None
 
-    def _fake_fetch_items(self, ente: str, limit: Optional[int] = None):
-        # stub: simulazione di paginazione -> sostituire con scraping reale
-        sample = [
-            {
-                "external_id": f"{ente}-2026-001",
-                "title": "Delibera su esempio",
-                "published_at": "2026-01-15T10:00:00Z",
-                "documents": [
-                    {"url": "https://halley.example/allegato1.pdf", "filename": "allegato1.pdf"}
-                ],
-                "meta": {"tipo": "Delibera"},
-            },
-        ]
-        for i, item in enumerate(sample):
-            if limit and i >= limit:
-                break
-            yield item
+                if len(tds) >= 4:
+                    colonne = [td.get_text(separator=" ", strip=True) for td in tds]
+                    row_text = " ".join(colonne)
+                    
+                    # Estrai informazioni
+                    oggetto_val = max(colonne, key=len) if colonne else ""
+                    titolo_val = oggetto_val[:150] + ("..." if len(oggetto_val) > 150 else "")
+                    
+                    # Estrai data
+                    import re
+                    data_match = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", row_text)
+                    if data_match:
+                        data_val = data_match.group(1)
+                    
+                    # Estrai numero
+                    num_match = re.search(r"\b(n\.|numero)\s*[:\s]*([0-9/]+)", row_text, re.I)
+                    if num_match:
+                        numero_val = num_match.group(2)
+                    
+                    # Estrai tipologia
+                    tipo_match = re.search(r"\b(delibera|determinazione|ordinanza|avviso|bando)\b", row_text, re.I)
+                    if tipo_match:
+                        tipologia_val = tipo_match.group(1).capitalize()
+                else:
+                    row_text = r.get_text(separator=" | ", strip=True)
+                    oggetto_val = row_text
+                    titolo_val = row_text[:150]
 
-    def run(self, ente: str, limit: Optional[int] = None) -> Iterable[Dict[str, Any]]:
-        for raw in self._fake_fetch_items(ente, limit=limit):
-            # normalizzazione: aggiungere source, hash su documenti, ISO date
-            rec = {
-                "source": "halley",
-                "external_id": raw["external_id"],
-                "title": raw["title"],
-                "published_at": raw["published_at"],
-                "raw_meta": raw.get("meta", {}),
-                "documents": [],
-            }
-            for d in raw.get("documents", []):
-                url = d.get("url")
-                fn = d.get("filename") or url.split("/")[-1]
-                # costruire id di dedup basico: sha256(url)
-                digest = hashlib.sha256(url.encode("utf-8")).hexdigest() if url else ""
-                rec["documents"].append({"url": url, "filename": fn, "content_hash": digest})
-            validate_record(rec)
-            yield rec
+                item = AlboItem(
+                    page_url=url,
+                    titolo=titolo_val or "Senza titolo",
+                    numero=numero_val,
+                    data_pubblicazione=data_val,
+                    tipologia=tipologia_val,
+                    ufficio=ufficio_val,
+                    oggetto=oggetto_val,
+                    dettaglio_url=href,
+                )
+                items.append(item)
+
+            # Trova link successivo
+            next_link = None
+            for c in soup.find_all("a", string=re.compile(r"(successiva|successivo|pagina successiva|avanti|>)", re.I)):
+                if c.get("href"):
+                    next_link = up.urljoin(url, c["href"])
+                    break
+
+            return items, next_link
+            
+        except Exception as e:
+            print(f"Errore nello scraping metadati con requests: {e}")
+            return [], None
+    
+    async def download_attachment_with_playwright(self, url: str, download_dir: str) -> List[str]:
+        """
+        Fase 2: Download mirato usando Playwright con network sniffing
+        """
+        if not PLAYWRIGHT_AVAILABLE:
+            return []
+        
+        downloaded_files = []
+        
+        try:
+            await self.initialize_browser()
+            page = await self.browser_context.new_page()
+            page.set_default_timeout(self.timeout)
+            
+            # Abilita network sniffing per intercettare le richieste di download
+            intercepted_requests = []
+            
+            def on_request(request):
+                if any(keyword in request.url.lower() for keyword in ['download', 'getdoc', 'documento', 'allegato', '.pdf', '.p7m']):
+                    intercepted_requests.append({
+                        'url': request.url,
+                        'method': request.method,
+                        'headers': dict(request.headers),
+                        'timestamp': time.time()
+                    })
+            
+            page.on("request", on_request)
+            
+            # Naviga alla pagina di dettaglio
+            await page.goto(url, wait_until="networkidle")
+            
+            # Aspetta un po' per consentire il caricamento completo
+            await page.wait_for_timeout(2000)
+            
+            # Cerca elementi che potrebbero innescare download
+            # Invece di fare click, cerchiamo di intercettare le richieste effettive
+            attachment_elements = await page.evaluate("""
+                () => {
+                    const elements = [];
+                    const allElements = document.querySelectorAll('a, span, div, button');
+                    
+                    for (const el of allElements) {
+                        const text = (el.textContent || '').toLowerCase();
+                        const onclick = (el.getAttribute('onclick') || '').toLowerCase();
+                        const href = (el.getAttribute('href') || '').toLowerCase();
+                        
+                        if (text.includes('documento') || text.includes('allegato') || 
+                            text.includes('scarica') || text.includes('pdf') ||
+                            onclick.includes('download') || onclick.includes('getdoc') ||
+                            href.includes('download') || href.includes('getdoc')) {
+                            elements.push({
+                                text: el.textContent || '',
+                                onclick: el.getAttribute('onclick'),
+                                href: el.getAttribute('href'),
+                                tagName: el.tagName
+                            });
+                        }
+                    }
+                    return elements;
+                }
+            """)
+            
+            # Ora prova a intercettare eventuali richieste di download
+            for element in attachment_elements:
+                if element['onclick']:
+                    # Cerca di estrarre l'URL effettivo dal codice onclick
+                    onclick = element['onclick']
+                    # Cerca pattern comuni di chiamate a funzioni di download
+                    url_matches = re.findall(r"['\"]([^'\"]*(?:getdoc|download|pdf|Documento|Allegato)[^'\"]*\.(?:php|pdf|doc|docx|zip|p7m))['\"]|(\d+)", onclick, re.I)
+                    
+                    for match in url_matches:
+                        if isinstance(match, tuple):
+                            extracted = match[0] or match[1]
+                        else:
+                            extracted = match
+                        
+                        if extracted and ('.php' in extracted.lower() or extracted.isdigit()):
+                            # Costruisci URL probabile per il download
+                            if extracted.isdigit():  # Probabilmente un ID
+                                download_url = f"{url.split('?')[0]}?id={extracted}"
+                            else:
+                                download_url = up.urljoin(url, extracted)
+                            
+                            # Prova a scaricare direttamente questo URL intercettato
+                            try:
+                                with page.expect_request(download_url) as request_info:
+                                    # Simula l'azione che porterebbe a questa richiesta
+                                    await page.evaluate(f"""() => {{ 
+                                        // Prova a simulare la chiamata originale
+                                        try {{ {onclick} }} catch(e) {{}}
+                                    }}""")
+                                    
+                                    # Aspetta un po' per completare la richiesta
+                                    await page.wait_for_timeout(3000)
+                                    
+                            except:
+                                # Se la richiesta non arriva, prova a visitare direttamente l'URL
+                                try:
+                                    # Prova a visitare l'URL direttamente se è un endpoint di download
+                                    if any(ext in download_url.lower() for ext in ['.pdf', '.p7m', '.doc', '.docx']):
+                                        response = await page.goto(download_url, wait_until="domcontentloaded")
+                                        # Salva il contenuto come file
+                                        content = await page.content()
+                                        if len(content) > 100:  # Controlla che non sia una pagina di errore
+                                            filename = url.split('/')[-1] if url.split('/')[-1] else f"attachment_{int(time.time())}.pdf"
+                                            filepath = Path(download_dir) / filename
+                                            with open(filepath, 'wb') as f:
+                                                f.write(response.body())
+                                            downloaded_files.append(str(filepath))
+                                            
+                                except:
+                                    pass
+            
+            # Ora prova con l'approccio di download interception
+            # Cerca tutti gli elementi che potrebbero innescare download
+            all_elements = await page.query_selector_all("a, span, div, button")
+            
+            for element in all_elements:
+                try:
+                    element_text = await element.text_content()
+                    element_onclick = await page.evaluate("(el) => el.getAttribute('onclick')", element)
+                    
+                    if any(keyword in element_text.lower() or (element_onclick and keyword in element_onclick.lower()) 
+                           for keyword in ['documento', 'allegato', 'scarica', 'pdf']):
+                        
+                        # Prova a fare click e intercettare il download
+                        try:
+                            with page.expect_download(timeout=10000) as download_info:
+                                await element.click(force=True)  # Usa force=True per evitare problemi di visibilità
+                                await page.wait_for_timeout(2000)
+                                
+                                download = await download_info.value
+                                filename = download.suggested_filename or f"attachment_{int(time.time())}.pdf"
+                                filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+                                
+                                filepath = Path(download_dir) / filename
+                                await download.save_as(str(filepath))
+                                downloaded_files.append(str(filepath))
+                                
+                        except Exception:
+                            # Se il download non avviene immediatamente, continua con il prossimo elemento
+                            continue
+                            
+                except Exception:
+                    continue
+            
+            await page.close()
+            
+            # Resetta il browser se necessario
+            await self.reset_browser_if_needed()
+            
+        except Exception as e:
+            print(f"Errore nel download con Playwright: {e}")
+        
+        return downloaded_files
+    
+    def parse_detail_page_with_requests(self, html: str, base_url: str) -> Tuple[Optional[str], Optional[str], List[str]]:
+        """
+        Parsing della pagina di dettaglio usando solo requests/BeautifulSoup
+        Estrae allegati cercando pattern Halleyweb specifici
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        text = " ".join(soup.get_text(separator=" | ").split())
+
+        # Estrai oggetto e ufficio
+        ogg = None
+        uff = None
+        
+        # Cerca pattern comuni in Halleyweb
+        ogg_match = re.search(r"\b(?:oggetto|titolo)\b\s*[:|]\s*(.+?)(?=\s*\|\s*(?:ufficio|settore|area|allegati?|pubblicazione|numero)\b|\s*$)", text, re.I)
+        if ogg_match:
+            ogg = ogg_match.group(1).strip(" :-|")
+        
+        uff_match = re.search(r"\b(?:ufficio|settore|area)\b\s*[:|]\s*(.+?)(?=\s*\|\s*(?:oggetto|titolo|allegati?|pubblicazione|numero)\b|\s*$)", text, re.I)
+        if uff_match:
+            uff = uff_match.group(1).strip(" :-|")
+
+        allegati = []
+        
+        # Cerca link specifici di Halleyweb che potrebbero essere allegati
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            label = " ".join(a.get_text().split())
+            
+            # Controlla se è un allegato secondo la nostra logica
+            if looks_like_attachment(href, label):
+                allegati.append(up.urljoin(base_url, href))
+            elif 'halleyweb' in base_url.lower():
+                # Logica specifica per Halleyweb
+                if any(keyword in label.lower() for keyword in ['documento', 'allegato', 'scarica', 'pdf']):
+                    allegati.append(up.urljoin(base_url, href))
+                elif 'javascript:' in href.lower():
+                    # Estrai eventuali URL da onclick se il link è javascript:
+                    onclick = a.get('onclick', '')
+                    if onclick:
+                        # Cerca possibili URL nei parametri onclick
+                        matches = re.findall(r"['\"]([^'\"]*(?:getdoc|download|pdf)[^'\"]*\.(?:php|pdf|doc|docx|zip|p7m))['\"]", onclick, re.I)
+                        for match in matches:
+                            allegati.append(up.urljoin(base_url, match))
+        
+        # Rimuovi duplicati
+        seen = set()
+        unique_allegati = []
+        for url in allegati:
+            if url not in seen:
+                seen.add(url)
+                unique_allegati.append(url)
+        
+        return ogg, uff, unique_allegati
+    
+    async def close(self):
+        """Chiude tutte le risorse del browser"""
+        if self.browser_context:
+            await self.browser_context.close()
+        if self.browser_instance:
+            await self.browser_instance.close()
+        if hasattr(self, 'playwright'):
+            await self.playwright.stop()
 
 
-def cli():
-    p = argparse.ArgumentParser()
-    p.add_argument("--ente", required=True)
-    p.add_argument("--out", help="Output jsonl file (default data/<ente>/adapter_output.jsonl)")
-    p.add_argument("--limit", type=int, default=None)
-    args = p.parse_args()
+# Funzione factory per rilevamento automatico
+def create_halley_adapter_if_needed(url: str) -> Optional['HalleyAdapter']:
+    """
+    Factory che restituisce un HalleyAdapter se il sito è Halleyweb, altrimenti None
+    """
     adapter = HalleyAdapter()
-    out = adapter.dump_to_file(args.ente, out=args.out, limit=args.limit)
-    print(out)
-
-
-if __name__ == "__main__":
-    cli()
+    if adapter.is_halleyweb_url(url):
+        return adapter
+    else:
+        # Cleanup se abbiamo creato un'istanza per il check
+        # (in realtà non abbiamo ancora inizializzato il browser in is_halleyweb_url)
+        return None
