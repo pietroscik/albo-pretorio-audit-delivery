@@ -586,14 +586,6 @@ def main():
     # Aggiungi le colonne di confidenza se non esistono
     df = add_confidence_to_existing_data(df)
     
-    # Rimuovi eventuali duplicati basati sulla colonna pdf_name
-    if not df.empty and 'pdf_name' in df.columns:
-        initial_count = len(df)
-        df = df.drop_duplicates(subset=['pdf_name'], keep='last')
-        final_count = len(df)
-        if initial_count != final_count:
-            logger.info(f"Rimossi {initial_count - final_count} record duplicati. Passati da {initial_count} a {final_count} record.")
-
     # Carica anche il file features se esiste
     if features_path.exists():
         # Check if the features file is empty before attempting to read it
@@ -610,7 +602,7 @@ def main():
         if not df_features.empty:
             # Unisci i dati mantenendo le colonne uniche
             df = pd.merge(df, df_features, on='pdf_name', how='left', suffixes=('', '_feat'))
-
+    
     logger.info(f"Dati caricati: {len(df)} documenti")
     
     # Calcola metriche di qualità iniziali

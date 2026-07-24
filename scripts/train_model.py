@@ -38,7 +38,24 @@ def main():
         return
 
     print(f"📥 Caricamento dataset da {csv_path}...")
-    df = pd.read_csv(csv_path)
+    # Check if the file is empty before attempting to read it
+    if csv_path.stat().st_size == 0:
+        print(f"⚠️  File {csv_path} è vuoto, impossibile addestrare il modello")
+        return
+    
+    try:
+        df = pd.read_csv(csv_path)
+    except pd.errors.EmptyDataError:
+        print(f"⚠️  File {csv_path} non contiene colonne valide, impossibile addestrare il modello")
+        return
+
+    # Check if required columns exist before trying to filter
+    required_columns = ['category', 'text_preview']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    
+    if missing_columns:
+        print(f"⚠️  Colonne mancanti nel dataset: {missing_columns}, impossibile addestrare il modello")
+        return
 
     # Filtrare i record che hanno una categoria valida e un testo di preview
     df_valid = df.dropna(subset=['category', 'text_preview']).copy()

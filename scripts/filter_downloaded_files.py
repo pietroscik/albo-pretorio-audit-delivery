@@ -331,7 +331,16 @@ def filter_downloaded_files(ente: str = None, base_path: str = None) -> None:
     # Leggi il file allegati_parsed.csv per confrontare
     allegati_parsed_path = pdf_dir.parent / "allegati_parsed.csv"
     if allegati_parsed_path.exists():
-        df = pd.read_csv(allegati_parsed_path)
+        # Check if the file is empty before attempting to read it
+        if allegati_parsed_path.stat().st_size == 0:
+            logger.warning(f"Il file {allegati_parsed_path} è vuoto, creazione di un DataFrame vuoto")
+            df = pd.DataFrame()
+        else:
+            try:
+                df = pd.read_csv(allegati_parsed_path)
+            except pd.errors.EmptyDataError:
+                logger.warning(f"Il file {allegati_parsed_path} non contiene colonne valide, creazione di un DataFrame vuoto")
+                df = pd.DataFrame()
         logger.info(f"Dati caricati: {len(df)} record da allegati_parsed.csv")
     else:
         logger.warning(f"File allegati_parsed.csv non trovato: {allegati_parsed_path}")

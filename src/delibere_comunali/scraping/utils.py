@@ -87,6 +87,7 @@ def generate_openweb_base_url(ente: str) -> str:
         'torrioni': 'av', 'troia': 'av', 'tufo': 'av', 'urzini': 'av', 'vallata': 'av', 'vallesaccarda': 'av', 
         'venticano': 'av', 'villassio': 'av', 'villaverde': 'av', 'volturara': 'av', 'zambrotta': 'av', 
         'zungoli': 'av',
+        'sperone': 'av',  # Sperone è in provincia di Avellino
 
         # Province napoletana
         'na': 'na', 'napoli': 'na', 'pozzuoli': 'na', 'ercolano': 'na', 'torreannunziata': 'na', 
@@ -467,7 +468,7 @@ def get_comune_data(ente: str) -> dict:
     """
     Ottiene i dati del comune dalla mappatura ufficiale.
     Cerca prima nel file integrato, poi in quello base.
-    Usa ricerca flessibile per trovare il comune.
+    Usa ricerca ESATTA per trovare il comune.
     
     Args:
         ente: Nome del comune
@@ -484,13 +485,14 @@ def get_comune_data(ente: str) -> dict:
     
     if mappatura_integrata is not None:
         print(f"DEBUG: Caricata mappatura integrata con {len(mappatura_integrata)} comuni")
-        # Cerchiamo il comune nella mappatura integrata con ricerca flessibile
+        # Cerchiamo il comune nella mappatura integrata con ricerca ESATTA
         for idx, row in mappatura_integrata.iterrows():
             nome_comune_db = str(row['nome_comune']).replace(' ', '').replace("'", "").replace("-", "").replace(".", "").lower()
-            if ente_normalized == nome_comune_db or ente_normalized in nome_comune_db or nome_comune_db in ente_normalized:
+            # Cerchiamo corrispondenza ESATTA (non parziale)
+            if ente_normalized == nome_comune_db:
                 print(f"DEBUG: Trovato comune '{row['nome_comune']}' con URL albo: {row['url_albo_pretorio']}")
                 return row.to_dict()
-        print("DEBUG: Nessuna corrispondenza trovata nella mappatura integrata")
+        print("DEBUG: Nessuna corrispondenza ESATTA trovata nella mappatura integrata")
     else:
         print("DEBUG: Impossibile caricare mappatura integrata")
     
@@ -499,13 +501,14 @@ def get_comune_data(ente: str) -> dict:
     
     if mappatura_base is not None:
         print(f"DEBUG: Caricata mappatura base con {len(mappatura_base)} comuni")
-        # Cerchiamo il comune nella mappatura base con ricerca flessibile
+        # Cerchiamo il comune nella mappatura base con ricerca ESATTA
         for idx, row in mappatura_base.iterrows():
             nome_comune_db = str(row['nome_comune']).replace(' ', '').replace("'", "").replace("-", "").replace(".", "").lower()
-            if ente_normalized == nome_comune_db or ente_normalized in nome_comune_db or nome_comune_db in ente_normalized:
+            # Cerchiamo corrispondenza ESATTA (non parziale)
+            if ente_normalized == nome_comune_db:
                 print(f"DEBUG: Trovato comune '{row['nome_comune']}' nella mappatura base")
                 return row.to_dict()
-        print("DEBUG: Nessuna corrispondenza trovata nella mappatura base")
+        print("DEBUG: Nessuna corrispondenza ESATTA trovata nella mappatura base")
     else:
         print("DEBUG: Impossibile caricare mappatura base")
     

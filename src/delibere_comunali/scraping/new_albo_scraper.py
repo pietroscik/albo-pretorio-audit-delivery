@@ -477,7 +477,7 @@ class AlboScraper:
             if key in self.seen_metadata:
                 return False
             with open(self.csv_path, "a", encoding="utf-8", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=list(asdict(it)).keys())
+                w = csv.DictWriter(f, fieldnames=list(asdict(it).keys()))
                 w.writerow(asdict(it))
             self.seen_metadata.add(key)
             if it.dettaglio_url:
@@ -506,9 +506,9 @@ class AlboScraper:
         """Arricchisce l'item con dati aggiuntivi come geolocalizzazione, categorie derivate, ecc."""
         # In questa implementazione di base, possiamo arricchire con informazioni 
         # derivate dai dati esistenti o con dati del comune
-        if not it.provincia and self.args.ente:
-            # Cerca di determinare la provincia dal nome dell'ente
-            comune_data = get_comune_data(self.args.ente)
+        if not it.provincia and hasattr(self, 'comune_data'):
+            # Usa i dati del comune già caricati nel costruttore
+            comune_data = self.comune_data
             if comune_data and 'provincia' in comune_data:
                 it.provincia = comune_data['provincia']
                 
@@ -560,8 +560,52 @@ class AlboScraper:
 
             for it in items:
                 try:
-                    # Salta l'atto se è già stato scaricato e indicizzato in precedenza
+                                        # Salta l'atto se è già stato scaricato e indicizzato in precedenza
+                    # MA SOLO SE anche i file PDF esistono fisicamente
+                    skip_item = False
                     if it.dettaglio_url and it.dettaglio_url in self.seen_metadata:
+                        # Verifichiamo se esistono file PDF associati a questo documento
+                        pdf_exists = False
+                        
+                        # Controlliamo se esistono PDF con nomi basati sugli allegati
+                        for allegato_url in it.allegati or []:
+                            filename = up.urlparse(allegato_url).path.split('/')[-1]
+                            if filename:  # Assicuriamoci che il filename non sia vuoto
+                                pdf_path = self.out_dir / "pdf" / filename
+                                if pdf_path.exists():
+                                    pdf_exists = True
+                                    break
+                        
+                        # Se non abbiamo ancora verificato con allegati, controlliamo comunque
+                        # se esiste un file basato sull'ID del documento
+                        if not pdf_exists and it.dettaglio_url:
+                            # Estrai l'ID dal dettaglio URL (es. id=49804)
+                            from urllib.parse import parse_qs
+                            parsed_url = up.urlparse(it.dettaglio_url)
+                            params = parse_qs(parsed_url.query)
+                            doc_ids = params.get('id', [])
+                            
+                            # Controlliamo tutti gli ID trovati nell'URL
+                            for doc_id in doc_ids:
+                                if doc_id:
+                                    # Cerchiamo file PDF che contengano l'ID del documento
+                                    try:
+                                        pdf_files = os.listdir(self.out_dir / "pdf")
+                                        for filename in pdf_files:
+                                            if filename.endswith('.pdf') and doc_id in filename:
+                                                pdf_exists = True
+                                                break
+                                        if pdf_exists:
+                                            break
+                                    except FileNotFoundError:
+                                        # La directory PDF non esiste ancora
+                                        pass
+                        
+                        # Solo se troviamo file PDF associati, consideriamo il documento come realmente archiviato
+                        if pdf_exists:
+                            skip_item = True
+                    
+                    if skip_item:
                         self.log(f"  [skip] Già in archivio: {it.dettaglio_url}")
                         continue
 
@@ -611,6 +655,46 @@ class AlboScraper:
 
         self.log(f"Completato. CSV: {self.csv_path} | PDF: {self.out_dir / 'pdf'}")
 
+    def download_file(self, url: str, dest: Path):
+        """Scarica un file da un URL a una destinazione specificata."""
+        # Assicurati che la directory di destinazione esista
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Verifica se il file è già stato scaricato
+        if url in self.downloaded:
+            return
+            
+        # Rispetta le regole robots.txt
+        if hasattr(self, 'rp') and self.rp:
+            from urllib.robotparser import RobotFileParser
+            if not can_fetch(self.rp, url, self.args.user_agent or DEFAULT_USER_AGENT):
+                self.log(f"[robots] Vietato da robots.txt: {url}")
+                return
+        
+        # Effettua il download
+        try:
+            import time
+            # Aggiungi un piccolo delay per essere gentili col server
+            time.sleep(0.5)
+            
+            with self.session.get(url, timeout=self.timeout) as r:
+                r.raise_for_status()
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
+            
+            # Registra il download completato
+            self.downloaded.add(url)
+            try:
+                self.downloaded_json.write_text(json.dumps(sorted(list(self.downloaded))), encoding="utf-8")
+            except Exception:
+                pass
+                
+            self.log(f"  [download] File scaricato: {dest.name}")
+            
+        except Exception as e:
+            self.log(f"[error] Impossibile scaricare {url}: {e}")
 # -------------- CLI --------------
 def build_parser():
     ap = argparse.ArgumentParser(description="Scraper Albo Pretorio (OpenWeb)")
@@ -652,24 +736,10 @@ def main():
     if not args.start_url and args.page_from is None:
         # Se abbiamo un URL specifico per l'albo pretorio, usalo
         url_albo = comune_data.get('url_albo_pretorio')
-        print(f"DEBUG: URL albo trovato nella mappatura: {url_albo}")
-        print(f"DEBUG: Tipo di URL albo: {type(url_albo)}")
-        print(f"DEBUG: URL albo is not None: {url_albo is not None}")
-        print(f"DEBUG: pd.notna(url_albo): {pd.notna(url_albo) if url_albo is not None else False}")
-        print(f"DEBUG: str(url_albo).strip() != '': {str(url_albo).strip() != '' if url_albo is not None else False}")
-        print(f"DEBUG: str(url_albo).lower() != 'nan': {str(url_albo).lower() != 'nan' if url_albo is not None else False}")
         
-        # Controlla se l'URL esiste ed è valido (non NaN, non vuoto, non 'nan')
-        condition_result = (
-            url_albo is not None and 
-            pd.notna(url_albo) and 
-            str(url_albo).strip() != '' and 
-            str(url_albo).lower() != 'nan'
-        )
-        print(f"DEBUG: Condizione finale: {condition_result}")
-        
-        if condition_result:
-            args.start_url = str(url_albo)  # Assicuriamoci che sia una stringa
+        # Controllo semplificato: verifica se l'URL esiste ed è valido
+        if pd.notna(url_albo) and isinstance(url_albo, str) and url_albo.strip():
+            args.start_url = url_albo.strip()  # Assicuriamoci che sia una stringa pulita
             print(f"DEBUG: Usando URL specifico per l'albo pretorio di '{args.ente}' dalla mappatura: {args.start_url}")
         else:
             # Altrimenti genera l'URL in base al nome ente
