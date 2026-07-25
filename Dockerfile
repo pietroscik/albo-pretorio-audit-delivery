@@ -13,11 +13,18 @@ RUN apt-get update && \
         libxrandr2 \
         libgbm1 \
         libxss1 \
-        libasound2 && \
+        libasound2 \
+        fonts-liberation \
+        libappindicator3-1 \
+        libcurl4-openssl-dev \
+        libdbus-glib-1-2 \
+        libgtk-3-0 \
+        libxtst6 \
+        xdg-utils && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Imposta la directory di lavoro
 WORKDIR /app
 
 # Copia i file di dipendenza prima del codice sorgente per sfruttare la cache Docker
@@ -29,7 +36,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Installa Playwright browsers (necessario dopo aver installato le dipendenze di sistema)
 RUN playwright install chromium
 
-# Copy the rest of the application code
+# Copia il codice sorgente
 COPY . .
 
 # Crea le directory necessarie per i dati
@@ -41,9 +48,6 @@ RUN mkdir -p data/sperone/albo_download/pdf \
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser && \
     chown -R appuser:appgroup /app
 USER appuser
-
-# Expose port for web applications (if needed)
-EXPOSE 8501
 
 # Espone la porta per eventuali dashboard Streamlit
 EXPOSE 8501 8502 8503 8504

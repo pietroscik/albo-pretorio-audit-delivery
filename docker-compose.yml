@@ -11,9 +11,19 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+      - DISPLAY=:99  # Per headless display se necessario
     networks:
       - albo-network
     restart: unless-stopped
+    # Risorse ottimizzate per scraping intensivo
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
     healthcheck:
       test: ["CMD", "python", "-c", "import sys; print('Scraper service healthy')"]
       interval: 30s

@@ -234,6 +234,17 @@ class JSScraper:
                 "[onclick*='getdoc']",         # Elements with getdoc in onclick
             ]
             
+            # NEW: Target the specific Halleyweb patterns seen in the screenshots
+            # Directly target the problematic 'javascript:void(0);' links and PDF extensions
+            specific_halleyweb_locators = [
+                "a[href='javascript:void(0);']",  # The exact problematic pattern from screenshots
+                "a:has-text('.PDF')",            # PDF extension in uppercase
+                "a:has-text('.pdf')",            # PDF extension in lowercase
+                "a:has-text('.P7M')",            # P7M extension in uppercase
+                "a:has-text('.p7m')",            # P7M extension in lowercase
+                "a:has-text('Documento')",       # The "Documento" text link from screenshots
+            ]
+            
             # Track which downloads we've already captured to avoid duplicates
             captured_download_urls = set()
             
@@ -304,7 +315,8 @@ class JSScraper:
                         if (text.includes('documento') || text.includes('allegato') || 
                             text.includes('scarica') || text.includes('pdf') ||
                             onclick.includes('scarica') || onclick.includes('download') || onclick.includes('getdoc') ||
-                            href.includes('getdoc') || href.includes('download')) {
+                            href.includes('getdoc') || href.includes('download') ||
+                            href.includes('javascript:void(0)')) {
                             
                             elements.push({
                                 text: el.textContent || '',
