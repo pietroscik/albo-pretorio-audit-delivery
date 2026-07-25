@@ -30,14 +30,20 @@ WORKDIR /app
 # Copia i file di dipendenza prima del codice sorgente per sfruttare la cache Docker
 COPY requirements.txt .
 
-# Installa le dipendenze Python
-RUN pip install --no-cache-dir -r requirements.txt
+# Installa le dipendenze Python (aggiungendo playwright se non presente)
+RUN pip install --no-cache-dir -r requirements.txt && pip install playwright
 
-# Installa Playwright browsers (necessario dopo aver installato le dipendenze di sistema)
-RUN playwright install chromium
+# Installa Playwright browsers
+RUN python -m playwright install chromium
 
 # Copia il codice sorgente
 COPY . .
+
+# Installa il pacchetto in modalità sviluppo per rendere disponibili i moduli
+RUN pip install -e .
+
+# Aggiungi la directory principale al PYTHONPATH
+ENV PYTHONPATH=/app:$PYTHONPATH
 
 # Crea le directory necessarie per i dati
 RUN mkdir -p data/sperone/albo_download/pdf \
@@ -49,7 +55,7 @@ RUN groupadd -r appgroup && useradd -r -g appgroup appuser && \
     chown -R appuser:appgroup /app
 USER appuser
 
-# Espone la porta per eventuali dashboard Streamlit
+# Espose la porta per eventuali dashboard Streamlit
 EXPOSE 8501 8502 8503 8504
 
 # Comando di default

@@ -212,120 +212,52 @@ class HalleyAdapter(BaseAdapter):
             page = await self.browser_context.new_page()
             page.set_default_timeout(self.timeout)
             
-            # Abilita network sniffing per intercettare le richieste di download
-            intercepted_requests = []
-            
-            def on_request(request):
-                if any(keyword in request.url.lower() for keyword in ['download', 'getdoc', 'documento', 'allegato', '.pdf', '.p7m']):
-                    intercepted_requests.append({
-                        'url': request.url,
-                        'method': request.method,
-                        'headers': dict(request.headers),
-                        'timestamp': time.time()
-                    })
-            
-            page.on("request", on_request)
-            
             # Naviga alla pagina di dettaglio
             await page.goto(url, wait_until="networkidle")
             
-            # Aspetta un po' per consentire il caricamento completo
-            await page.wait_for_timeout(2000)
-            
-            # Cerca elementi che potrebbero innescare download
-            # Invece di fare click, cerchiamo di intercettare le richieste effettive
-            attachment_elements = await page.evaluate("""
-                () => {
-                    const elements = [];
-                    const allElements = document.querySelectorAll('a, span, div, button');
-                    
-                    for (const el of allElements) {
-                        const text = (el.textContent || '').toLowerCase();
-                        const onclick = (el.getAttribute('onclick') || '').toLowerCase();
-                        const href = (el.getAttribute('href') || '').toLowerCase();
-                        
-                        if (text.includes('documento') || text.includes('allegato') || 
-                            text.includes('scarica') || text.includes('pdf') ||
-                            onclick.includes('download') || onclick.includes('getdoc') ||
-                            href.includes('download') || href.includes('getdoc')) {
-                            elements.push({
-                                text: el.textContent || '',
-                                onclick: el.getAttribute('onclick'),
-                                href: el.getAttribute('href'),
-                                tagName: el.tagName
-                            });
-                        }
-                    }
-                    return elements;
-                }
-            """)
-            
-            # Ora prova a intercettare eventuali richieste di download
-            for element in attachment_elements:
-                if element['onclick']:
-                    # Cerca di estrarre l'URL effettivo dal codice onclick
-                    onclick = element['onclick']
-                    # Cerca pattern comuni di chiamate a funzioni di download
-                    url_matches = re.findall(r"['\"]([^'\"]*(?:getdoc|download|pdf|Documento|Allegato)[^'\"]*\.(?:php|pdf|doc|docx|zip|p7m))['\"]|(\d+)", onclick, re.I)
-                    
-                    for match in url_matches:
-                        if isinstance(match, tuple):
-                            extracted = match[0] or match[1]
-                        else:
-                            extracted = match
-                        
-                        if extracted and ('.php' in extracted.lower() or extracted.isdigit()):
-                            # Costruisci URL probabile per il download
-                            if extracted.isdigit():  # Probabilmente un ID
-                                download_url = f"{url.split('?')[0]}?id={extracted}"
-                            else:
-                                download_url = up.urljoin(url, extracted)
-                            
-                            # Prova a scaricare direttamente questo URL intercettato
-                            try:
-                                with page.expect_request(download_url) as request_info:
-                                    # Simula l'azione che porterebbe a questa richiesta
-                                    await page.evaluate(f"""() => {{ 
-                                        // Prova a simulare la chiamata originale
-                                        try {{ {onclick} }} catch(e) {{}}
-                                    }}""")
-                                    
-                                    # Aspetta un po' per completare la richiesta
-                                    await page.wait_for_timeout(3000)
-                                    
-                            except:
-                                # Se la richiesta non arriva, prova a visitare direttamente l'URL
-                                try:
-                                    # Prova a visitare l'URL direttamente se è un endpoint di download
-                                    if any(ext in download_url.lower() for ext in ['.pdf', '.p7m', '.doc', '.docx']):
-                                        response = await page.goto(download_url, wait_until="domcontentloaded")
-                                        # Salva il contenuto come file
-                                        content = await page.content()
-                                        if len(content) > 100:  # Controlla che non sia una pagina di errore
-                                            filename = url.split('/')[-1] if url.split('/')[-1] else f"attachment_{int(time.time())}.pdf"
-                                            filepath = Path(download_dir) / filename
-                                            with open(filepath, 'wb') as f:
-                                                f.write(response.body())
-                                            downloaded_files.append(str(filepath))
-                                            
-                                except:
-                                    pass
-            
-            # Ora prova con l'approccio di download interception
-            # Cerca tutti gli elementi che potrebbero innescare download
-            all_elements = await page.query_selector_all("a, span, div, button")
-            
-            for element in all_elements:
+            # Logica specifica per Halleyweb: gestisce i popup JS per il download
+            # es: <a href="javascript:void(0);" onclick="window.open('mc_attachment.php?mc=14702');">
+            attachment_links = await page.query_selector_all("a[onclick*='mc_attachment.php'], a[onclick*='getdoc']")
+
+            for link in attachment_links:
                 try:
-                    element_text = await element.text_content()
-                    element_onclick = await page.evaluate("(el) => el.getAttribute('onclick')", element)
+                    # Ascolta l'evento popup che viene scatenato da window.open
+                    async with self.browser_context.expect_page() as popup_info:
+                        await link.click(force=True)
                     
-                    if any(keyword in element_text.lower() or (element_onclick and keyword in element_onclick.lower()) 
-                           for keyword in ['documento', 'allegato', 'scarica', 'pdf']):
+                    popup = await popup_info.value
+                    await popup.wait_for_load_state("domcontentloaded", timeout=15000)
+
+                    # Il popup stesso potrebbe essere il file o potrebbe innescare un download.
+                    try:
+                        # Attendi un download sulla pagina popup
+                        async with popup.expect_download(timeout=15000) as download_info:
+                            await popup.wait_for_timeout(3000) # Attendi che il JS/redirect inneschi il download
+
+                        download = await download_info.value
+                        filename = download.suggested_filename or f"attachment_{int(time.time())}.pdf"
+                        filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
                         
-                        # Prova a fare click e intercettare il download
-                        try:
-                            with page.expect_download(timeout=10000) as download_info:
+                        filepath = Path(download_dir) / filename
+                        await download.save_as(str(filepath))
+                        downloaded_files.append(str(filepath))
+                    except Exception:
+                        # Se expect_download fallisce, il contenuto del popup potrebbe essere il file.
+                        # Questo accade se il server risponde con Content-Type: application/pdf
+                        # ma senza Content-Disposition: attachment.
+                        if 'pdf' in popup.url.lower() or 'p7m' in popup.url.lower():
+                            response = await popup.context.request.get(popup.url)
+                            body = await response.body()
+                            filename = Path(up.urlparse(popup.url).path).name or f"attachment_{int(time.time())}.pdf"
+                            filepath = Path(download_dir) / filename
+                            filepath.write_bytes(body)
+                            downloaded_files.append(str(filepath))
+                    finally:
+                        await popup.close()
+                except Exception as e:
+                    print(f"Warning: Failed to handle Halley popup: {e}")
+                    continue
+            
                                 await element.click(force=True)  # Usa force=True per evitare problemi di visibilità
                                 await page.wait_for_timeout(2000)
                                 

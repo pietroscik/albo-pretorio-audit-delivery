@@ -524,11 +524,15 @@ import os
 sys.path.insert(0, '.')
 from delibere_comunali.parsing.analyze_albo import main
 import argparse
+from delibere_comunali.utils.config import get_tenant_dir
+from pathlib import Path
 
 class Args:
     def __init__(self):
         self.ente = "{ente}"
-        self.base = r"{str(self.base_path)}"
+        # Use the tenant-specific directory for the base path
+        tenant_dir = get_tenant_dir("{ente}")
+        self.base = str(tenant_dir / "albo_download")
 
 args = Args()
 
@@ -592,6 +596,33 @@ main(args)
             logger.error(f"Risk assessment failed for {ente}: {result.stderr}")
             raise RuntimeError(f"Risk assessment failed: {result.stderr}")
     
+    def _run_management_kpi(self, ente: str):
+        """Run the management KPI analysis phase."""
+        cmd = [
+            sys.executable,
+            "-c",
+            f"""
+import sys
+import os
+sys.path.insert(0, '.')
+# Mock sys.argv to simulate command line arguments for the management_kpi module
+original_argv = sys.argv
+sys.argv = ['script', '--ente', '{ente}']
+
+try:
+    from delibere_comunali.analysis.management_kpi import main
+    main()  # Call main without arguments since it reads from command line
+finally:
+    sys.argv = original_argv  # Restore original argv
+"""
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"Management KPI analysis failed for {ente}: {result.stderr}")
+            raise RuntimeError(f"Management KPI analysis failed: {result.stderr}")
+    
     def _run_audit(self, ente: str):
         """Run the audit phase."""
         cmd = [
@@ -599,17 +630,26 @@ main(args)
             "-c",
             f"""
 import sys
+import os
 sys.path.insert(0, '.')
 from delibere_comunali.processing.audit_engine import main
 import argparse
 
 class Args:
-    pass
+    def __init__(self):
+        self.ente = "{ente}"
 
 args = Args()
-args.ente = "{ente}"
 
-main(args)
+try:
+    # Execute the main function
+    main(args)
+    print("AUDIT_COMPLETED_SUCCESSFULLY")
+except Exception as e:
+    print(f"AUDIT_ERROR: {{e}}", file=sys.stderr)
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 """
         ]
         
@@ -618,6 +658,62 @@ main(args)
         if result.returncode != 0:
             logger.error(f"Audit failed for {ente}: {result.stderr}")
             raise RuntimeError(f"Audit failed: {result.stderr}")
+        elif "AUDIT_ERROR" in result.stderr:
+            logger.error(f"Audit failed for {ente}: {result.stderr}")
+            raise RuntimeError(f"Audit failed: {result.stderr}")
+        elif "AUDIT_COMPLETED_SUCCESSFULLY" not in result.stdout:
+            logger.error(f"Audit did not complete successfully for {ente}. stdout: {result.stdout}, stderr: {result.stderr}")
+            raise RuntimeError(f"Audit failed: Unexpected output")
+    
+    def _run_ml_pipeline(self, ente: str):
+        """Run the ML pipeline phase."""
+        # Check if CSV files exist and are not empty before running ML pipeline
+        import os
+        from pathlib import Path
+        from ..utils.config import get_tenant_dir
+        
+        tenant_dir = get_tenant_dir(ente)
+        csv_path = tenant_dir / "albo_download" / "allegati_parsed.csv"
+        
+        if not csv_path.exists():
+            logger.warning(f"CSV file not found for ML pipeline: {csv_path}. Skipping ML pipeline.")
+            return
+        elif csv_path.stat().st_size <= 2:  # Empty or nearly empty file
+            logger.warning(f"CSV file is empty ({csv_path.stat().st_size} bytes). Skipping ML pipeline.")
+            return
+            
+        cmd = [
+            sys.executable,
+            "-c",
+            f"""
+import sys
+import os
+sys.path.insert(0, '.')
+from delibere_comunali.ml.trainer import main
+
+try:
+    # Execute the ML trainer main function
+    main()
+    print("ML_PIPELINE_COMPLETED_SUCCESSFULLY")
+except Exception as e:
+    print(f"ML_PIPELINE_ERROR: {{e}}", file=sys.stderr)
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
+"""
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"ML pipeline failed for {ente}: {result.stderr}")
+            raise RuntimeError(f"ML pipeline failed: {result.stderr}")
+        elif "ML_PIPELINE_ERROR" in result.stderr:
+            logger.error(f"ML pipeline failed for {ente}: {result.stderr}")
+            raise RuntimeError(f"ML pipeline failed: {result.stderr}")
+        elif "ML_PIPELINE_COMPLETED_SUCCESSFULLY" not in result.stdout:
+            logger.error(f"ML pipeline did not complete successfully for {ente}. stdout: {result.stdout}, stderr: {result.stderr}")
+            raise RuntimeError(f"ML pipeline failed: Unexpected output")
     
     def _run_rag(self, ente: str):
         """Run the RAG phase."""

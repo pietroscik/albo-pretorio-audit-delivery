@@ -1,5 +1,12 @@
 import subprocess
 import sys
+import asyncio
+
+if sys.platform == "win32" and sys.version_info >= (3, 8):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+import subprocess
+import sys
 from pathlib import Path
 import click
 import os

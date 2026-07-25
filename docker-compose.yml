@@ -31,6 +31,22 @@ services:
       retries: 3
       start_period: 40s
 
+  # Servizio dedicato per l'analisi
+  analysis:
+    build: .
+    container_name: albo-analysis
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "run.py", "enterprise", "sperone", "--workflow", "full"]
+    networks:
+      - albo-network
+    restart: "no"
+    depends_on:
+      - scraper
+
   # Dashboard Control Room (Streamlit)
   control-room:
     build: .

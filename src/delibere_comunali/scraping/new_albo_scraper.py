@@ -225,7 +225,7 @@ class AlboScraper:
         self.dfrom = parse_date(args.date_from) if args.date_from else None
         self.dto = parse_date(args.date_to) if args.date_to else None
 
-    def _load_seen_metadata(self) -> set:
+    def _load_seen_metadata(self):
         seen = set()
         if not self.csv_path.exists():
             return seen
@@ -257,6 +257,23 @@ class AlboScraper:
         except Exception:
             pass
         return seen
+
+    def _generate_metadata_hash(self, item):
+        """Generate a hash based on the key metadata fields of an AlboItem."""
+        # Create a string representation of the key fields for hashing
+        key_fields = [
+            str(item.page_url or ''),
+            str(item.titolo or ''),
+            str(item.numero or ''),
+            str(item.data_pubblicazione or ''),
+            str(item.tipologia or ''),
+            str(item.ufficio or ''),
+            str(item.oggetto or ''),
+            str(item.dettaglio_url or ''),
+        ]
+        # Join all fields and create a hash
+        combined_string = '|'.join(key_fields)
+        return hashlib.sha256(combined_string.encode('utf-8')).hexdigest()
 
     @staticmethod
     def _parse_allegati_field(raw: Optional[str]) -> List[str]:

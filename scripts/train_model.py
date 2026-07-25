@@ -34,19 +34,19 @@ def main():
     model_path = base / "random_forest_model.joblib"
 
     if not csv_path.exists():
-        print(f"❌ Errore: File {csv_path} non trovato. Esegui prima analyze_albo.py.")
+        print(f"[ERROR] File {csv_path} non trovato. Esegui prima analyze_albo.py.")
         return
 
     print(f"📥 Caricamento dataset da {csv_path}...")
     # Check if the file is empty before attempting to read it
     if csv_path.stat().st_size == 0:
-        print(f"⚠️  File {csv_path} è vuoto, impossibile addestrare il modello")
+        print(f"[WARN] File {csv_path} è vuoto, impossibile addestrare il modello")
         return
     
     try:
         df = pd.read_csv(csv_path)
     except pd.errors.EmptyDataError:
-        print(f"⚠️  File {csv_path} non contiene colonne valide, impossibile addestrare il modello")
+        print(f"[WARN] File {csv_path} non contiene colonne valide, impossibile addestrare il modello")
         return
 
     # Check if required columns exist before trying to filter
@@ -54,14 +54,14 @@ def main():
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
-        print(f"⚠️  Colonne mancanti nel dataset: {missing_columns}, impossibile addestrare il modello")
+        print(f"[WARN] Colonne mancanti nel dataset: {missing_columns}, impossibile addestrare il modello")
         return
 
     # Filtrare i record che hanno una categoria valida e un testo di preview
     df_valid = df.dropna(subset=['category', 'text_preview']).copy()
 
     if len(df_valid) < 10:
-        print("⚠️ Numero insufficiente di record per l'addestramento.")
+        print("[WARN] Numero insufficiente di record per l'addestramento.")
         return
 
     print(f"📊 Totale record validi per l'addestramento: {len(df_valid)}")
@@ -74,7 +74,7 @@ def main():
     # Evidenziamo il peso dell'Active Learning
     if 'classification_confidence' in df_valid.columns:
         human_rev = (df_valid['classification_confidence'] == 'human_reviewed').sum()
-        print(f"🧑‍🏫 Di cui revisionati umanamente (Active Learning): {human_rev}")
+        print(f"[INFO] Di cui revisionati umanamente (Active Learning): {human_rev}")
 
     # Prepariamo X (Features) e y (Target)
     # Combiniamo l'oggetto e il testo estratto per dare più contesto al TF-IDF
@@ -100,7 +100,7 @@ def main():
         'randomforestclassifier__class_weight': ['balanced', 'balanced_subsample', None]
     }
 
-    print("🔍 Ottimizzazione degli iperparametri in corso (RandomizedSearchCV)...")
+    print("[INFO] Ottimizzazione degli iperparametri in corso (RandomizedSearchCV)...")
     print(f"📊 Numero di combinazioni da provare: 200")
     randomized_search = RandomizedSearchCV(
         pipeline, 
@@ -136,7 +136,7 @@ def main():
 
     print(f"💾 Salvataggio del modello ottimizzato in: {model_path}")
     joblib.dump(best_model, model_path)
-    print("✅ Completato con successo! Il modello ML è ora aggiornato e pronto per analyze_albo.py.")
+    print("[SUCCESS] Completato con successo! Il modello ML è ora aggiornato e pronto per analyze_albo.py.")
 
 if __name__ == "__main__":
     main()
