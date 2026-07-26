@@ -110,13 +110,21 @@ class JSScraper:
         if self.active_context is None:
             self.active_context = await self.browser_instance.new_context(accept_downloads=True)
     
-    async def cleanup_resources(self):
-        """Clean up browser resources"""
+    async def close(self):
+        """Closes the browser and playwright instance."""
         if self.active_context:
-            await self.active_context.close()
+            try: await self.active_context.close()
+            except Exception: pass
             self.active_context = None
-        # Don't close browser instance here, keep it for reuse
-    
+        if self.browser_instance:
+            try: await self.browser_instance.close()
+            except Exception: pass
+            self.browser_instance = None
+        if self.playwright_instance:
+            try: await self.playwright_instance.stop()
+            except Exception: pass
+            self.playwright_instance = None
+
     async def reset_browser_if_needed(self):
         """Reset browser if we've exceeded the download limit"""
         self.download_count += 1
@@ -124,7 +132,7 @@ class JSScraper:
             if self.active_context:
                 await self.active_context.close()
             if self.browser_instance:
-                await self.browser_instance.close()
+                await self.close() # Full close and restart
             self.browser_instance = None
             self.active_context = None
             self.download_count = 0
@@ -471,63 +479,45 @@ def should_use_js_scraper(url: str) -> bool:
     return is_halleyweb_url(url)
 
 
-# Synchronous wrapper for compatibility with existing code
+async def _scrape_page_in_context(url: str, timeout: int):
+    scraper = JSScraper(timeout)
+    try:
+        return await scraper.scrape_page(url)
+    finally:
+        await scraper.close()
+
 def sync_scrape_page(url: str, timeout: int = 30000) -> Optional[ScrapeResult]:
     """
     Synchronous wrapper for the async scrape_page function.
     """
     if not PLAYWRIGHT_AVAILABLE:
         return None
-    
+
     try:
-        return asyncio.run(JSScraper(timeout).scrape_page(url))
-    except Exception:
+        return asyncio.run(_scrape_page_in_context(url, timeout))
+    except Exception as e:
+        # Log the actual error for better debugging
+        print(f"ERROR in sync_scrape_page for {url}: {e}", file=sys.stderr)
         # Fall back to regular requests if Playwright fails
         return None
 
-
+async def _download_attachments_in_context(url: str, download_dir: str, timeout: int):
+    scraper = JSScraper(timeout, download_dir)
+    try:
+        return await scraper.download_attachments_from_page(url, download_dir)
+    finally:
+        await scraper.close()
+        
 def download_attachments_sync(url: str, download_dir: str, timeout: int = 30000) -> List[str]:
     """
     Synchronous wrapper for downloading attachments from a page.
-    Uses a shared JSScraper instance for efficiency.
     Includes enhanced fallback when Playwright is unavailable.
     """
     if not PLAYWRIGHT_AVAILABLE:
         return []
     
     try:
-        scraper = JSScraper(timeout, download_dir)
-        return asyncio.run(scraper.download_attachments_from_page(url, download_dir))
-    except NotImplementedError:
-        # Handle the specific Windows/Python 3.13 issue with Playwright
-        print(f"Playwright not available due to NotImplementedError - this is a known issue on Windows with Python 3.13")
-        print(f"Consider using a compatible environment (Linux/macOS) or Docker container for full functionality")
-        return []
+        return asyncio.run(_download_attachments_in_context(url, download_dir, timeout))
     except Exception as e:
         print(f"Attachment download failed: {e}")
         return []
-
-
-# Global instance for reuse across calls (optimization)
-_scraper_instance = None
-
-def get_shared_scraper(timeout: int = 30000, download_dir: str = None, delay_range: Tuple[float, float] = (1.5, 4.0)) -> JSScraper:
-    """Get a shared scraper instance to reuse browser context"""
-    global _scraper_instance
-    if _scraper_instance is None:
-        try:
-            _scraper_instance = JSScraper(timeout, download_dir, delay_range)
-        except NotImplementedError:
-            # Handle the specific Windows/Python 3.13 issue
-            print(f"Playwright not available due to NotImplementedError - this is a known issue on Windows with Python 3.13")
-            print(f"Consider using a compatible environment (Linux/macOS) or Docker container for full functionality")
-            return None
-    return _scraper_instance
-
-
-async def cleanup_shared_scraper():
-    """Cleanup the shared scraper instance"""
-    global _scraper_instance
-    if _scraper_instance:
-        await _scraper_instance.cleanup_resources()
-        _scraper_instance = None

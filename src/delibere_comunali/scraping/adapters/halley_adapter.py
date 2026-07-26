@@ -111,6 +111,14 @@ class HalleyAdapter(BaseAdapter):
         self.platform_cache[cache_key] = is_halley
         return is_halley
     
+    def scrape_metadata(self, url: str) -> Tuple[List[AlboItem], Optional[str]]:
+        """
+        Implementa lo scraping dei metadati per Halleyweb.
+        Usa il metodo veloce basato su requests.
+        """
+        # Per Halley, lo scraping dei metadati può essere fatto con requests
+        return self.scrape_metadata_with_requests(url)
+
     def scrape_metadata_with_requests(self, url: str) -> Tuple[List[AlboItem], Optional[str]]:
         """
         Fase 1: Ricerca metadati usando requests (molto più veloce)
@@ -257,25 +265,7 @@ class HalleyAdapter(BaseAdapter):
                 except Exception as e:
                     print(f"Warning: Failed to handle Halley popup: {e}")
                     continue
-            
-                                await element.click(force=True)  # Usa force=True per evitare problemi di visibilità
-                                await page.wait_for_timeout(2000)
-                                
-                                download = await download_info.value
-                                filename = download.suggested_filename or f"attachment_{int(time.time())}.pdf"
-                                filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-                                
-                                filepath = Path(download_dir) / filename
-                                await download.save_as(str(filepath))
-                                downloaded_files.append(str(filepath))
-                                
-                        except Exception:
-                            # Se il download non avviene immediatamente, continua con il prossimo elemento
-                            continue
-                            
-                except Exception:
-                    continue
-            
+
             await page.close()
             
             # Resetta il browser se necessario

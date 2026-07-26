@@ -148,6 +148,10 @@ class AlboScraper:
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
         self.session.headers.update({"User-Agent": args.user_agent or DEFAULT_USER_AGENT})
 
+        # Carica i dati del comune una sola volta
+        self.comune_data = get_comune_data(args.ente)
+        self.ente_details = self.comune_data  # For enrich_item
+
         # Usa l'URL fornito o genera dinamicamente l'URL in base all'ente
         if args.start_url:
             parsed = up.urlparse(args.start_url)
@@ -224,6 +228,9 @@ class AlboScraper:
         self.title_rx = re.compile(args.title_regex, re.I) if args.title_regex else None
         self.dfrom = parse_date(args.date_from) if args.date_from else None
         self.dto = parse_date(args.date_to) if args.date_to else None
+
+        # Initialize adapter once
+        self.adapter = self._get_adapter()
 
     def _load_seen_metadata(self):
         seen = set()
@@ -579,12 +586,9 @@ class AlboScraper:
                 break
             if not html:
                 break
-
-            # Usa l'adapter selezionato per lo scraping
-            adapter = self._get_adapter()
-            items, next_url = adapter.scrape_metadata(current_url)
             
-            # Se l'adapter non ha trovato nulla, prova con il parser generico
+            items, next_url = self.adapter.scrape_metadata(current_url)
+            
             if not items and not next_url:
                 items, next_url = parse_list_page(html, current_url)
 
@@ -596,141 +600,62 @@ class AlboScraper:
                 try:
                     # Salta l'atto se è già stato scaricato e indicizzato in precedenza
                     # MA SOLO SE anche i file PDF esistono fisicamente
-                    skip_item = False
-                    metadata_hash = self._generate_metadata_hash(it)
-                    if it.dettaglio_url and (it.dettaglio_url in self.seen_metadata or f"hash:{metadata_hash}" in self.seen_metadata):
-                        # Verifichiamo se esistono file PDF associati a questo documento
-                        pdf_exists = False
-                        
-                        # Controlliamo se esistono PDF con nomi basati sugli allegati
-                        for allegato_url in it.allegati or []:
-                            filename = up.urlparse(allegato_url).path.split('/')[-1]
-                            if filename:  # Assicuriamoci che il filename non sia vuoto
-                                # Costruiamo il nome del file come verrebbe generato dallo scraper
-                                doc_name = os.path.splitext(filename)[0]
-                                stem = slugify(f"{it.tipologia or 'atto'}_{it.numero or ''}_{it.data_pubblicazione or ''}_{doc_name or it.titolo}")[:100]
-                                ext = os.path.splitext(filename)[1] or ".pdf"
-                                expected_pdf_path = self.out_dir / "pdf" / f"{stem}_1{ext}"
-                                
-                                # Controlliamo anche per nomi simili con numeri diversi (se ci sono più allegati)
-                                for i in range(1, 10):  # Controlliamo fino a 9 allegati
-                                    numbered_pdf_path = self.out_dir / "pdf" / f"{stem}_{i}{ext}"
-                                    if numbered_pdf_path.exists():
-                                        pdf_exists = True
-                                        break
-                                if pdf_exists:
-                                    break
-                        
-                        # Se non abbiamo ancora verificato con allegati, controlliamo comunque
-                        # se esiste un file basato sull'ID del documento
-                        if not pdf_exists and it.dettaglio_url:
-                            # Estrai l'ID dal dettaglio URL (es. id=49804)
-                            from urllib.parse import parse_qs
-                            parsed_url = up.urlparse(it.dettaglio_url)
-                            params = parse_qs(parsed_url.query)
-                            doc_ids = params.get('id', [])
-                            
-                            # Controlliamo tutti gli ID trovati nell'URL
-                            for doc_id in doc_ids:
-                                if doc_id:
-                                    # Cerchiamo file PDF che contengano l'ID del documento
-                                    try:
-                                        pdf_files = os.listdir(self.out_dir / "pdf")
-                                        for filename in pdf_files:
-                                            if filename.endswith('.pdf') and doc_id in filename:
-                                                pdf_exists = True
-                                                break
-                                        if pdf_exists:
-                                            break
-                                    except FileNotFoundError:
-                                        # La directory PDF non esiste ancora
-                                        pass
-                        
-                        # Solo se troviamo file PDF associati, consideriamo il documento come realmente archiviato
-                        if pdf_exists:
-                            skip_item = True
-                    
-                    if skip_item:
+                    if it.dettaglio_url and it.dettaglio_url in self.seen_metadata:
                         self.log(f"  [skip] Già in archivio: {it.dettaglio_url}")
                         continue
 
-                    # dettaglio
-                    if it.dettaglio_url:
-                        d_html = self.fetch(it.dettaglio_url)
-                        if d_html:
-                            ogg, uff, allegati = parse_detail_page(d_html, it.dettaglio_url)
-                            it.oggetto = ogg or it.oggetto
-                            it.ufficio = uff or it.ufficio
-                            it.allegati = allegati
-                            if self.args.save_html:
-                                name = slugify(it.titolo or f"item_{it.numero or ''}") + ".html"
-                                (self.out_dir / "html" / name).write_text(d_html, encoding="utf-8", errors="ignore")
+                    downloaded_files = []
+                    
+                    # Scarica allegati - Logica refattorizzata per usare l'adapter corretto
+                    if not self.args.no_download and it.dettaglio_url:
+                        if isinstance(self.adapter, HalleyAdapter):
+                            self.log(f"  [adapter] Using HalleyAdapter for details and attachments from {it.dettaglio_url}")
+                            try:
+                                # L'adapter Halley gestisce il recupero dei dettagli e il download insieme
+                                it, downloaded_files = asyncio.run(
+                                    self.adapter.scrape_details_and_download(it, str(self.out_dir / "pdf"))
+                                )
+                            except Exception as e:
+                                self.log(f"[error] HalleyAdapter processing failed for {it.dettaglio_url}: {e}")
+                        else:
+                            # Logica generica per altri adapter
+                            if it.dettaglio_url:
+                                d_html = self.fetch(it.dettaglio_url)
+                                if d_html:
+                                    ogg, uff, allegati = parse_detail_page(d_html, it.dettaglio_url)
+                                    it.oggetto = ogg or it.oggetto
+                                    it.ufficio = uff or it.ufficio
+                                    it.allegati = allegati
+                                    if self.args.save_html:
+                                        name = slugify(it.titolo or f"item_{it.numero or ''}") + ".html"
+                                        (self.out_dir / "html" / name).write_text(d_html, encoding="utf-8", errors="ignore")
+
+                            for i, url in enumerate(it.allegati or []):
+                                if self.args.max_attachments_per_item and i >= self.args.max_attachments_per_item:
+                                    break
+                                
+                                url_key = url_doc_name(url)
+                                if url_key in self.downloaded:
+                                    self.log(f"  [skip] Già scaricato: {url_key}")
+                                    continue
+
+                                polite_sleep(self.delay)
+                                
+                                try:
+                                    files = self.adapter.download_attachment(url, str(self.out_dir / "pdf"))
+                                    if files:
+                                        downloaded_files.extend(files)
+                                except Exception as e:
+                                    self.log(f"[error] Impossibile scaricare {url}: {e}")
+                    
+                    # Logga i file scaricati e arricchisci/salva i metadati
+                    for file_path in downloaded_files:
+                        if file_path:
+                            self.downloaded.add(url_doc_name(file_path))
+                            self.log(f"  [download] File scaricato: {Path(file_path).name}")
 
                     self.enrich_item(it)
-
-                    # filtri a valle (dopo aver popolato oggetto/ufficio)
-                    if not self.item_passes_filters(it):
-                        continue
-
-                    # salva metadati
                     self.write_metadata_once(it)
-
-                    # Scarica allegati
-                    for i, url in enumerate(allegati):
-                        if args.no_download:
-                            break
-                        if args.max_attachments_per_item and i >= args.max_attachments_per_item:
-                            break
-
-                        # Gestisci duplicati
-                        url_key = url_doc_name(url)
-                        if url_key in self.downloaded:
-                            self.log(f"  [skip] Già scaricato: {url_key}")
-                            continue
-
-                        # Gestisci rate limiting
-                        polite_sleep(self.delay)
-
-                        try:
-                            # Check if this is a javascript_handler (special case for Halleyweb)
-                            if url.startswith('javascript_handler:'):
-                                # This indicates an element that needs to be clicked via Playwright
-                                if should_use_js_scraper(it.dettaglio_url):  # Use the detail page URL to determine if it's Halleyweb
-                                    from .js_scraper import download_attachments_sync
-                                    # Download attachments from the detail page itself (where the element exists)
-                                    downloaded_files = download_attachments_sync(it.dettaglio_url, str(self.out_dir / "pdf"))
-                                    if downloaded_files:
-                                        for downloaded_file in downloaded_files:
-                                            self.downloaded.add(url_doc_name(downloaded_file))
-                                            self.log(f"  [download] File scaricato via Playwright click: {Path(downloaded_file).name}")
-                                    else:
-                                        self.log(f"  [warning] No attachments downloaded from detail page: {it.dettaglio_url}")
-                            # Check if this is a Halleyweb site and use download interception
-                            elif should_use_js_scraper(url):
-                                from .js_scraper import download_attachments_sync
-                                downloaded_files = download_attachments_sync(url, str(self.out_dir / "pdf"))
-                                if downloaded_files:
-                                    for downloaded_file in downloaded_files:
-                                        self.downloaded.add(url_doc_name(downloaded_file))
-                                        self.log(f"  [download] File scaricato via Playwright: {Path(downloaded_file).name}")
-                                else:
-                                    # If Playwright download didn't work, fall back to adapter download
-                                    adapter = self._get_adapter()
-                                    downloaded_files = adapter.download_attachment(url, str(self.out_dir / "pdf"))
-                                    if downloaded_files:
-                                        for file_path in downloaded_files:
-                                            self.downloaded.add(url_doc_name(file_path))
-                                            self.log(f"  [download] File scaricato via adapter: {Path(file_path).name}")
-                            else:
-                                # Use adapter for regular download
-                                adapter = self._get_adapter()
-                                downloaded_files = adapter.download_attachment(url, str(self.out_dir / "pdf"))
-                                if downloaded_files:
-                                    for file_path in downloaded_files:
-                                        self.downloaded.add(url_doc_name(file_path))
-                                        self.log(f"  [download] File scaricato via adapter: {Path(file_path).name}")
-                        except Exception as e:
-                            self.log(f"[error] Impossibile scaricare {url}: {e}")
 
                 except KeyboardInterrupt:
                     self.log("Interrotto dall'utente.")
@@ -791,14 +716,25 @@ class AlboScraper:
         """
         Seleziona l'adapter appropriato in base al provider del comune.
         """
-        # Rileva l'adapter in base all'URL
-        adapter_info = identify_comune_adapter(
-            nome_comune=self.args.ente,
-            url_istituzionale="",
-            url_albo=self.current_url
-        )
-        
-        adapter_name = adapter_info['adapter_principale']
+        adapter_name = 'generic'
+
+        # 1. Prova a ottenere l'adapter dalla mappatura pre-caricata
+        if self.comune_data:
+            adapter_from_mapping = self.comune_data.get('scraper_adapter')
+            if adapter_from_mapping and isinstance(adapter_from_mapping, str) and adapter_from_mapping.lower() not in ['unknown', '', 'nan']:
+                adapter_name = adapter_from_mapping
+                self.log(f"DEBUG: Using adapter from mapping: {adapter_name}")
+
+        # 2. Se non trovato o generico, usa il rilevatore automatico
+        if adapter_name == 'generic':
+            self.log(f"DEBUG: Adapter not in mapping, using detector for URL: {self.current_url}")
+            adapter_info = identify_comune_adapter(
+                nome_comune=self.args.ente,
+                url_istituzionale="",
+                url_albo=self.current_url
+            )
+            adapter_name = adapter_info['adapter_principale']
+            self.log(f"DEBUG: Adapter detected: {adapter_name}")
         
         # Mappa dei nomi adapter alle classi
         adapter_map = {
@@ -811,7 +747,8 @@ class AlboScraper:
         
         # Seleziona l'adapter o usa GenericAdapter come fallback
         AdapterClass = adapter_map.get(adapter_name, GenericAdapter)
-        return AdapterClass(timeout=self.timeout * 1000, max_retries=3)
+        self.log(f"DEBUG: Using adapter class: {AdapterClass.__name__}")
+        return AdapterClass(timeout=self.timeout * 1000)
 
 def build_parser():
     ap = argparse.ArgumentParser(description="Scraper Albo Pretorio (OpenWeb)")

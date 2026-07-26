@@ -10,11 +10,12 @@ import urllib.parse as up
 import requests
 from bs4 import BeautifulSoup
 
+from .base_adapter import BaseAdapter
 from ..models import AlboItem
 from ..utils import looks_like_attachment, url_doc_name
 
 
-class AsmelAdapter:
+class AsmelAdapter(BaseAdapter):
     """
     Adapter specifico per il sistema Asmel.
     

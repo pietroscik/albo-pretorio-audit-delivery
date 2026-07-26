@@ -71,6 +71,9 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
 
+    # Scraping (Playwright for JS-heavy sites)
+    "playwright>=1.44.0",
+
     # Utilities
     "python-dateutil>=2.8.0",
     "pydantic>=2.5.0",
@@ -81,18 +84,15 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "redis>=5.0.0",
     "sentence-transformers>=3.0.0",
-    # Nuove dipendenze per estrazione di tabelle e dati strutturati
-    "pdfplumber>=0.9.0",
-    "camelot-py[cv]>=0.10.0",
-    "tabula-py>=2.1.0",
     "unstructured[all-docs]>=0.12.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "black>=23.10.0",
+    "pip-tools>=7.6.0",
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
-    "black>=23.10.0",
     "ruff>=0.1.0",
     "mypy>=1.6.0",
     "types-requests>=2.31.0",
