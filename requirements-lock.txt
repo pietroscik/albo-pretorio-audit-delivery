@@ -82,7 +82,7 @@ pydantic-settings==2.14.2
 pydantic_core==2.47.0
 pydeck==0.9.2
 pyparsing==3.3.2
-pypdfium2==5.10.1
+pypdfium2==5.12.1
 pytesseract==0.3.13
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
