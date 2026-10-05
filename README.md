@@ -1,5 +1,7 @@
 # Albo Pretorio Audit Delivery
 
+> 🚧 **Stato**: Work in Progress (maturo) — NLP su atti della PA con architettura documentata (ARCHITECTURE, GDPR, CI).
+
 Sistema per l'analisi e l'audit degli albi pretori comunali italiani, con particolare focus sulla conformità AgID e sull'integrazione con sistemi Halleyweb.
 
 ## Compatibilità Ambiente
@@ -55,7 +57,8 @@ python run.py enterprise --ente sperone --workflow full
 # Esegui solo la fase di scraping
 python run.py enterprise --ente sperone --workflow scrape-only
 
-# Esegui solo la fase di analisi
+# Esegui solo la fas
+e di analisi
 python run.py enterprise --ente sperone --workflow analyze-only
 ```
 
